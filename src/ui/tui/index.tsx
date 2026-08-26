@@ -5,7 +5,7 @@ import type { Agent } from '../../agent/index'
 import type { AgentToUiMessage } from '../../events/agent-to-ui'
 import type { PermissionDecision } from '../../events/types'
 import type { Config } from '../../config/schema'
-import { MessageBlock, StatusBar, ListPicker, type BlockColor } from './components'
+import { MessageBlock, StatusBar, ListPicker, TopBar, palette, type BlockColor } from './components'
 import { renderMarkdown } from '../../common/utils/markdown'
 import { buildEntries, entryLabel, parentPath, type ConfigPath, type TreeCtx } from './config-tree'
 
@@ -38,12 +38,11 @@ type View =
   | { kind: 'config'; path: ConfigPath; cursor: number; preview: boolean | null }
 
 const ICON = { user: '🥚', assistant: '🐶', tool: '🐾', thinking: '🐣' } as const
-const COLOR: Record<keyof typeof ICON, BlockColor> = { user: 'blue', assistant: 'green', tool: 'cyan', thinking: 'yellow' }
+const COLOR: Record<keyof typeof ICON, BlockColor> = { user: palette.accent, assistant: palette.text, tool: palette.cyan, thinking: palette.yellow }
 
 const DECISIONS: PermissionDecision[] = ['allow_once', 'allow_always', 'reject']
 const DECISION_LABELS = ['允许一次', '始终允许（本次会话）', '拒绝']
 const HELP = '/new /session /model /config /clear /compact /context /tools /system /status /log /help /quit'
-const VERSION = '0.1.0'
 
 // 粗略估算一个消息块占用的终端行数（角色头 1 + 正文换行 + 上下边框 2），用于消息视口的自动滚动裁切。
 function estimateBlockLines(text: string, width: number): number {
@@ -295,17 +294,14 @@ export function App({ agent }: { agent: Agent }) {
 
   return (
     <Box flexDirection="column" padding={1}>
-      {/* 品牌头（始终显示） */}
-      <Box marginBottom={1}>
-        <Text bold color="blue">🐶🥚 DogEggAgent v{VERSION}</Text>
-        <Text dimColor>  {headerInfo}</Text>
-      </Box>
+      {/* 顶部品牌条 */}
+      <TopBar info={headerInfo} />
 
-      {/* 消息视口：专用区域，自动滚到底部 */}
-      <Box flexGrow={1} borderStyle="round" borderColor="gray" flexDirection="column" paddingX={1}>
+      {/* 消息区：扁平块 + 自动滚到底部 */}
+      <Box flexGrow={1} flexDirection="column">
         {chat.blocks.length === 0 && !chat.partial ? (
           <Box flexDirection="column" paddingY={1}>
-            <Text color="cyan">🐶🥚 欢迎使用 DogEggAgent</Text>
+            <Text color={palette.cyan}>🐶🥚 欢迎使用 DogEggAgent</Text>
             <Text dimColor>输入任务开始对话，输入 /help 查看命令{configSnapshot && configSnapshot.providers.length === 0 ? '；首次请先 /config 配置 provider' : ''}</Text>
           </Box>
         ) : (

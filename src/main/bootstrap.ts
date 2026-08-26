@@ -12,5 +12,11 @@ export function bootstrap(): void {
   const config = loadConfig()
   initLogger(join(homedir(), '.dogegg', 'logs', 'latest.log'))
   const agent = new Agent(config, process.cwd())
+
+  // 进入备用屏幕（full-screen 应用模式）。否则 Ink 每帧写 stdout 会污染终端滚动条，流式输出时滚动会跳回开头。
+  process.stdout.write('\x1b[?1049h')
+  const leaveAlt = () => process.stdout.write('\x1b[?1049l')
+  process.on('exit', leaveAlt)
+
   render(React.createElement(App, { agent }))
 }
