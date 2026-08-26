@@ -348,7 +348,7 @@ DogEggAgent/
 
 | 组件 | 说明 | 键位 |
 |---|---|---|
-| 消息列表 | 用户 `▸`；助手 markdown（`marked`+`marked-terminal`）；流式 `text_delta` 实时追加；`thought_delta` 默认折叠淡显；工具调用/结果默认折叠（展开看 input/output，超长截断） | — |
+| 消息列表 | 每条消息为一个**独立圆角块**（用户/助手/工具各自成块，带角色头）；助手块内含 markdown + 折叠的 reasoning/工具；流式时块随文本增长 | — |
 | 输入框 | 多行缓冲 | `Enter` 发送 / `Shift+Enter` 换行 / `↑↓` 历史 / `/` 命令补全 |
 | 状态栏 | `state 图标 · provider/model · #sessionId · tokens/window`，state 来自后端 `state` 事件 | — |
 | 权限弹层 | 三行列表：允许一次 / 始终允许 / 拒绝 | `↑↓` 选、`Enter` 确认、`Esc` 拒绝 → `permission_decision` |
@@ -375,13 +375,20 @@ DogEggAgent/
 **主布局（消息流 / 工具 / 流式）**：
 
 ```text
-消息列表（可滚动）
-  > 帮我修一下登录的 bug
-    让我先看下相关代码。
-  [tool] read_file  src/auth.ts     —— 完成 1.2s
-  [tool] shell  npm test            —— 完成 8.4s
-    问题在 src/auth.ts:42，改成这样…（markdown 渲染）
-    正在生成… ▌
+╭─ 你 ───────────────────────────────────────╮
+│  帮我修一下登录的 bug                        │
+╰────────────────────────────────────────────╯
+
+╭─ 助手 ─────────────────────────────────────╮
+│  让我先看下相关代码。                        │
+│   [tool] read_file src/auth.ts  ·· ✓ 1.2s  │
+│   [tool] shell  npm test        ·· ✓ 8.4s  │
+│  问题在 src/auth.ts:42，改成这样…            │
+╰────────────────────────────────────────────╯
+
+╭─ 助手（流式）───────────────────────────────╮
+│  正在生成… ▌                               │
+╰────────────────────────────────────────────╯
 ----------------------------------------------
 状态栏   [responding] openai/gpt-4o · #3f2a · 12k/128k
 输入框   > ▌
@@ -576,7 +583,7 @@ DogEggAgent/
 
 **字形层次**：用户 `▸` bold + accent；助手正文 default、reasoning 折叠后 dim；工具 `⚙` cyan + dim 摘要；当前选中项反色（inverse）；面板圆角 dim 边框、标题 bold accent。
 
-**组件**：状态栏表面色底 + 彩色状态点 + bold；输入框 accent `›` 前缀、聚焦时下划线；进度条 accent 填充 + dim 底；动效（流式光标闪烁、spinner 转动）。
+**组件**：每条消息 = 独立圆角块（用户块 accent 角色头、助手块 default、工具行 cyan + dim）；状态栏表面色底 + 彩色状态点 + bold；输入框 accent `›` 前缀、聚焦时下划线；进度条 accent 填充 + dim 底；动效（流式光标闪烁、spinner 转动，流式消息块随文本增长）。
 
 **标注示例**（注释即 ANSI 色）：
 
