@@ -48,8 +48,12 @@ export class Agent {
     this.listeners.forEach((l) => l(m))
   }
 
+  private currentProvider() {
+    return this.providers.get(this.config.defaultProvider!) ?? this.config.providers[0]!
+  }
+
   private currentModel() {
-    const p = this.providers.get(this.config.defaultProvider!) ?? this.config.providers[0]!
+    const p = this.currentProvider()
     return p.models.find((m) => m.name === this.config.defaultModel) ?? p.models[0]!
   }
 
@@ -59,7 +63,7 @@ export class Agent {
 
   // 手工触发压缩（/compact）：复用与自动压缩相同的总结逻辑，压最旧历史为摘要 + 保留最近 4 条。
   private async compactNow(): Promise<void> {
-    const provider = this.providers.get(this.config.defaultProvider!)!
+    const provider = this.currentProvider()
     const model = this.currentModel()
     const params = getAllTools().map((t) => t.parameters)
     const system = loadSystemPrompt(this.config.systemPrompt)
@@ -97,7 +101,7 @@ export class Agent {
         this.running = true
         this.history.push({ role: 'user', content: cmd.text })
         this.emit({ type: 'message', role: 'user', id: '' })
-        const provider = this.providers.get(this.config.defaultProvider!)!
+        const provider = this.currentProvider()
         const model = this.currentModel()
         try {
           this.history = await runLoop({
