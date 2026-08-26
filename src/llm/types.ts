@@ -17,8 +17,9 @@ export interface ChatRequest {
   messages: Message[] // 仅 user / assistant / tool 历史；system 由 adapter 自行拼接
   tools: object[]
   maxOutput: number
+  maxRetries: number
 }
 
 export interface ProviderAdapter {
-  chat(req: ChatRequest, signal: AbortSignal, emit: (e: LlmStreamEvent) => void): Promise<void>
+  chat(req: ChatRequest, signal: AbortSignal, emit: (e: LlmStreamEvent) => void): Promise<Message>
 }
