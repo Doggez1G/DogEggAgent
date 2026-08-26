@@ -127,6 +127,7 @@ export function App({ agent }: { agent: Agent }) {
   const [view, setViewState] = useState<View>({ kind: 'none' })
   const [input, setInput] = useState('')
   const [configSnapshot, setConfigSnapshot] = useState<Config | null>(null)
+  const [scroll, setScroll] = useState(0)
   const viewRef = useRef<View>(view)
   const configRef = useRef<Config | null>(null)
   const configIntent = useRef<'model' | 'config' | null>(null)
@@ -238,12 +239,18 @@ export function App({ agent }: { agent: Agent }) {
         else setView({ kind: 'none' })
       }
       else if (inputChar === 'd' && entry?.kind === 'goto' && entry.del) entry.del()
+    } else if (v.kind === 'none') {
+      // 消息视口的滚动：PageUp 上翻、PageDown 下翻（scroll=0 时自动跟随最新）。
+      const page = Math.max(5, Math.floor((stdout.rows || 24) / 2))
+      if (key.pageUp) setScroll((s) => s + page)
+      else if (key.pageDown) setScroll((s) => Math.max(0, s - page))
     }
   })
 
   const handleSubmit = (raw: string) => {
     const text = raw.trim()
     if (!text) return
+    setScroll(0)
     if (text.startsWith('/')) {
       suppressEnterRef.current = true
       queueMicrotask(() => { suppressEnterRef.current = false })
@@ -283,22 +290,29 @@ export function App({ agent }: { agent: Agent }) {
     ...b,
     text: (b.icon === ICON.assistant || b.icon === ICON.thinking) ? renderMarkdown(b.text) : b.text,
   }))
-  // 从后往前累计行数，裁出「消息视口」能放下的那段，实现自动滚到底部。
-  let visibleStart = 0
-  let used = 0
-  for (let i = renderedBlocks.length - 1; i >= 0; i--) {
-    used += estimateBlockLines(renderedBlocks[i]!.text, termWidth)
-    if (used > viewportHeight) { visibleStart = i + 1; break }
+  // 行级滚动：scroll 表示「从底部往上滚了多少行」，据此裁出落在视口里的块。
+  const blocksWithLines = renderedBlocks.map((b, i) => ({ ...b, index: i, lines: estimateBlockLines(b.text, termWidth) }))
+  const totalLines = blocksWithLines.reduce((n, b) => n + b.lines, 0)
+  const maxScroll = Math.max(0, totalLines - viewportHeight)
+  const scrolled = Math.min(scroll, maxScroll)
+  const visibleTop = totalLines - viewportHeight - scrolled
+  let acc = 0
+  const visibleBlocks: typeof blocksWithLines = []
+  for (const b of blocksWithLines) {
+    const start = acc
+    acc += b.lines
+    if (acc <= visibleTop) continue
+    if (start >= visibleTop + viewportHeight) break
+    visibleBlocks.push(b)
   }
-  const visibleBlocks = renderedBlocks.map((b, i) => ({ ...b, index: i })).slice(visibleStart)
 
   return (
     <Box flexDirection="column" padding={1}>
       {/* 顶部品牌条 */}
       <TopBar info={headerInfo} />
 
-      {/* 消息区：扁平块 + 自动滚到底部 */}
-      <Box flexGrow={1} flexDirection="column">
+      {/* 消息视口：外层圆角框 + 内部各消息块；思考块默认折叠 */}
+      <Box flexGrow={1} borderStyle="round" borderColor={palette.subtext} flexDirection="column" paddingX={1}>
         {chat.blocks.length === 0 && !chat.partial ? (
           <Box flexDirection="column" paddingY={1}>
             <Text color={palette.cyan}>🐶🥚 欢迎使用 DogEggAgent</Text>
@@ -307,13 +321,17 @@ export function App({ agent }: { agent: Agent }) {
         ) : (
           visibleBlocks.map((b) => (
             <MessageBlock key={b.index} icon={b.icon} role={b.role} color={b.color}>
-              <Text>{b.text}</Text>
+              {b.icon === ICON.thinking ? <Text dimColor>（思考已折叠）</Text> : <Text>{b.text}</Text>}
             </MessageBlock>
           ))
         )}
         {chat.partial ? (
-          <MessageBlock icon={ICON.assistant} role="助手（流式）" color={COLOR.assistant}>
-            <Text>{chat.partial.text}</Text>
+          <MessageBlock
+            icon={chat.partial.kind === 'thinking' ? ICON.thinking : ICON.assistant}
+            role={chat.partial.kind === 'thinking' ? '思考（流式）' : '助手（流式）'}
+            color={chat.partial.kind === 'thinking' ? COLOR.thinking : COLOR.assistant}
+          >
+            <Text dimColor={chat.partial.kind === 'thinking'}>{chat.partial.text}</Text>
           </MessageBlock>
         ) : null}
       </Box>

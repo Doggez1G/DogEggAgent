@@ -24,10 +24,10 @@ export function TopBar(props: { info: string }) {
   )
 }
 
-// 扁平消息块：彩色角色图标 + 加粗角色名 + 缩进正文；块与块靠角色头 + 间距分隔，不做嵌套边框。
+// 消息块：保留圆角边框（A+B 结合：外层视口框 + 每条消息各自成框），彩色角色图标 + 加粗角色名 + 缩进正文。
 export function MessageBlock(props: { icon: string; role: string; color: BlockColor; children: React.ReactNode }) {
   return (
-    <Box flexDirection="column" marginBottom={1}>
+    <Box borderStyle="round" borderColor={palette.subtext} flexDirection="column" marginBottom={1} paddingX={1}>
       <Text bold color={props.color}>{props.icon}  {props.role}</Text>
       <Box paddingLeft={2}>{props.children}</Box>
     </Box>

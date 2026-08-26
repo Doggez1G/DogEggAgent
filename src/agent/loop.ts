@@ -94,7 +94,7 @@ export async function runLoop(deps: LoopDeps): Promise<Message[]> {
         deps.signal,
         (e) => {
           if (e.type === 'text_delta') deps.emit({ type: 'text_delta', delta: e.text })
-          else if (e.type === 'thought_delta') deps.emit({ type: 'thought_delta', delta: e.text })
+          else if (e.type === 'thought_delta' && deps.reasoning) deps.emit({ type: 'thought_delta', delta: e.text })
         },
       )
     } catch (e) {
