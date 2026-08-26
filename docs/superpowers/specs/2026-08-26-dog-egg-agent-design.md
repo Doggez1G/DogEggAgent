@@ -214,12 +214,8 @@ DogEggAgent/
 │  │  ├─ types.ts            # Tool 接口
 │  │  ├─ registry.ts
 │  │  └─ read_file/ write_file/ edit_file/ shell/ grep/ glob/
-│  ├─ config/                # 叶子
-│  │  ├─ schema.ts           # zod schema + 类型
-│  │  └─ loader.ts           # 定位 / 加载 / 校验
-│  ├─ common/                # 叶子，只依赖 Node 标准库
-│  │  ├─ utils/              # id / token-count / truncate
-│  │  └─ errors.ts           # CancelledError 等共享错误
+│  ├─ config/                # schema.ts / loader.ts
+│  ├─ common/                # utils/ + errors.ts（跨域共享）
 │  └─ ui/                    # 不 import agent，只消费 events、发 commands
 │     ├─ tui/                # Ink：MessageList / ToolCall / ToolResult / Input / StatusBar / PermissionPrompt
 │     └─ webui/              # 占位（v1 不实现）
@@ -227,19 +223,10 @@ DogEggAgent/
    ├─ agent/  llm/  tools/  config/  common/
 ```
 
-**依赖方向（无环）**：
+**依赖约束（唯一硬约束）**：
 
-```
-main → { agent, llm, tools, config, common, ui, events }
-ui   → events
-agent→ { events, llm, tools, config, common }
-llm  → { config, common }
-tools→ common
-config → (无)
-common → (无)
-```
-
-`agent` 与 `ui` 互不 import，仅在 `main/bootstrap.ts` 通过 `events` 对接。
+- `agent` 与 `ui` 互不 import，仅通过 `events/` 的事件/命令关联。这是解耦原则的实体化。
+- 除此之外，各域之间谁依赖谁属于实现细节，不在本文档中钉死为规范。
 
 ## 10. 技术选型
 
