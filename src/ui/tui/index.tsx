@@ -122,6 +122,7 @@ export function App({ agent }: { agent: Agent }) {
   const viewRef = useRef<View>(view)
   const configRef = useRef<Config | null>(null)
   const configIntent = useRef<'model' | 'config' | null>(null)
+  const suppressEnterRef = useRef(false)
 
   const setView = useCallback((v: View) => {
     viewRef.current = v
@@ -185,6 +186,12 @@ export function App({ agent }: { agent: Agent }) {
   }, [agent, openMenu, openModelPicker, openConfigTree, updateConfig, setView])
 
   useInput((inputChar, key) => {
+    // 命令提交的那次回车会被 TextInput 与 useInput 各处理一次：这里吞掉紧随命令后的第一次回车，
+    // 避免它在刚打开的配置树/菜单里误触发首个字段或首项。
+    if (key.return && suppressEnterRef.current) {
+      suppressEnterRef.current = false
+      return
+    }
     const v = viewRef.current
     if (v.kind === 'permission') {
       if (key.upArrow) setView({ ...v, cursor: (v.cursor + DECISIONS.length - 1) % DECISIONS.length })
@@ -226,6 +233,8 @@ export function App({ agent }: { agent: Agent }) {
     const text = raw.trim()
     if (!text) return
     if (text.startsWith('/')) {
+      suppressEnterRef.current = true
+      queueMicrotask(() => { suppressEnterRef.current = false })
       const cmd = text.split(/\s+/)[0]!
       switch (cmd) {
         case '/new': agent.send({ type: 'new_session' }); break
