@@ -1,9 +1,11 @@
-import React, { useEffect, useReducer, useState } from 'react'
-import { Box, Text } from 'ink'
+import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { Box, Text, useInput } from 'ink'
 import TextInput from 'ink-text-input'
 import type { Agent } from '../../agent/index'
 import type { AgentToUiMessage } from '../../events/agent-to-ui'
-import { MessageBlock, StatusBar, type BlockColor } from './components'
+import type { PermissionDecision } from '../../events/types'
+import type { Config } from '../../config/schema'
+import { MessageBlock, StatusBar, ListPicker, type BlockColor } from './components'
 
 interface Block {
   icon: string
@@ -12,41 +14,48 @@ interface Block {
   text: string
 }
 
-interface State {
+interface ChatState {
   blocks: Block[]
   status: string
   partial: { kind: 'assistant' | 'thinking'; text: string } | null
 }
 
-// 本地 UI 动作（不来自后端）。
 type Action =
   | AgentToUiMessage
   | { type: 'local_user'; text: string }
   | { type: 'local_help' }
 
-const ICON = { user: '🥚', assistant: '🐶', tool: '🐾', thinking: '🐣' } as const
-const COLOR = { user: 'blue', assistant: 'green', tool: 'cyan', thinking: 'yellow' } as const
+type MenuItem = { label: string; onSelect: () => void }
 
+// UI 自己的视图态（叠加在后端状态机之上，二者正交）。
+type View =
+  | { kind: 'none' }
+  | { kind: 'permission'; id: string; tool: string; input: unknown; cursor: number }
+  | { kind: 'menu'; title: string; items: MenuItem[]; cursor: number }
+  | { kind: 'prompt'; title: string; value: string; onSubmit: (v: string) => void }
+
+const ICON = { user: '🥚', assistant: '🐶', tool: '🐾', thinking: '🐣' } as const
+const COLOR: Record<keyof typeof ICON, BlockColor> = { user: 'blue', assistant: 'green', tool: 'cyan', thinking: 'yellow' }
+
+const DECISIONS: PermissionDecision[] = ['allow_once', 'allow_always', 'reject']
+const DECISION_LABELS = ['允许一次', '始终允许（本次会话）', '拒绝']
 const HELP = '/new /session /model /config /clear /compact /context /tools /system /status /log /help /quit'
 
-function flush(state: State): State {
+function flush(state: ChatState): ChatState {
   if (!state.partial) return state
   const isThinking = state.partial.kind === 'thinking'
   return {
     ...state,
     partial: null,
-    blocks: [
-      ...state.blocks,
-      { icon: isThinking ? ICON.thinking : ICON.assistant, role: isThinking ? '思考' : '助手', color: isThinking ? COLOR.thinking : COLOR.assistant, text: state.partial.text },
-    ],
+    blocks: [...state.blocks, { icon: isThinking ? ICON.thinking : ICON.assistant, role: isThinking ? '思考' : '助手', color: isThinking ? COLOR.thinking : COLOR.assistant, text: state.partial.text }],
   }
 }
 
-function infoBlock(state: State, role: string, text: string): State {
+function infoBlock(state: ChatState, role: string, text: string): ChatState {
   return { ...state, blocks: [...state.blocks, { icon: '🥚', role, color: 'gray', text }] }
 }
 
-function reducer(state: State, msg: Action): State {
+function reducer(state: ChatState, msg: Action): ChatState {
   switch (msg.type) {
     case 'local_user':
       return { ...state, blocks: [...state.blocks, { icon: ICON.user, role: '你', color: COLOR.user, text: msg.text }] }
@@ -66,7 +75,7 @@ function reducer(state: State, msg: Action): State {
       const blocks = [...state.blocks]
       const last = blocks[blocks.length - 1]
       if (last && last.icon === ICON.tool) {
-        blocks[blocks.length - 1] = { ...last, text: last.text + (msg.error ? `\n✕ ${msg.error}` : `\n✓ 完成`) }
+        blocks[blocks.length - 1] = { ...last, text: last.text + (msg.error ? `\n✕ ${msg.error}` : `\n✓ 完成（${msg.output.slice(0, 120)}${msg.output.length > 120 ? '…' : ''}）`) }
       }
       return { ...state, blocks }
     }
@@ -77,15 +86,13 @@ function reducer(state: State, msg: Action): State {
     case 'error':
       return { ...state, status: 'error', blocks: [...state.blocks, { icon: '🐶', role: '错误', color: 'red', text: msg.error.message }] }
     case 'session_ready':
-      return { ...state, blocks: msg.messages.map((m) => ({ icon: ICON[m.role] ?? '🥚', role: m.role, color: COLOR[m.role] ?? 'gray', text: m.content ?? '' })) }
-    case 'session_list':
-      return infoBlock(state, '会话', msg.sessions.map((s) => `${s.id}  ${s.preview}`).join('\n'))
+      return { ...state, status: 'idle', blocks: msg.messages.map((m) => ({ icon: ICON[m.role] ?? '🥚', role: m.role, color: COLOR[m.role] ?? 'gray', text: (m as { content?: string }).content ?? '' })) }
     case 'tools_list':
       return infoBlock(state, '工具', msg.tools.map((t) => `${t.name} — ${t.description}`).join('\n'))
     case 'status_state':
-      return infoBlock(state, '状态', `session=${msg.sessionId}  provider=${msg.provider}  model=${msg.model}\ncwd=${msg.cwd}`)
+      return infoBlock(state, '状态', `session=${msg.sessionId}  provider=${msg.provider}  model=${msg.model}\ncwd=${msg.cwd}  state=${msg.state}`)
     case 'context_state':
-      return infoBlock(state, '上下文', `${msg.estimatedTokens} / ${msg.windowTokens} tokens`)
+      return infoBlock(state, '上下文', `${msg.estimatedTokens} / ${msg.windowTokens} tokens（${msg.percent}%）`)
     case 'system_state':
       return infoBlock(state, 'system prompt', `${msg.path}\n${msg.content}`)
     case 'compaction':
@@ -98,29 +105,115 @@ function reducer(state: State, msg: Action): State {
 }
 
 export function App({ agent }: { agent: Agent }) {
-  const [state, dispatch] = useReducer(reducer, { blocks: [], status: 'idle', partial: null })
+  const [chat, dispatch] = useReducer(reducer, { blocks: [], status: 'idle', partial: null })
+  const [view, setViewState] = useState<View>({ kind: 'none' })
   const [input, setInput] = useState('')
+  const viewRef = useRef<View>(view)
+  const configIntent = useRef<'model' | 'config' | null>(null)
+
+  const setView = useCallback((v: View) => {
+    viewRef.current = v
+    setViewState(v)
+  }, [])
+
+  const openMenu = useCallback((title: string, items: MenuItem[]) => setView({ kind: 'menu', title, items, cursor: 0 }), [setView])
+  const openPrompt = useCallback((title: string, onSubmit: (v: string) => void) => setView({ kind: 'prompt', title, value: '', onSubmit }), [setView])
+
+  // 模型选择：provider → model 两级。
+  const openModelPicker = useCallback((config: Config) => {
+    openMenu('选择 provider', config.providers.map((p) => ({
+      label: p.name,
+      onSelect: () =>
+        openMenu(`选择模型（${p.name}）`, p.models.map((m) => ({
+          label: `${m.name}${m.reasoning ? ' · reasoning' : ''}`,
+          onSelect: () => {
+            agent.send({ type: 'config_set', path: 'defaultProvider', value: p.name })
+            agent.send({ type: 'config_set', path: 'defaultModel', value: m.name })
+            setView({ kind: 'none' })
+          },
+        }))),
+    })))
+  }, [agent, openMenu, setView])
+
+  // 配置编辑器：菜单钻取，把选择翻译成 config_set/add/remove。
+  const openConfigEditor = useCallback((config: Config) => {
+    const pickProvider = (title: string, onPick: (name: string) => void) =>
+      openMenu(title, config.providers.map((p) => ({ label: p.name, onSelect: () => onPick(p.name) })))
+
+    const generalMenu = (): MenuItem[] => [
+      { label: '默认 provider', onSelect: () => pickProvider('选择默认 provider', (name) => { agent.send({ type: 'config_set', path: 'defaultProvider', value: name }); setView({ kind: 'none' }) }) },
+      { label: '默认模型', onSelect: () => openModelPicker(config) },
+      { label: 'maxIterations', onSelect: () => openPrompt('maxIterations', (v) => { const n = Number(v); if (Number.isFinite(n)) agent.send({ type: 'config_set', path: 'maxIterations', value: n }); setView({ kind: 'none' }) }) },
+      { label: 'maxRetries', onSelect: () => openPrompt('maxRetries', (v) => { const n = Number(v); if (Number.isFinite(n)) agent.send({ type: 'config_set', path: 'maxRetries', value: n }); setView({ kind: 'none' }) }) },
+      { label: 'systemPrompt 路径', onSelect: () => openPrompt('systemPrompt 路径', (v) => { agent.send({ type: 'config_set', path: 'systemPrompt', value: v }); setView({ kind: 'none' }) }) },
+    ]
+
+    const permissionBucket = (bucket: 'allow' | 'reject' | 'ask'): MenuItem => ({
+      label: bucket,
+      onSelect: () => {
+        const current = config.permission[bucket]
+        openMenu(`permission.${bucket}`, [
+          ...current.map((tool) => ({
+            label: `移除 ${tool}`,
+            onSelect: () => { agent.send({ type: 'config_set', path: `permission.${bucket}`, value: current.filter((t) => t !== tool) }); setView({ kind: 'none' }) },
+          })),
+          { label: '+ 添加工具', onSelect: () => openPrompt('工具名', (v) => { if (v && !current.includes(v)) agent.send({ type: 'config_set', path: `permission.${bucket}`, value: [...current, v] }); setView({ kind: 'none' }) }) },
+        ])
+      },
+    })
+
+    openMenu('配置', [
+      { label: '切换默认模型', onSelect: () => openModelPicker(config) },
+      { label: '添加 Provider', onSelect: () => openPrompt('Provider JSON（粘贴 name/baseURL/apiKey/models）', (v) => { try { agent.send({ type: 'config_add', path: 'providers', value: JSON.parse(v) }); setView({ kind: 'none' }) } catch { setView({ kind: 'none' }) } }) },
+      { label: '删除 Provider', onSelect: () => pickProvider('删除哪个 provider？', (name) => { agent.send({ type: 'config_remove', path: 'providers', key: 'name', match: name }); setView({ kind: 'none' }) }) },
+      { label: '添加 Model', onSelect: () => pickProvider('加到哪个 provider？', (name) => openPrompt('Model JSON（粘贴 name/contextWindow/maxOutput/reasoning）', (v) => { try { agent.send({ type: 'config_add', path: `providers.${name}.models`, value: JSON.parse(v) }); setView({ kind: 'none' }) } catch { setView({ kind: 'none' }) } })) },
+      { label: '编辑 General', onSelect: () => openMenu('General', generalMenu()) },
+      { label: '编辑 Permission', onSelect: () => openMenu('Permission', ['allow', 'reject', 'ask'].map((b) => permissionBucket(b as 'allow' | 'reject' | 'ask'))) },
+    ])
+  }, [agent, openMenu, openPrompt, openModelPicker, setView])
 
   useEffect(() => {
     return agent.on((msg) => {
       dispatch(msg)
-      // v1 简化：无交互选择器，权限请求先自动「允许一次」；完整三选项 UI 后续补。
       if (msg.type === 'permission_request') {
-        agent.send({ type: 'permission_decision', id: msg.id, decision: 'allow_once' })
+        setView({ kind: 'permission', id: msg.id, tool: msg.tool, input: msg.input, cursor: 0 })
+      } else if (msg.type === 'session_list') {
+        openMenu('选择会话（回车切换）', msg.sessions.map((s) => ({
+          label: `${s.id}  ${s.preview}`,
+          onSelect: () => { agent.send({ type: 'resume_session', id: s.id }); setView({ kind: 'none' }) },
+        })))
+      } else if (msg.type === 'config_state') {
+        if (configIntent.current === 'model') openModelPicker(msg.config)
+        else if (configIntent.current === 'config') openConfigEditor(msg.config)
       }
     })
-  }, [agent])
+  }, [agent, openMenu, openModelPicker, openConfigEditor, setView])
+
+  useInput((_input, key) => {
+    const v = viewRef.current
+    if (v.kind === 'permission') {
+      if (key.upArrow) setView({ ...v, cursor: (v.cursor + DECISIONS.length - 1) % DECISIONS.length })
+      else if (key.downArrow) setView({ ...v, cursor: (v.cursor + 1) % DECISIONS.length })
+      else if (key.return) { agent.send({ type: 'permission_decision', id: v.id, decision: DECISIONS[v.cursor]! }); setView({ kind: 'none' }) }
+      else if (key.escape) { agent.send({ type: 'permission_decision', id: v.id, decision: 'reject' }); setView({ kind: 'none' }) }
+    } else if (v.kind === 'menu') {
+      if (key.upArrow) setView({ ...v, cursor: (v.cursor + v.items.length - 1) % v.items.length })
+      else if (key.downArrow) setView({ ...v, cursor: (v.cursor + 1) % v.items.length })
+      else if (key.return) { v.items[v.cursor]?.onSelect() }
+      else if (key.escape) setView({ kind: 'none' })
+    }
+  })
 
   const handleSubmit = (raw: string) => {
     const text = raw.trim()
     if (!text) return
-    const cmd = text.startsWith('/') ? text.split(/\s+/)[0]! : null
-    if (cmd) {
+    if (text.startsWith('/')) {
+      const cmd = text.split(/\s+/)[0]!
       switch (cmd) {
         case '/new': agent.send({ type: 'new_session' }); break
         case '/session': agent.send({ type: 'list_sessions' }); break
-        case '/model':
-        case '/config': agent.send({ type: 'config_request' }); break
+        case '/model': configIntent.current = 'model'; agent.send({ type: 'config_request' }); break
+        case '/config': configIntent.current = 'config'; agent.send({ type: 'config_request' }); break
         case '/clear': agent.send({ type: 'clear_history' }); break
         case '/compact': agent.send({ type: 'compact_request' }); break
         case '/context': agent.send({ type: 'context_request' }); break
@@ -142,22 +235,38 @@ export function App({ agent }: { agent: Agent }) {
   return (
     <Box flexDirection="column" padding={1}>
       <Box flexDirection="column" flexGrow={1}>
-        {state.blocks.map((b, i) => (
+        {chat.blocks.map((b, i) => (
           <MessageBlock key={i} icon={b.icon} role={b.role} color={b.color}>
             <Text>{b.text}</Text>
           </MessageBlock>
         ))}
-        {state.partial ? (
+        {chat.partial ? (
           <MessageBlock icon={ICON.assistant} role="助手（流式）" color={COLOR.assistant}>
-            <Text>{state.partial.text}</Text>
+            <Text>{chat.partial.text}</Text>
           </MessageBlock>
         ) : null}
       </Box>
-      <StatusBar state={state.status} />
-      <Box>
-        <Text color="blue">› </Text>
-        <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} />
-      </Box>
+
+      {view.kind === 'permission' && (
+        <ListPicker title={`工具 ${view.tool} 请求权限`} items={DECISION_LABELS} cursor={view.cursor} hint="↑↓ 选择 · 回车确认 · esc 拒绝" />
+      )}
+      {view.kind === 'menu' && (
+        <ListPicker title={view.title} items={view.items.map((i) => i.label)} cursor={view.cursor} hint="↑↓ 选择 · 回车确认 · esc 返回" />
+      )}
+      {view.kind === 'prompt' && (
+        <Box>
+          <Text color="cyan">{view.title} → </Text>
+          <TextInput value={view.value} onChange={(val) => setView({ ...view, value: val })} onSubmit={(val) => { view.onSubmit(val); setView({ kind: 'none' }) }} />
+        </Box>
+      )}
+
+      {view.kind === 'none' && <StatusBar state={chat.status} />}
+      {view.kind === 'none' && (
+        <Box>
+          <Text color="blue">› </Text>
+          <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} />
+        </Box>
+      )}
     </Box>
   )
 }
