@@ -21,14 +21,15 @@ DogEggAgent 是一个自研的 **code agent** 工具。第一目标是**学习�
 `agent/` 与 `ui/` 这两个目录只是「后端」与「前端」两大部分的代称——边界不在字面的这两个文件夹，而在「后端逻辑」与「前端展示」之间。
 
 实现方式：
-- `events/` 是唯一的解耦契约（纯类型：`AgentEvent` 与 `AgentCommand`）。
+- `events/` 是唯一的解耦契约（纯类型：单一 `AgentMessage` 联合类型，见 §6）。
 - 后端不 import 前端，前端不 import 后端。
-- 两者仅在 `main/bootstrap.ts`（组合根）中通过事件/命令对接。
+- 两者仅在 `main/bootstrap.ts`（组合根）中通过消息对接。
+- 消息类型是**传输无关**的单一事实源：v1 同进程内用 EventEmitter 投递；将来 WebUI 加 SSE 传输层，复用同一套消息类型，不必推倒重来。
 
-事件分两层，职责不同，不可混淆：
+消息分两层，职责不同，不可混淆：
 
 1. **LLM 级 StreamEvent**（`llm/types.ts`）：provider → agent loop 的流，表达「模型吐了什么」。
-2. **Agent 级事件/命令**（`events/`）：后端 ↔ 前端，表达「agent 在做什么」。
+2. **Agent 级消息**（`events/`）：后端 ↔ 前端，双向共用同一 union，表达「agent 在做什么」与「前端请求后端做什么」。
 
 ## 3. 需求清单
 
@@ -44,7 +45,7 @@ DogEggAgent 是一个自研的 **code agent** 工具。第一目标是**学习�
 | 8 | Agent State | 9 态状态机（见 §4） |
 | 9 | Event System | 见 §2 |
 | 10 | Permission | 配置 `allow/reject/ask` 三桶 + 运行时 `allow_once/allow_always/reject`（见 §5） |
-| 11 | Session | Session ID / 消息持久化 / Resume / History；JSON：`~/.dogegg/sessions/<id>.json` |
+| 11 | Session | Session ID / 消息持久化 / Resume / History；JSON：`~/.dogegg/sessions/<id>.json`；REPL 斜杠命令 `/new`、`/resume <id>`、`/sessions` 管理 |
 | 12 | Context Compaction | LLM 把旧历史压成 summary；触发 80% 窗口、保留最近 4 条原文 |
 | 13 | UI | Message List / Markdown / Tool Call / Tool Result / Input / Status Bar / Streaming |
 
@@ -103,31 +104,45 @@ finished / cancelled / error ──▶ idle
 
 审批通过注入的回调交给 UI（TUI = await Y/n），`agent/permission` 本身不依赖 UI。
 
-## 6. 事件 / 命令
+## 6. 消息契约
 
-**LLM 级 StreamEvent**（`llm/types.ts`，provider → loop）：
+**LLM 级 StreamEvent**（`llm/types.ts`，provider → agent loop）：
 
 ```
 text_delta / thought_delta / tool_call_start / tool_call_delta / tool_call_end / done / error
 ```
 
-其中 `thought_delta` 承载 reasoning 内容，`text_delta` 承载答案文本，UI 可据此把「思考」与「回答」分开展示。
+其中 `thought_delta` 承载 reasoning 内容，`text_delta` 承载答案文本，UI 可据此把「思考」与「回答」分开展示。这是后端内部更底层的一层。
 
-**Agent 级事件/命令**（`events/`，core ↔ ui）：
+**Agent 级消息**（`events/`，后端 ↔ 前端）：单一 `AgentMessage` 联合类型，**双向共用**，不拆「事件」「命令」两套类型。方向只作注释；`out` = 后端 → 前端，`in` = 前端 → 后端。将来接 SSE 时，序列化/反序列化的正是下面这个 union。
 
-Event（Core → UI）：
-
+```ts
+type AgentMessage =
+  // out: 后端 → 前端
+  | { type: 'state'; from: State; to: State }
+  | { type: 'text_delta'; delta: string }
+  | { type: 'thought_delta'; delta: string }
+  | { type: 'message'; role: 'user' | 'assistant' | 'tool'; id: string }
+  | { type: 'tool_start'; id: string; name: string; input: unknown }
+  | { type: 'tool_end'; id: string; name: string; output: string; error?: string }
+  | { type: 'permission_request'; id: string; tool: string; input: unknown }
+  | { type: 'session_ready'; id: string; messages: Message[] }
+  | { type: 'session_list'; sessions: { id: string; updatedAt: string; preview: string }[] }
+  | { type: 'compaction'; before_tokens: number; after_tokens: number }
+  | { type: 'finished'; usage?: unknown }
+  | { type: 'error'; error: Error }
+  // in: 前端 → 后端
+  | { type: 'submit'; text: string }
+  | { type: 'permission_decision'; id: string; decision: 'allow_once' | 'allow_always' | 'reject' }
+  | { type: 'cancel' }
+  | { type: 'new_session' }
+  | { type: 'resume_session'; id: string }
+  | { type: 'list_sessions' }
 ```
-state { from, to } / text_delta / thought_delta / message / tool_start / tool_end
-/ permission_request { id, tool, input } / session_ready { id, messages }
-/ compaction { before_tokens, after_tokens } / finished / error
-```
 
-Command（UI → Core）：
-
-```
-submit { text } / permission { id, decision } / cancel
-```
+要点：
+- `permission_request` 与 `permission_decision` 通过 `id` 配对；原 `permission` 命令改名为 `permission_decision` 以免与 request 冲突。
+- `new_session` / `resume_session` / `list_sessions` 是 REPL 斜杠命令（`/new`、`/resume <id>`、`/sessions`）翻译来的后端消息；`session_list` 是 `list_sessions` 的回包。
 
 ## 7. 配置 schema
 
@@ -172,7 +187,7 @@ submit { text } / permission { id, decision } / cancel
 | `read_file` | 读取文件内容 |
 | `write_file` | 整文件覆写/创建 |
 | `edit_file` | old_string → new_string 精准替换（code agent 核心） |
-| `shell` | 执行 shell 命令，捕获 stdout/stderr/exit code |
+| `shell` | 执行 shell 命令（解释器可配），捕获 stdout/stderr/exit code，返回可 kill 进程句柄 |
 | `grep` | 内容搜索 |
 | `glob` | 文件名/路径匹配 |
 
@@ -189,6 +204,12 @@ interface Tool {
 
 `tools/registry.ts` 汇总所有工具的 `name/schema/execute`。工具参数（LLM 返回的 JSON）用 **zod** 校验。
 
+**`shell` 与取消（cancel）**：
+- `shell` 的解释器可配置（Windows 默认 `cmd`，可切 `powershell`/`bash`），通过 `spawn(interp, [flag, cmd])` 显式指定。
+- `shell` 返回一个**可 kill 的进程句柄** `{ pid, kill() }`，不是跑完就丢。
+- 取消三件套：`AbortController` 中断 LLM 请求 + 工具之间检查取消标志 + 杀 shell 进程树。
+- `kill()` 按 OS 分支：`win32` 用 `taskkill /PID <pid> /T /F`（杀整棵树，对 cmd/powershell/bash 通用）；POSIX 用 detached 进程组 + `process.kill(-pid, 'SIGKILL')`。杀进程**不按 shell 类型**区分，只按 OS。
+
 ## 9. 目录结构
 
 ```
@@ -196,12 +217,11 @@ DogEggAgent/
 ├─ src/
 │  ├─ main/
 │  │  ├─ index.ts            # 进程入口（package.json bin 指向此处）
-│  │  └─ bootstrap.ts        # 组合根：core.emit↔ui.render、ui.command↔core.handle
+│  │  └─ bootstrap.ts        # 组合根：后端消息 ↔ 前端渲染接线
 │  ├─ events/
-│  │  ├─ agent-events.ts     # AgentEvent 联合类型
-│  │  └─ agent-commands.ts   # AgentCommand 联合类型
+│  │  └─ agent-messages.ts   # AgentMessage 联合类型（双向，单一事实源）
 │  ├─ agent/                 # Agent Core（后端核心）
-│  │  ├─ index.ts            # Agent 类：emit 事件 / 收命令
+│  │  ├─ index.ts            # Agent 类：emit 消息 / 收消息
 │  │  ├─ loop/               # 循环编排
 │  │  ├─ state/              # 9 态 + transition() 纯函数
 │  │  ├─ history/            # Message History（原样持久化）
@@ -218,7 +238,7 @@ DogEggAgent/
 │  │  └─ read_file/ write_file/ edit_file/ shell/ grep/ glob/
 │  ├─ config/                # schema.ts / loader.ts
 │  ├─ common/                # utils/ + errors.ts（跨域共享）
-│  └─ ui/                    # 前端：只消费 events、发 commands
+│  └─ ui/                    # 前端：只消费/发送 AgentMessage
 │     ├─ tui/                # Ink：MessageList / ToolCall / ToolResult / Input / StatusBar / PermissionPrompt
 │     └─ webui/              # 占位（v1 不实现）
 └─ test/                     # 镜像 src/ 的域结构，*.test.ts
@@ -227,7 +247,7 @@ DogEggAgent/
 
 **依赖约束（唯一硬约束）**：
 
-- 后端与前端互不 import，仅通过 `events/` 的事件/命令关联。这是解耦原则的实体化。
+- 后端与前端互不 import，仅通过 `events/` 的单一消息联合类型关联。这是解耦原则的实体化。
 - 除此之外，各域之间谁依赖谁属于实现细节，不在本文档中钉死为规范。
 
 ## 10. 技术选型
@@ -235,7 +255,7 @@ DogEggAgent/
 | 项 | 选择 |
 |---|---|
 | LLM 传输 | 原生 `fetch`（Node≥20）+ 手写 SSE 解析（读 `response.body` 流） |
-| 校验 | **zod**（配置 + 工具参数 + 事件/命令结构，全部） |
+| 校验 | **zod**（配置 + 工具参数 + 消息结构，全部） |
 | 持久化 | JSON 文件 |
 | TUI | Ink（`ink` + `ink-text-input`） |
 | 测试 | Vitest |
