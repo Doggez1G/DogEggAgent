@@ -289,7 +289,17 @@ export function App({ agent }: { agent: Agent }) {
       {view.kind === 'prompt' && (
         <Box>
           <Text color="cyan">{view.title} → </Text>
-          <TextInput value={view.value} onChange={(val) => setView({ ...view, value: val })} onSubmit={(val) => { view.onSubmit(val); setView({ kind: 'none' }) }} />
+          <TextInput
+            value={view.value}
+            onChange={(val) => setView({ ...view, value: val })}
+            onSubmit={(val) => {
+              // 提交后去哪由 view.onSubmit 决定（配置标量会回到配置树原位，而非退出）；
+              // 这里只吞掉这次回车，避免它被 useInput 再触发一次误操作。
+              suppressEnterRef.current = true
+              queueMicrotask(() => { suppressEnterRef.current = false })
+              view.onSubmit(val)
+            }}
+          />
         </Box>
       )}
       {view.kind === 'config' && (
