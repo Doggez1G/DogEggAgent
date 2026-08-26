@@ -47,7 +47,7 @@ describe('runLoop', () => {
     const result = await runLoop({
       adapter: adapter as any,
       providerBaseURL: 'http://x', apiKey: 'k', model: 'm', maxOutput: 10, maxRetries: 0, reasoning: false,
-      tools: [readFileTool], systemPrompt: 's', windowTokens: 100000, maxIterations: 10,
+      history: [], tools: [readFileTool], systemPrompt: 's', windowTokens: 100000, maxIterations: 10,
       permission: new PermissionManager({ allow: ['read_file'], reject: [], ask: [] }),
       cwd: dir,
       signal: new AbortController().signal,
@@ -60,5 +60,25 @@ describe('runLoop', () => {
     expect(events.some((e) => e.type === 'tool_end')).toBe(true)
     expect(result.some((m) => m.role === 'tool')).toBe(true)
     expect(result[result.length - 1]).toMatchObject({ role: 'assistant', content: 'done' })
+  })
+
+  it('passes the initial history (incl. user message) to the model', async () => {
+    let received: { role: string; content: string | null }[] = []
+    const adapter = { async chat(req: { messages: { role: string; content: string | null }[] }) { received = req.messages; return { role: 'assistant', content: 'ok' } } }
+
+    const result = await runLoop({
+      adapter: adapter as any,
+      providerBaseURL: 'http://x', apiKey: 'k', model: 'm', maxOutput: 10, maxRetries: 0, reasoning: false,
+      history: [{ role: 'user', content: '帮我修 bug' }], tools: [], systemPrompt: 's', windowTokens: 100000, maxIterations: 10,
+      permission: new PermissionManager({ allow: [], reject: [], ask: [] }),
+      cwd: dir,
+      signal: new AbortController().signal,
+      emit: () => {},
+      requestPermission: async () => 'allow_once',
+      checkCancelled: () => false,
+    })
+
+    expect(received.some((m) => m.role === 'user' && m.content === '帮我修 bug')).toBe(true)
+    expect(result[0]).toMatchObject({ role: 'user', content: '帮我修 bug' })
   })
 })

@@ -113,6 +113,7 @@ export class Agent {
             maxRetries: this.config.maxRetries,
             reasoning: model.reasoning,
             tools: getAllTools(),
+            history: this.history,
             systemPrompt: loadSystemPrompt(this.config.systemPrompt),
             windowTokens: model.contextWindow,
             maxIterations: this.config.maxIterations,

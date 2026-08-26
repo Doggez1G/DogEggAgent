@@ -17,6 +17,7 @@ export interface LoopDeps {
   maxRetries: number
   reasoning: boolean
   tools: Tool[]
+  history: Message[]
   systemPrompt: string
   windowTokens: number
   maxIterations: number
@@ -55,7 +56,8 @@ export async function summarizeHistory(
 // 核心 Agent Loop：问模型 → 有 tool_calls 就串行执行 → 结果回填 → 再问，直到无 tool_calls 或触发停止。
 // 返回完整历史（user/assistant/tool），供会话持久化与 resume 回放。
 export async function runLoop(deps: LoopDeps): Promise<Message[]> {
-  let messages: Message[] = []
+  // 从传入的历史开始（含用户刚提交的消息），在此之上累积 assistant/tool 消息并在最后返回完整历史。
+  let messages: Message[] = [...deps.history]
   let state: State = deps.reasoning ? 'thinking' : 'responding'
   let iterations = 0
   const toolParams = deps.tools.map((t) => t.parameters)
