@@ -3,9 +3,11 @@ import type { Tool } from '../tools/types'
 import type { Message, PermissionDecision, State } from '../events/types'
 import type { AgentToUiMessage } from '../events/agent-to-ui'
 import { PermissionManager } from './permission'
+import { estimateContextTokens, shouldCompact, splitForCompaction } from './context'
 import { truncate } from '../common/utils/truncate'
 import { CancelledError } from '../common/errors'
 
+// 核心循环所需的外部依赖。emit 向上发 Agent 级事件，requestPermission 等待审批决议，checkCancelled 轮询取消。
 export interface LoopDeps {
   adapter: ProviderAdapter
   providerBaseURL: string
@@ -25,19 +27,50 @@ export interface LoopDeps {
   checkCancelled: () => boolean
 }
 
-// 核心循环：串行工具、权限暂停、取消三件套（AbortController 由 adapter 层 + 工具层处理）。
-// 返回完整的历史消息（含 user/assistant/tool），供持久化与 resume 回放。
+// 用同一 adapter 做一次「离线」总结，把最旧的历史压成一段中文摘要。
+// 摘要是压缩后的替代，不含 tool_calls，故 tools 传空、maxOutput 控制长度。
+async function summarizeHistory(deps: LoopDeps, old: Message[]): Promise<string> {
+  const assistant = await deps.adapter.chat(
+    {
+      baseURL: deps.providerBaseURL,
+      apiKey: deps.apiKey,
+      model: deps.model,
+      systemPrompt: '你是上下文压缩器。把这段对话压缩成一段简洁的中文摘要，保留关键事实、结论与未完成事项。',
+      messages: old,
+      tools: [],
+      maxOutput: 1000,
+      maxRetries: 1,
+    },
+    new AbortController().signal,
+    () => {},
+  )
+  return typeof assistant.content === 'string' ? assistant.content : ''
+}
+
+// 核心 Agent Loop：问模型 → 有 tool_calls 就串行执行 → 结果回填 → 再问，直到无 tool_calls 或触发停止。
+// 返回完整历史（user/assistant/tool），供会话持久化与 resume 回放。
 export async function runLoop(deps: LoopDeps): Promise<Message[]> {
-  const messages: Message[] = []
+  let messages: Message[] = []
   let state: State = deps.reasoning ? 'thinking' : 'responding'
   let iterations = 0
+  const toolParams = deps.tools.map((t) => t.parameters)
 
   for (;;) {
     if (deps.checkCancelled()) throw new CancelledError()
     if (iterations++ >= deps.maxIterations) throw new Error('达到 maxIterations 上限')
 
-    const signal = new AbortController().signal
+    // 上下文窗口管理：逼近上限时，把最旧历史压成摘要 + 保留最近 4 条原文。
+    const used = estimateContextTokens(deps.systemPrompt, messages, toolParams)
+    if (shouldCompact(used, deps.windowTokens)) {
+      const { old, fresh } = splitForCompaction(messages)
+      if (old.length > 0) {
+        const summary = await summarizeHistory(deps, old)
+        messages = [{ role: 'user', content: `[前文摘要]\n${summary}` }, ...fresh]
+        deps.emit({ type: 'compaction', before_tokens: used, after_tokens: estimateContextTokens(deps.systemPrompt, messages, toolParams) })
+      }
+    }
 
+    const signal = new AbortController().signal
     const assistant = await deps.adapter.chat(
       {
         baseURL: deps.providerBaseURL,
@@ -68,6 +101,7 @@ export async function runLoop(deps: LoopDeps): Promise<Message[]> {
     }
 
     deps.emit({ type: 'state', from: state, to: 'tool_calling' })
+    // 串行执行本次响应的工具，逐个回填 tool 消息。
     for (const call of calls) {
       if (deps.checkCancelled()) throw new CancelledError()
 
@@ -77,6 +111,7 @@ export async function runLoop(deps: LoopDeps): Promise<Message[]> {
         continue
       }
 
+      // 工具参数：LLM 给的 arguments 是 JSON 字符串，先解析再用 zod schema 校验。
       let args: unknown
       try {
         args = tool.schema.parse(JSON.parse(call.function.arguments || '{}'))

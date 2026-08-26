@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { loadConfig } from '../../src/config/loader'
+import { mkdtempSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { loadConfig, saveConfig } from '../../src/config/loader'
 
 describe('loadConfig', () => {
   it('rejects a config missing providers', () => {
@@ -33,5 +36,15 @@ describe('loadConfig', () => {
     })
     expect(cfg.permission.allow).toEqual(['read_file'])
     expect(cfg.permission.ask).toEqual([])
+  })
+
+  it('saveConfig then loadConfig roundtrips', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dogegg-cfg-'))
+    const file = join(dir, 'config.json')
+    const cfg = loadConfig({ providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] }] })
+    saveConfig(cfg, file)
+    const reloaded = loadConfig(JSON.parse(readFileSync(file, 'utf8')))
+    expect(reloaded.defaultProvider).toBe('o')
+    expect(reloaded.defaultModel).toBe('m')
   })
 })

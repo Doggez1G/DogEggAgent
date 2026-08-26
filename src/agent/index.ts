@@ -4,10 +4,11 @@ import type { Message, PermissionDecision, State } from '../events/types'
 import { getAllTools } from '../tools/registry'
 import { ProviderRegistry, openAiAdapter } from '../llm/provider/openai'
 import { PermissionManager } from './permission'
-import { loadSystemPrompt } from './context'
+import { loadSystemPrompt, estimateContextTokens } from './context'
 import { saveSession, loadSession, listSessions } from './session'
 import { runLoop } from './loop'
-import type { Config } from '../config/schema'
+import { configSchema, type Config, type ProviderConfig, type ModelConfig } from '../config/schema'
+import { saveConfig } from '../config/loader'
 import { newId } from '../common/utils/id'
 import { CancelledError } from '../common/errors'
 
@@ -16,6 +17,8 @@ interface PendingPermission {
   reject: (e: Error) => void
 }
 
+// Agent 是后端对外的唯一入口：持有会话历史、provider/permission 运行时状态，emit 事件、收命令。
+// 它不依赖 ui，只通过 AgentToUi/UiToAgent 消息与前端交互。
 export class Agent {
   private listeners = new Set<(m: AgentToUiMessage) => void>()
   private history: Message[] = []
@@ -47,6 +50,11 @@ export class Agent {
     return p.models.find((m) => m.name === this.config.defaultModel) ?? p.models[0]!
   }
 
+  private estimateCurrentTokens(): number {
+    return estimateContextTokens(loadSystemPrompt(this.config.systemPrompt), this.history, getAllTools().map((t) => t.parameters))
+  }
+
+  // 向 UI 提出权限请求，返回一个在收到 permission_decision 时才决议的 Promise。
   private requestPermission(tool: string, input: unknown): Promise<PermissionDecision> {
     return new Promise((resolve, reject) => {
       const id = newId()
@@ -95,6 +103,7 @@ export class Agent {
       }
       case 'cancel': {
         this.cancelled = true
+        // 挂在等待中的权限请求全部拒绝，让 loop 立刻以 CancelledError 退出，避免悬挂。
         for (const [, p] of this.pending) p.reject(new CancelledError())
         this.pending.clear()
         break
@@ -130,12 +139,13 @@ export class Agent {
         break
       case 'context_request': {
         const m = this.currentModel()
-        this.emit({ type: 'context_state', estimatedTokens: 0, windowTokens: m.contextWindow, percent: 0 })
+        const tokens = this.estimateCurrentTokens()
+        this.emit({ type: 'context_state', estimatedTokens: tokens, windowTokens: m.contextWindow, percent: m.contextWindow ? Math.round((tokens / m.contextWindow) * 100) : 0 })
         break
       }
       case 'status_request': {
         const m = this.currentModel()
-        this.emit({ type: 'status_state', sessionId: this.sessionId, provider: this.config.defaultProvider!, model: this.config.defaultModel!, cwd: this.cwd, state: this.state, estimatedTokens: 0, windowTokens: m.contextWindow })
+        this.emit({ type: 'status_state', sessionId: this.sessionId, provider: this.config.defaultProvider!, model: this.config.defaultModel!, cwd: this.cwd, state: this.state, estimatedTokens: this.estimateCurrentTokens(), windowTokens: m.contextWindow })
         break
       }
       case 'system_request':
@@ -148,6 +158,9 @@ export class Agent {
       case 'compact_request':
         this.emit({ type: 'compaction', before_tokens: 0, after_tokens: 0 })
         break
+      case 'log_request':
+        this.emit({ type: 'log_state', path: '~/.dogegg/logs/latest.log', tail: '' })
+        break
       case 'config_set':
         this.applyConfigSet(cmd.path, cmd.value)
         break
@@ -157,50 +170,85 @@ export class Agent {
       case 'config_remove':
         this.applyConfigRemove(cmd.path, cmd.key, cmd.match)
         break
-      case 'log_request':
-        this.emit({ type: 'log_state', path: '~/.dogegg/logs/latest.log', tail: '' })
-        break
       case 'quit':
         process.exit(0)
     }
   }
 
+  // 配置编辑后统一：重新用 zod 校验（保证工程正确性）→ 重建 provider/permission 运行时 → 落盘 → 通知 UI。
   private afterConfigEdit(): void {
+    this.config = configSchema.parse(this.config)
     this.providers = new ProviderRegistry(this.config.providers)
     this.permission = new PermissionManager(this.config.permission)
+    saveConfig(this.config)
     this.emit({ type: 'config_updated', config: this.config })
   }
 
+  // config_set 的点号路径约定：
+  //   'defaultProvider' | 'defaultModel' | 'maxIterations' | 'maxRetries' | 'systemPrompt'
+  //   'permission.allow' | 'permission.reject' | 'permission.ask'
+  //   'providers.<name>.<field>'，field ∈ { name, baseURL, apiKey }
+  //   'providers.<name>.models.<modelName>.<field>'，field ∈ { name, contextWindow, maxOutput, reasoning }
   private applyConfigSet(path: string, value: unknown): void {
-    if (path === 'defaultProvider') this.config.defaultProvider = value as string
-    else if (path === 'defaultModel') this.config.defaultModel = value as string
-    else if (path === 'maxIterations') this.config.maxIterations = value as number
-    else if (path === 'maxRetries') this.config.maxRetries = value as number
-    else if (path === 'systemPrompt') this.config.systemPrompt = value as string
-    else if (path === 'permission.allow') this.config.permission.allow = value as string[]
-    else if (path === 'permission.reject') this.config.permission.reject = value as string[]
-    else if (path === 'permission.ask') this.config.permission.ask = value as string[]
-    else return
+    const seg = path.split('.')
+    if (seg.length === 1) {
+      if (path === 'defaultProvider') this.config.defaultProvider = value as string
+      else if (path === 'defaultModel') this.config.defaultModel = value as string
+      else if (path === 'maxIterations') this.config.maxIterations = value as number
+      else if (path === 'maxRetries') this.config.maxRetries = value as number
+      else if (path === 'systemPrompt') this.config.systemPrompt = value as string
+      else return
+    } else if (seg.length === 2 && seg[0] === 'permission') {
+      const bucket = seg[1] as 'allow' | 'reject' | 'ask'
+      if (bucket === 'allow' || bucket === 'reject' || bucket === 'ask') this.config.permission[bucket] = value as string[]
+      else return
+    } else if (seg.length === 3 && seg[0] === 'providers') {
+      const p = this.config.providers.find((x) => x.name === seg[1])
+      if (!p) return
+      const field = seg[2]
+      if (field === 'name') p.name = value as string
+      else if (field === 'baseURL') p.baseURL = value as string
+      else if (field === 'apiKey') p.apiKey = value as string
+      else return
+    } else if (seg.length === 5 && seg[0] === 'providers' && seg[2] === 'models') {
+      const m = this.config.providers.find((x) => x.name === seg[1])?.models.find((x) => x.name === seg[3])
+      if (!m) return
+      const field = seg[4]
+      if (field === 'name') m.name = value as string
+      else if (field === 'contextWindow') m.contextWindow = value as number
+      else if (field === 'maxOutput') m.maxOutput = value as number
+      else if (field === 'reasoning') m.reasoning = value as boolean
+      else return
+    } else {
+      return
+    }
     this.afterConfigEdit()
   }
 
+  // config_add：'providers' 追加 provider；'providers.<name>.models' 追加 model。
   private applyConfigAdd(path: string, value: unknown): void {
-    if (path === 'providers') this.config.providers.push(value as any)
-    else if (path.startsWith('providers.')) {
+    if (path === 'providers') {
+      this.config.providers.push(value as ProviderConfig)
+    } else if (path.startsWith('providers.') && path.endsWith('.models')) {
       const name = path.split('.')[1]!
-      const p = this.providers.get(name)
-      if (p) p.models.push(value as any)
-    } else return
+      this.providers.get(name)?.models.push(value as ModelConfig)
+    } else {
+      return
+    }
     this.afterConfigEdit()
   }
 
+  // config_remove：'providers' 按 name 删 provider；'providers.<name>.models' 按 name 删 model。
   private applyConfigRemove(path: string, key: string, match: string): void {
-    if (path === 'providers') this.config.providers = this.config.providers.filter((p) => p.name !== match)
-    else if (path.startsWith('providers.')) {
+    if (path === 'providers') {
+      this.config.providers = this.config.providers.filter((p) => p.name !== match)
+    } else if (path.startsWith('providers.') && path.endsWith('.models')) {
       const name = path.split('.')[1]!
       const p = this.providers.get(name)
-      if (p) p.models = p.models.filter((m) => (m as any)[key] !== match)
-    } else return
+      if (p) p.models = p.models.filter((m) => (m as unknown as Record<string, unknown>)[key] !== match)
+    } else {
+      return
+    }
     this.afterConfigEdit()
   }
 }
