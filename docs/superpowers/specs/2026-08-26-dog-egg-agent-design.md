@@ -54,8 +54,9 @@ DogEggAgent 是一个自研的 **code agent** 工具。第一目标是**学习�
 **运行时行为（增补）**：
 
 - **cwd**：以启动 agent 时所在目录为工作目录；无 CLI 参数、无配置项。
-- **运行时切换 provider/model**：通过 `/config` 斜杠命令交互式选择。
+- **运行时切换 provider/model**：通过 `/model`（快速）或 `/config`（完整编辑）。
 - **LLM 错误重试**：请求失败自动重试 `maxRetries` 次（缺省 3），仍失败则报错给 UI。
+- **调试日志**：每轮消息流 / 工具调用 / 状态迁移追加写到 `~/.dogegg/logs/<session-id>.log`。
 - **CLI 参数**：v1 无（一切通过 REPL 斜杠命令）。
 
 ## 4. 状态机（9 态）
@@ -135,8 +136,14 @@ type AgentToUiMessage =
   | { type: 'permission_request'; id: string; tool: string; input: unknown }
   | { type: 'session_ready'; id: string; messages: Message[] }
   | { type: 'session_list'; sessions: { id: string; updatedAt: string; preview: string }[] }
-  | { type: 'config_state'; providers: { name: string; models: string[] }[]; currentProvider: string; currentModel: string }
-  | { type: 'config_updated'; provider: string; model: string }
+  | { type: 'config_state'; config: Config }
+  | { type: 'config_updated'; config: Config }
+  | { type: 'tools_list'; tools: { name: string; description: string }[] }
+  | { type: 'context_state'; estimatedTokens: number; windowTokens: number; percent: number }
+  | { type: 'system_state'; path: string; content: string }
+  | { type: 'status_state'; sessionId: string; provider: string; model: string; cwd: string; state: State; estimatedTokens: number; windowTokens: number }
+  | { type: 'log_state'; path: string; tail: string }
+  | { type: 'history_cleared' }
   | { type: 'compaction'; before_tokens: number; after_tokens: number }
   | { type: 'finished'; usage?: unknown }
   | { type: 'error'; error: Error }
@@ -150,20 +157,41 @@ type UiToAgentMessage =
   | { type: 'list_sessions' }
   | { type: 'resume_session'; id: string }
   | { type: 'config_request' }
-  | { type: 'config_set'; provider?: string; model?: string }
+  | { type: 'config_set'; path: string; value: unknown }
+  | { type: 'config_add'; path: string; value: unknown }
+  | { type: 'config_remove'; path: string; key: string; match: string }
+  | { type: 'tools_request' }
+  | { type: 'context_request' }
+  | { type: 'system_request' }
+  | { type: 'status_request' }
+  | { type: 'log_request' }
+  | { type: 'clear_history' }
+  | { type: 'compact_request' }
+  | { type: 'quit' }
 ```
 
 要点：
 - `permission_request`（out）与 `permission_decision`（in）通过 `id` 配对。
-- `resume_session.id`、`config_set.provider/model` 的取值**来自 UI 侧选择器**，不是用户手打参数。
+- `/config` 用 `config_set` / `config_add` / `config_remove` 三个通用 path 操作，覆盖对 provider、model 及任意字段的增删改；`config_state` / `config_updated` 携带完整 `Config`。
+- `resume_session.id`、`config_*` 的取值均来自 UI 侧选择器，不是用户手打。
 
 **斜杠命令（REPL）**：
 
 | 命令 | 作用 | 触发的消息 |
 |---|---|---|
 | `/new` | 新建会话 | `new_session` → `session_ready` |
-| `/session` | 列出会话并选择切换 | `list_sessions` → `session_list` → 用户选 → `resume_session { id }` → `session_ready` |
-| `/config` | 展示并切换 provider/model | `config_request` → `config_state` → 用户选 → `config_set { ... }` → `config_updated` |
+| `/session` | 列出并选择切换会话 | `list_sessions` → `session_list` → `resume_session { id }` → `session_ready` |
+| `/config` | 查看/编辑任意配置（provider、model、其它字段） | `config_request` → `config_state` → `config_set/add/remove` → `config_updated` |
+| `/model` | 快速切换 provider/model | 复用 `config_request` → `config_state` → `config_set { path: 'defaultProvider' | 'defaultModel' }` |
+| `/clear` | 清空当前会话历史 | `clear_history` → `history_cleared` |
+| `/compact` | 手动压缩上下文 | `compact_request` → `compaction` |
+| `/context` | 查看上下文占用 | `context_request` → `context_state` |
+| `/tools` | 列出工具 | `tools_request` → `tools_list` |
+| `/system` | 查看 system prompt | `system_request` → `system_state` |
+| `/status` | 会话/模型/上下文一览 | `status_request` → `status_state` |
+| `/log` | 查看调试日志 | `log_request` → `log_state` |
+| `/help` | 列出所有命令 | UI 本地渲染（无后端消息） |
+| `/quit` | 退出 | `quit` |
 
 ## 7. 配置 schema
 
@@ -259,7 +287,7 @@ DogEggAgent/
 │  │  ├─ registry.ts
 │  │  └─ read_file/ write_file/ edit_file/ shell/
 │  ├─ config/                # schema.ts / loader.ts
-│  ├─ common/                # utils/ + errors.ts（跨域共享）
+│  ├─ common/                # utils/（id、token 估算、截断、logger）+ errors.ts（跨域共享）
 │  └─ ui/                    # 前端：只消费/发送 AgentMessage
 │     ├─ tui/                # Ink：MessageList / ToolCall / ToolResult / Input / StatusBar / PermissionPrompt
 │     └─ webui/              # 占位（v1 不实现）
@@ -281,6 +309,7 @@ DogEggAgent/
 | 持久化 | JSON 文件 |
 | TUI | Ink（`ink` + `ink-text-input`） |
 | Markdown 渲染 | `marked` + `marked-terminal`（成熟现成，不自研） |
+| 日志 | 追加写文本到 `~/.dogegg/logs/<session-id>.log`（纯 `fs` append） |
 | 测试 | Vitest |
 
 ## 11. 非目标（v1 不做）
