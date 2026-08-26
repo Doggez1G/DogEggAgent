@@ -141,6 +141,7 @@ export class Agent {
         break
       }
       case 'new_session':
+        if (this.running) return
         this.history = []
         this.sessionId = newId()
         this.emit({ type: 'session_ready', id: this.sessionId, messages: [] })
@@ -149,6 +150,7 @@ export class Agent {
         this.emit({ type: 'session_list', sessions: listSessions() })
         break
       case 'resume_session': {
+        if (this.running) return
         const s = loadSession(cmd.id)
         this.history = s.messages
         this.sessionId = s.id
@@ -176,6 +178,7 @@ export class Agent {
         this.emit({ type: 'system_state', path: this.config.systemPrompt ?? '内置', content: loadSystemPrompt(this.config.systemPrompt) })
         break
       case 'clear_history':
+        if (this.running) return
         this.history = []
         this.emit({ type: 'history_cleared' })
         break
