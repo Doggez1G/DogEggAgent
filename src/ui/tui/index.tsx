@@ -6,6 +6,7 @@ import type { AgentToUiMessage } from '../../events/agent-to-ui'
 import type { PermissionDecision } from '../../events/types'
 import type { Config } from '../../config/schema'
 import { MessageBlock, StatusBar, ListPicker, type BlockColor } from './components'
+import { renderMarkdown } from '../../common/utils/markdown'
 
 interface Block {
   icon: string
@@ -240,11 +241,15 @@ export function App({ agent }: { agent: Agent }) {
   return (
     <Box flexDirection="column" padding={1}>
       <Box flexDirection="column" flexGrow={1}>
-        {chat.blocks.map((b, i) => (
-          <MessageBlock key={i} icon={b.icon} role={b.role} color={b.color}>
-            <Text>{b.text}</Text>
-          </MessageBlock>
-        ))}
+        {chat.blocks.map((b, i) => {
+          const isMarkdown = b.icon === ICON.assistant || b.icon === ICON.thinking
+          const text = isMarkdown ? renderMarkdown(b.text) : b.text
+          return (
+            <MessageBlock key={i} icon={b.icon} role={b.role} color={b.color}>
+              <Text>{text}</Text>
+            </MessageBlock>
+          )
+        })}
         {chat.partial ? (
           <MessageBlock icon={ICON.assistant} role="助手（流式）" color={COLOR.assistant}>
             <Text>{chat.partial.text}</Text>

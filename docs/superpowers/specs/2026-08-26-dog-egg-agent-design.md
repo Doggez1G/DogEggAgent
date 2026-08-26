@@ -308,7 +308,7 @@ DogEggAgent/
 | 校验 | **zod**（配置 + 工具参数 + 消息结构，全部） |
 | 持久化 | JSON 文件 |
 | TUI | Ink（`ink` + `ink-text-input`） |
-| Markdown 渲染 | `marked` + `marked-terminal`（成熟现成，不自研） |
+| Markdown 渲染 | `marked`（Lexer 解析后渲染为干净纯文本；刻意不用 marked-terminal 的 ANSI，避免与 Ink 颜色处理冲突） |
 | 日志 | 追加写文本到 `~/.dogegg/logs/<session-id>.log`（纯 `fs` append） |
 | 测试 | Vitest |
 
