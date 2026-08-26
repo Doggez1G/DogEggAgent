@@ -57,6 +57,7 @@ DogEggAgent 是一个自研的 **code agent** 工具。第一目标是**学习�
 - **运行时切换 provider/model**：通过 `/model`（快速）或 `/config`（完整编辑）。
 - **LLM 错误重试**：请求失败自动重试 `maxRetries` 次（缺省 3），仍失败则报错给 UI。
 - **调试日志**：每轮消息流 / 工具调用 / 状态迁移追加写到 `~/.dogegg/logs/<session-id>.log`。
+- **无配置可启动**：找不到配置文件时仍进入 TUI（空配置）；仅 `submit` / `status` / `context` / `compact` 在未配置时发 `notice` 提示先 `/config`。
 - **CLI 参数**：v1 无（一切通过 REPL 斜杠命令）。
 
 ## 4. 状态机（9 态）
@@ -144,6 +145,7 @@ type AgentToUiMessage =
   | { type: 'status_state'; sessionId: string; provider: string; model: string; cwd: string; state: State; estimatedTokens: number; windowTokens: number }
   | { type: 'log_state'; path: string; tail: string }
   | { type: 'history_cleared' }
+  | { type: 'notice'; text: string }
   | { type: 'compaction'; before_tokens: number; after_tokens: number }
   | { type: 'finished'; usage?: unknown }
   | { type: 'error'; error: Error }
@@ -229,6 +231,8 @@ type UiToAgentMessage =
 - 同一协议可配置多个 provider 实例（例如多个 OpenAI 兼容端点），每个实例独立 `name/baseURL/apiKey/models`。v1 只实现 `protocol: "openai"`，架构预留多协议。
 - `systemPrompt` 只存文件路径，支持绝对路径、`~` 展开、相对配置文件所在目录。
 - `maxRetries`：LLM 请求失败重试次数（缺省 3），仍失败则报错。
+- `providers` 允许为空、provider/model 的 `name/baseURL/apiKey/models` 在编辑阶段允许暂时为空，以支持 `/config` 树形「自由填字段」；能否对话由 `isConfigured()` 做完整性判定。
+- 找不到配置文件时 `loadConfig()` 返回空配置（而非抛错），可启动但提问被 `notice` 引导去 `/config`。
 - 配置文件位置：项目内 `.dogegg.json` 优先，否则 `~/.dogegg/config.json`。
 
 ## 8. 工具清单（4 个，snake_case）
@@ -246,8 +250,9 @@ type UiToAgentMessage =
 interface Tool {
   name: string
   description: string
-  parameters: JsonSchema       // OpenAI function schema
-  execute(args, ctx): Promise<ToolResult>   // ctx: cwd / permission / emit
+  schema: ZodSchema            // 校验 LLM 返回的参数
+  parameters: JsonSchema       // 暴露给 LLM 的 OpenAI function schema
+  execute(args, ctx): Promise<ToolResult>   // ctx: cwd / signal
 }
 ```
 
@@ -274,9 +279,8 @@ DogEggAgent/
 │  │  ├─ index.ts            # Agent 类：emit 消息 / 收消息
 │  │  ├─ loop/               # 循环编排
 │  │  ├─ state/              # 9 态 + transition() 纯函数
-│  │  ├─ history/            # Message History（原样持久化）
 │  │  ├─ context/            # system prompt 组装 / 窗口预算 / Compaction
-│  │  ├─ session/            # ID / JSON 持久化 / Resume
+│  │  ├─ session/            # ID / JSON 持久化 / Resume（Message History 由 Agent 的 Message[] 承载）
 │  │  └─ permission/         # 三桶分类 + 运行时决策
 │  ├─ llm/                   # LLM 接入
 │  │  ├─ types.ts            # ChatRequest / LLM StreamEvent / ProviderAdapter
@@ -357,18 +361,17 @@ DogEggAgent/
 | 配置编辑器 | 字段类型驱动的 6 种编辑动作 | 见下 |
 | 信息面板 | /context /tools /system /status /log /help，只读 | `Esc` 关闭 |
 
-**配置编辑器**：根据光标所在字段类型选择编辑动作：
+**配置编辑器（树形表单）**：把 config 的 JSON 结构渲染成一棵可上下导航的树，`Enter` 钻入、`Esc`/`←` 返回上一层。
 
-| 动作 | 字段 | 键位 |
-|---|---|---|
-| `drill` 钻入 | 对象/数组（providers、permission、models） | `→`/`Enter` |
-| `text-input` | systemPrompt、baseURL、apiKey、name | 输入 + `Enter` |
-| `number-input` | maxIterations、maxRetries、contextWindow、maxOutput | 输入 + `Enter` |
-| `enum-cycle` | protocol、reasoning | `←→` |
-| `select-from-list` | defaultProvider、defaultModel | `↑↓` + `Enter` |
-| `toggle-set` | permission 三桶工具名 | 空格勾选 + `Enter` |
+| 字段类型 | 交互 |
+|---|---|
+| 标量（字符串/数字） | 回车就地输入，保存后**留在原位**、手动返回 |
+| 布尔（reasoning） | `←→` 切换候选、回车确认 |
+| 对象（permission / provider / model） | 回车钻入子字段 |
+| 数组（providers / models / 三桶） | 回车进列表；`＋ 添加` 创建空节点再自由填；选中按 `d` 删、钻入底部也有删除项 |
+| 选中即设（defaultProvider / defaultModel） | 钻入列表、回车选中即设 |
 
-通用导航：`↑↓` 字段移动、`→`/`Enter` 进入、`←`/`Esc` 返回；列表内 `d` 删、`a` 增。每个动作最终翻译成 `config_set` / `config_add` / `config_remove`（path 由 UI 依光标位置算出，用户不手打）。
+每个动作最终翻译成 `config_set` / `config_add` / `config_remove`；是否「配置完整到可提问」由 `isConfigured()` 判定。
 
 ### 界面示例
 
@@ -429,26 +432,27 @@ DogEggAgent/
   up/down 选择 · 回车确认 · left/esc 返回
 ```
 
-**`/config` 配置编辑器（根 → 钻入 General）**：
+**`/config` 配置编辑器（树形，根层 → 钻入 providers）**：
 
 ```text
-[面板] 配置
+[面板] 配置 / root
 ----------------------------------------------
-  > Providers    openai / deepseek
-    Permission  allow:[read_file]  ask:[write_file, edit_file, shell]
-    General     systemPrompt / defaultModel / maxRetries / …
+  > systemPrompt      （空）
+    defaultProvider   （未选择）
+    defaultModel      （未选择）
+    maxIterations     50
+    maxRetries        3
+    permission        allow/reject/ask
+    providers         0 个
 ----------------------------------------------
-  up/down 移动 · right 进入 · esc 返回 · d 删 · a 加
+  up/down 选择 · 回车钻入/编辑 · esc 返回
 
-[面板] 配置 > General
+[面板] 配置 / providers
 ----------------------------------------------
-    systemPrompt      ~/.dogegg/prompts/system.md   <- 光标在此，Enter 出输入框
-    defaultProvider  openai          (select-from-list)
-    defaultModel     gpt-4o          (select-from-list)
-    maxIterations    50              (number-input)
-    maxRetries       3               (number-input)
+  > openai            https://api.openai.com/v1
+    ＋ 添加 provider
 ----------------------------------------------
-  up/down 移动 · Enter 编辑 · esc 返回
+  up/down · 回车钻入 · d 删 · esc 返回
 ```
 
 **`/context` 上下文占用**：

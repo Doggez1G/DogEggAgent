@@ -17,14 +17,18 @@ export function StatusBar(props: { state: string }) {
   return <Text inverse dimColor>{`🐶🥚  ${props.state}`}</Text>
 }
 
-// 通用选项列表：高亮当前项，供权限三选 / 选择器 / 配置菜单复用。
+// 通用选项列表：高亮当前项，供权限三选 / 选择器 / 配置树复用。空列表显示「（暂无）」。
 export function ListPicker(props: { title: string; items: string[]; cursor: number; hint: string }) {
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1} marginY={1}>
       <Text bold color="cyan">{props.title}</Text>
-      {props.items.map((it, i) => (
-        <Text key={i} inverse={i === props.cursor}>{i === props.cursor ? '> ' : '  '}{it}</Text>
-      ))}
+      {props.items.length === 0 ? (
+        <Text dimColor>（暂无，esc 返回）</Text>
+      ) : (
+        props.items.map((it, i) => (
+          <Text key={i} inverse={i === props.cursor}>{i === props.cursor ? '> ' : '  '}{it}</Text>
+        ))
+      )}
       <Text dimColor>{props.hint}</Text>
     </Box>
   )

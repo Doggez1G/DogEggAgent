@@ -20,6 +20,7 @@ export type AgentToUiMessage =
   | { type: 'status_state'; sessionId: string; provider: string; model: string; cwd: string; state: State; estimatedTokens: number; windowTokens: number }
   | { type: 'log_state'; path: string; tail: string }
   | { type: 'history_cleared' }
+  | { type: 'notice'; text: string }
   | { type: 'compaction'; before_tokens: number; after_tokens: number }
   | { type: 'finished'; usage?: unknown }
   | { type: 'error'; error: Error }

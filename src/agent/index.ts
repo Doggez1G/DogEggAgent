@@ -7,7 +7,7 @@ import { PermissionManager } from './permission'
 import { loadSystemPrompt, estimateContextTokens, splitForCompaction } from './context'
 import { saveSession, loadSession, listSessions } from './session'
 import { runLoop, summarizeHistory } from './loop'
-import { configSchema, type Config, type ProviderConfig, type ModelConfig } from '../config/schema'
+import { configSchema, isConfigured, type Config, type ProviderConfig, type ModelConfig } from '../config/schema'
 import { saveConfig } from '../config/loader'
 import { newId } from '../common/utils/id'
 import { CancelledError } from '../common/errors'
@@ -88,6 +88,10 @@ export class Agent {
     switch (cmd.type) {
       case 'submit': {
         if (this.running) return
+        if (!isConfigured(this.config)) {
+          this.emit({ type: 'notice', text: '尚未配置 provider，请先 /config 添加并保存后重试' })
+          return
+        }
         this.cancelled = false
         this.controller = new AbortController()
         this.running = true
@@ -164,12 +168,14 @@ export class Agent {
         this.emit({ type: 'config_state', config: this.config })
         break
       case 'context_request': {
+        if (!isConfigured(this.config)) { this.emit({ type: 'notice', text: '尚未配置 provider，请先 /config' }); break }
         const m = this.currentModel()
         const tokens = this.estimateCurrentTokens()
         this.emit({ type: 'context_state', estimatedTokens: tokens, windowTokens: m.contextWindow, percent: m.contextWindow ? Math.round((tokens / m.contextWindow) * 100) : 0 })
         break
       }
       case 'status_request': {
+        if (!isConfigured(this.config)) { this.emit({ type: 'notice', text: '尚未配置 provider，请先 /config' }); break }
         const m = this.currentModel()
         this.emit({ type: 'status_state', sessionId: this.sessionId, provider: this.config.defaultProvider!, model: this.config.defaultModel!, cwd: this.cwd, state: this.state, estimatedTokens: this.estimateCurrentTokens(), windowTokens: m.contextWindow })
         break
@@ -183,6 +189,7 @@ export class Agent {
         this.emit({ type: 'history_cleared' })
         break
       case 'compact_request':
+        if (!isConfigured(this.config)) { this.emit({ type: 'notice', text: '尚未配置 provider，请先 /config' }); break }
         await this.compactNow()
         break
       case 'log_request':
