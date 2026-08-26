@@ -11,7 +11,7 @@ export type UiToAgentMessage =
   | { type: 'config_request' }
   | { type: 'config_set'; path: string; value: unknown }
   | { type: 'config_add'; path: string; value: unknown }
-  | { type: 'config_remove'; path: string; key: string; match: string }
+  | { type: 'config_remove'; path: string; index: number; providerIndex?: number }
   | { type: 'tools_request' }
   | { type: 'context_request' }
   | { type: 'system_request' }

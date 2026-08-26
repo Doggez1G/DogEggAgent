@@ -139,7 +139,7 @@ export function App({ agent }: { agent: Agent }) {
   const treeCtx: TreeCtx = {
     set: (path, value) => agent.send({ type: 'config_set', path, value }),
     add: (path, value) => agent.send({ type: 'config_add', path, value }),
-    remove: (path, key, match) => agent.send({ type: 'config_remove', path, key, match }),
+    remove: (path, index, providerIndex) => agent.send({ type: 'config_remove', path, index, providerIndex }),
   }
 
   // 模型选择（/model 快捷）：provider → model 两级。

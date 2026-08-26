@@ -206,19 +206,25 @@ export class Agent {
         this.applyConfigAdd(cmd.path, cmd.value)
         break
       case 'config_remove':
-        this.applyConfigRemove(cmd.path, cmd.key, cmd.match)
+        this.applyConfigRemove(cmd.path, cmd.index, cmd.providerIndex)
         break
       case 'quit':
         process.exit(0)
     }
   }
 
-  // 配置编辑后统一：先重校验，无效则回滚到最后一次合法快照并报错，避免半写坏状态；有效则重建运行时并落盘。
+  // 配置编辑后统一：先重校验、再判 name 唯一性，任一失败则回滚到最后一次合法快照，避免半写坏状态。
   private afterConfigEdit(): void {
     const parsed = configSchema.safeParse(this.config)
     if (!parsed.success) {
       this.config = JSON.parse(this.lastGoodConfig)
       this.emit({ type: 'error', error: new Error('配置校验失败，已回滚：' + parsed.error.issues[0]?.message) })
+      return
+    }
+    const dup = this.findDuplicateName()
+    if (dup) {
+      this.config = JSON.parse(this.lastGoodConfig)
+      this.emit({ type: 'error', error: new Error('名称重复，已回滚：' + dup) })
       return
     }
     this.config = parsed.data
@@ -227,6 +233,25 @@ export class Agent {
     this.permission = new PermissionManager(this.config.permission)
     saveConfig(this.config)
     this.emit({ type: 'config_updated', config: this.config })
+  }
+
+  // 返回重复的 provider/model 名。仅非空名判重（编辑期的新空节点允许多个共存）。
+  private findDuplicateName(): string | null {
+    const seen = new Set<string>()
+    for (const p of this.config.providers) {
+      if (p.name) {
+        if (seen.has(p.name)) return `provider「${p.name}」`
+        seen.add(p.name)
+      }
+      const models = new Set<string>()
+      for (const m of p.models) {
+        if (m.name) {
+          if (models.has(m.name)) return `model「${m.name}」`
+          models.add(m.name)
+        }
+      }
+    }
+    return null
   }
 
   // config_set 的点号路径约定：
@@ -284,13 +309,11 @@ export class Agent {
   }
 
   // config_remove：'providers' 按 name 删 provider；'providers.<name>.models' 按 name 删 model。
-  private applyConfigRemove(path: string, key: string, match: string): void {
+  private applyConfigRemove(path: string, index: number, providerIndex?: number): void {
     if (path === 'providers') {
-      this.config.providers = this.config.providers.filter((p) => p.name !== match)
-    } else if (path.startsWith('providers.') && path.endsWith('.models')) {
-      const name = path.split('.')[1]!
-      const p = this.providers.get(name)
-      if (p) p.models = p.models.filter((m) => (m as unknown as Record<string, unknown>)[key] !== match)
+      this.config.providers.splice(index, 1)
+    } else if (path === 'models' && providerIndex !== undefined) {
+      this.config.providers[providerIndex]?.models.splice(index, 1)
     } else {
       return
     }

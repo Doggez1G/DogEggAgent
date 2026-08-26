@@ -25,7 +25,7 @@ export type Entry =
 export interface TreeCtx {
   set: (path: string, value: unknown) => void
   add: (path: string, value: unknown) => void
-  remove: (path: string, key: string, match: string) => void
+  remove: (path: string, index: number, providerIndex?: number) => void
 }
 
 const nan = (s: string) => (Number.isFinite(Number(s)) ? Number(s) : 0)
@@ -95,7 +95,7 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): En
         kind: 'goto' as const,
         value: p.baseURL || '（未填 baseURL）',
         subPath: { kind: 'provider', index: i } as ConfigPath,
-        del: () => ctx.remove('providers', 'name', p.name),
+        del: () => ctx.remove('providers', i),
       }))
       entries.push({ label: '＋ 添加 provider', kind: 'action', value: '', run: () => ctx.add('providers', { name: '', protocol: 'openai', baseURL: '', apiKey: '', models: [] }) })
       return entries
@@ -109,7 +109,7 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): En
         { label: 'baseURL', kind: 'scalar', value: p.baseURL, save: (v) => ctx.set(`providers.${p.name}.baseURL`, v) },
         { label: 'apiKey', kind: 'scalar', value: p.apiKey, save: (v) => ctx.set(`providers.${p.name}.apiKey`, v) },
         { label: 'models', kind: 'goto', value: `${p.models.length} 个`, subPath: { kind: 'models', providerIndex: path.index } },
-        { label: '删除此 provider', kind: 'action', value: '', run: () => ctx.remove('providers', 'name', p.name) },
+        { label: '删除此 provider', kind: 'action', value: '', run: () => ctx.remove('providers', path.index) },
       ]
     }
 
@@ -121,7 +121,7 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): En
         kind: 'goto' as const,
         value: `${m.contextWindow} ctx`,
         subPath: { kind: 'model', providerIndex: path.providerIndex, modelIndex: i } as ConfigPath,
-        del: () => ctx.remove(`providers.${p.name}.models`, 'name', m.name),
+        del: () => ctx.remove('models', i, path.providerIndex),
       }))
       entries.push({ label: '＋ 添加 model', kind: 'action', value: '', run: () => ctx.add(`providers.${p.name}.models`, { name: '', contextWindow: 128000, maxOutput: 16384, reasoning: false }) })
       return entries
@@ -137,7 +137,7 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): En
         { label: 'contextWindow', kind: 'scalar', value: String(m.contextWindow), save: (v) => ctx.set(`${base}.contextWindow`, nan(v)) },
         { label: 'maxOutput', kind: 'scalar', value: String(m.maxOutput), save: (v) => ctx.set(`${base}.maxOutput`, nan(v)) },
         { label: 'reasoning', kind: 'bool', value: m.reasoning, save: (v) => ctx.set(`${base}.reasoning`, v) },
-        { label: '删除此 model', kind: 'action', value: '', run: () => ctx.remove(`providers.${p.name}.models`, 'name', m.name) },
+        { label: '删除此 model', kind: 'action', value: '', run: () => ctx.remove('models', path.modelIndex, path.providerIndex) },
       ]
     }
 

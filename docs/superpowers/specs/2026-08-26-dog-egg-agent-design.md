@@ -161,7 +161,7 @@ type UiToAgentMessage =
   | { type: 'config_request' }
   | { type: 'config_set'; path: string; value: unknown }
   | { type: 'config_add'; path: string; value: unknown }
-  | { type: 'config_remove'; path: string; key: string; match: string }
+  | { type: 'config_remove'; path: string; index: number; providerIndex?: number }
   | { type: 'tools_request' }
   | { type: 'context_request' }
   | { type: 'system_request' }
@@ -232,6 +232,7 @@ type UiToAgentMessage =
 - `systemPrompt` 只存文件路径，支持绝对路径、`~` 展开、相对配置文件所在目录。
 - `maxRetries`：LLM 请求失败重试次数（缺省 3），仍失败则报错。
 - `providers` 允许为空、provider/model 的 `name/baseURL/apiKey/models` 在编辑阶段允许暂时为空，以支持 `/config` 树形「自由填字段」；能否对话由 `isConfigured()` 做完整性判定。
+- provider/model 的 `name` **必须唯一**（仅非空名判重，编辑期空名暂允许多个）；删除数组项按 index 定位。
 - 找不到配置文件时 `loadConfig()` 返回空配置（而非抛错），可启动但提问被 `notice` 引导去 `/config`。
 - 配置文件位置：项目内 `.dogegg.json` 优先，否则 `~/.dogegg/config.json`。
 
