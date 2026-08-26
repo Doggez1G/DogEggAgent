@@ -1,0 +1,62 @@
+import type { ProviderAdapter, LlmStreamEvent } from '../types'
+import type { ProviderConfig } from '../../config/schema'
+import { createOpenAiStreamParser } from '../streaming/openai'
+
+// OpenAI 兼容 adapter：原生 fetch + 手写 SSE。systemPrompt 由这里拼进 messages 首位。
+export function openAiAdapter(): ProviderAdapter {
+  async function chat(req: Parameters<ProviderAdapter['chat']>[0], signal: AbortSignal, emit: (e: LlmStreamEvent) => void): Promise<void> {
+    const url = `${req.baseURL.replace(/\/+$/, '')}/chat/completions`
+    const body = {
+      model: req.model,
+      stream: true,
+      messages: [{ role: 'system', content: req.systemPrompt }, ...req.messages],
+      tools: req.tools,
+      max_tokens: req.maxOutput,
+    }
+    let res: Response
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        signal,
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${req.apiKey}` },
+        body: JSON.stringify(body),
+      })
+    } catch (e) {
+      emit({ type: 'error', error: e as Error })
+      return
+    }
+    if (!res.ok || !res.body) {
+      emit({ type: 'error', error: new Error(`HTTP ${res.status}`) })
+      return
+    }
+    const parser = createOpenAiStreamParser()
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buf = ''
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      let nl: number
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trimEnd()
+        buf = buf.slice(nl + 1)
+        for (const e of parser.feed(line)) emit(e)
+      }
+    }
+  }
+  return { chat }
+}
+
+// 多实例 registry：同一协议可配多个 provider，按名字或所含 model 查找。
+export class ProviderRegistry {
+  constructor(private providers: ProviderConfig[]) {}
+
+  get(name: string): ProviderConfig | undefined {
+    return this.providers.find((p) => p.name === name)
+  }
+
+  findByModel(model: string): ProviderConfig | undefined {
+    return this.providers.find((p) => p.models.some((m) => m.name === model))
+  }
+}

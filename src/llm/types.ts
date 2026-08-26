@@ -1,0 +1,24 @@
+import type { Message } from '../events/types'
+
+// LLM 级流事件：provider → agent loop 的底层流，表达「模型吐了什么」。
+export type LlmStreamEvent =
+  | { type: 'text_delta'; text: string }
+  | { type: 'thought_delta'; text: string }
+  | { type: 'tool_call_start'; index: number; id: string; name: string }
+  | { type: 'tool_call_delta'; index: number; argsJsonDelta: string }
+  | { type: 'done'; message: Message }
+  | { type: 'error'; error: Error }
+
+export interface ChatRequest {
+  baseURL: string
+  apiKey: string
+  model: string
+  systemPrompt: string
+  messages: Message[] // 仅 user / assistant / tool 历史；system 由 adapter 自行拼接
+  tools: object[]
+  maxOutput: number
+}
+
+export interface ProviderAdapter {
+  chat(req: ChatRequest, signal: AbortSignal, emit: (e: LlmStreamEvent) => void): Promise<void>
+}
