@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react'
-import { Box, Text, useInput } from 'ink'
+import { Box, Text, useInput, useStdout } from 'ink'
 import TextInput from 'ink-text-input'
 import type { Agent } from '../../agent/index'
 import type { AgentToUiMessage } from '../../events/agent-to-ui'
@@ -43,6 +43,14 @@ const COLOR: Record<keyof typeof ICON, BlockColor> = { user: 'blue', assistant: 
 const DECISIONS: PermissionDecision[] = ['allow_once', 'allow_always', 'reject']
 const DECISION_LABELS = ['允许一次', '始终允许（本次会话）', '拒绝']
 const HELP = '/new /session /model /config /clear /compact /context /tools /system /status /log /help /quit'
+const VERSION = '0.1.0'
+
+// 粗略估算一个消息块占用的终端行数（角色头 1 + 正文换行 + 上下边框 2），用于消息视口的自动滚动裁切。
+function estimateBlockLines(text: string, width: number): number {
+  const lineWidth = Math.max(10, width - 6)
+  const body = text.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / lineWidth)), 0)
+  return body + 3
+}
 
 function flush(state: ChatState): ChatState {
   if (!state.partial) return state
@@ -115,6 +123,7 @@ function reducer(state: ChatState, msg: Action): ChatState {
 }
 
 export function App({ agent }: { agent: Agent }) {
+  const { stdout } = useStdout()
   const [chat, dispatch] = useReducer(reducer, { blocks: [], status: 'idle', partial: null })
   const [view, setViewState] = useState<View>({ kind: 'none' })
   const [input, setInput] = useState('')
@@ -166,7 +175,7 @@ export function App({ agent }: { agent: Agent }) {
   }, [updateConfig, setView])
 
   useEffect(() => {
-    return agent.on((msg) => {
+    const off = agent.on((msg) => {
       dispatch(msg)
       if (msg.type === 'permission_request') {
         setView({ kind: 'permission', id: msg.id, tool: msg.tool, input: msg.input, cursor: 0 })
@@ -176,6 +185,7 @@ export function App({ agent }: { agent: Agent }) {
           onSelect: () => { agent.send({ type: 'resume_session', id: s.id }); setView({ kind: 'none' }) },
         })))
       } else if (msg.type === 'config_state') {
+        updateConfig(msg.config)
         if (configIntent.current === 'model') openModelPicker(msg.config)
         else if (configIntent.current === 'config') openConfigTree(msg.config)
       } else if (msg.type === 'config_updated') {
@@ -183,6 +193,9 @@ export function App({ agent }: { agent: Agent }) {
         updateConfig(msg.config)
       }
     })
+    // 订阅后主动取一次配置，用于顶部品牌头展示当前 provider/model。
+    agent.send({ type: 'config_request' })
+    return off
   }, [agent, openMenu, openModelPicker, openConfigTree, updateConfig, setView])
 
   useInput((inputChar, key) => {
@@ -261,18 +274,47 @@ export function App({ agent }: { agent: Agent }) {
 
   const configEntries = view.kind === 'config' && configSnapshot ? buildEntries(configSnapshot, view.path, treeCtx) : []
 
+  const termWidth = stdout.columns || 80
+  const viewportHeight = Math.max(6, (stdout.rows || 24) - 6)
+  const headerInfo = configSnapshot
+    ? (configSnapshot.defaultProvider ? `${configSnapshot.defaultProvider}/${configSnapshot.defaultModel ?? '?'}` : '未配置 provider（请先 /config）')
+    : '加载配置中…'
+
+  const renderedBlocks = chat.blocks.map((b) => ({
+    ...b,
+    text: (b.icon === ICON.assistant || b.icon === ICON.thinking) ? renderMarkdown(b.text) : b.text,
+  }))
+  // 从后往前累计行数，裁出「消息视口」能放下的那段，实现自动滚到底部。
+  let visibleStart = 0
+  let used = 0
+  for (let i = renderedBlocks.length - 1; i >= 0; i--) {
+    used += estimateBlockLines(renderedBlocks[i]!.text, termWidth)
+    if (used > viewportHeight) { visibleStart = i + 1; break }
+  }
+  const visibleBlocks = renderedBlocks.map((b, i) => ({ ...b, index: i })).slice(visibleStart)
+
   return (
     <Box flexDirection="column" padding={1}>
-      <Box flexDirection="column" flexGrow={1}>
-        {chat.blocks.map((b, i) => {
-          const isMarkdown = b.icon === ICON.assistant || b.icon === ICON.thinking
-          const text = isMarkdown ? renderMarkdown(b.text) : b.text
-          return (
-            <MessageBlock key={i} icon={b.icon} role={b.role} color={b.color}>
-              <Text>{text}</Text>
+      {/* 品牌头（始终显示） */}
+      <Box marginBottom={1}>
+        <Text bold color="blue">🐶🥚 DogEggAgent v{VERSION}</Text>
+        <Text dimColor>  {headerInfo}</Text>
+      </Box>
+
+      {/* 消息视口：专用区域，自动滚到底部 */}
+      <Box flexGrow={1} borderStyle="round" borderColor="gray" flexDirection="column" paddingX={1}>
+        {chat.blocks.length === 0 && !chat.partial ? (
+          <Box flexDirection="column" paddingY={1}>
+            <Text color="cyan">🐶🥚 欢迎使用 DogEggAgent</Text>
+            <Text dimColor>输入任务开始对话，输入 /help 查看命令{configSnapshot && configSnapshot.providers.length === 0 ? '；首次请先 /config 配置 provider' : ''}</Text>
+          </Box>
+        ) : (
+          visibleBlocks.map((b) => (
+            <MessageBlock key={b.index} icon={b.icon} role={b.role} color={b.color}>
+              <Text>{b.text}</Text>
             </MessageBlock>
-          )
-        })}
+          ))
+        )}
         {chat.partial ? (
           <MessageBlock icon={ICON.assistant} role="助手（流式）" color={COLOR.assistant}>
             <Text>{chat.partial.text}</Text>
