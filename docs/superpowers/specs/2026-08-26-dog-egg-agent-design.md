@@ -289,7 +289,7 @@ DogEggAgent/
 │  ├─ config/                # schema.ts / loader.ts
 │  ├─ common/                # utils/（id、token 估算、截断、logger）+ errors.ts（跨域共享）
 │  └─ ui/                    # 前端：只消费/发送 AgentMessage
-│     ├─ tui/                # Ink：MessageList / ToolCall / ToolResult / Input / StatusBar / PermissionPrompt
+│     ├─ tui/                # Ink：MessageList / Input / StatusBar / PermissionPrompt / SessionPicker / ModelPicker / ConfigEditor / InfoPanel
 │     └─ webui/              # 占位（v1 不实现）
 └─ test/                     # 镜像 src/ 的域结构，*.test.ts
    ├─ agent/  llm/  tools/  config/  common/
@@ -331,3 +331,41 @@ DogEggAgent/
 | 配置 | schema 合法/非法样例 |
 | Agent Loop | 注入 fake ProviderAdapter（脚本化返回 tool_calls），不联网 |
 | LLM 重试 | 注入失败 N 次的 fake provider，断言重试后成功 / 超限报错 |
+
+## 13. TUI 界面设计
+
+**架构**：TUI 有独立的「视图态」，叠加在后端 9 态之上；TUI = 后端事件流 + UI 本地视图态的纯函数（Ink 渲染）。视图态：`chat`（默认）、`permission`（弹层）、`session` / `model`（选择器）、`config`（编辑器）、`info`（只读面板）。
+
+**布局**：
+
+```
+消息列表（可滚动，占大部分）
+状态栏：⏺ responding · openai/gpt-4o · #3f2a · 12k/128k
+输入框：› ▌
+```
+
+**组件与交互**：
+
+| 组件 | 说明 | 键位 |
+|---|---|---|
+| 消息列表 | 用户 `▸`；助手 markdown（`marked`+`marked-terminal`）；流式 `text_delta` 实时追加；`thought_delta` 默认折叠淡显；工具调用/结果默认折叠（展开看 input/output，超长截断） | — |
+| 输入框 | 多行缓冲 | `Enter` 发送 / `Shift+Enter` 换行 / `↑↓` 历史 / `/` 命令补全 |
+| 状态栏 | `state 图标 · provider/model · #sessionId · tokens/window`，state 来自后端 `state` 事件 | — |
+| 权限弹层 | 三行列表：允许一次 / 始终允许 / 拒绝 | `↑↓` 选、`Enter` 确认、`Esc` 拒绝 → `permission_decision` |
+| 会话选择器 | 列 session，选一个恢复 | `↑↓` 选、`Enter` 确认、`Esc` 返回 |
+| 模型选择器 | provider → model 两级 | 同上 |
+| 配置编辑器 | 字段类型驱动的 6 种编辑动作 | 见下 |
+| 信息面板 | /context /tools /system /status /log /help，只读 | `Esc` 关闭 |
+
+**配置编辑器**：根据光标所在字段类型选择编辑动作：
+
+| 动作 | 字段 | 键位 |
+|---|---|---|
+| `drill` 钻入 | 对象/数组（providers、permission、models） | `→`/`Enter` |
+| `text-input` | systemPrompt、baseURL、apiKey、name | 输入 + `Enter` |
+| `number-input` | maxIterations、maxRetries、contextWindow、maxOutput | 输入 + `Enter` |
+| `enum-cycle` | protocol、reasoning | `←→` |
+| `select-from-list` | defaultProvider、defaultModel | `↑↓` + `Enter` |
+| `toggle-set` | permission 三桶工具名 | 空格勾选 + `Enter` |
+
+通用导航：`↑↓` 字段移动、`→`/`Enter` 进入、`←`/`Esc` 返回；列表内 `d` 删、`a` 增。每个动作最终翻译成 `config_set` / `config_add` / `config_remove`（path 由 UI 依光标位置算出，用户不手打）。
