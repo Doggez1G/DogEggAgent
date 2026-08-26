@@ -4,9 +4,9 @@ import type { Message, PermissionDecision, State } from '../events/types'
 import { getAllTools } from '../tools/registry'
 import { ProviderRegistry, openAiAdapter } from '../llm/provider/openai'
 import { PermissionManager } from './permission'
-import { loadSystemPrompt, estimateContextTokens } from './context'
+import { loadSystemPrompt, estimateContextTokens, splitForCompaction } from './context'
 import { saveSession, loadSession, listSessions } from './session'
-import { runLoop } from './loop'
+import { runLoop, summarizeHistory } from './loop'
 import { configSchema, type Config, type ProviderConfig, type ModelConfig } from '../config/schema'
 import { saveConfig } from '../config/loader'
 import { newId } from '../common/utils/id'
@@ -52,6 +52,24 @@ export class Agent {
 
   private estimateCurrentTokens(): number {
     return estimateContextTokens(loadSystemPrompt(this.config.systemPrompt), this.history, getAllTools().map((t) => t.parameters))
+  }
+
+  // 手工触发压缩（/compact）：复用与自动压缩相同的总结逻辑，压最旧历史为摘要 + 保留最近 4 条。
+  private async compactNow(): Promise<void> {
+    const provider = this.providers.get(this.config.defaultProvider!)!
+    const model = this.currentModel()
+    const params = getAllTools().map((t) => t.parameters)
+    const system = loadSystemPrompt(this.config.systemPrompt)
+    const before = estimateContextTokens(system, this.history, params)
+    const { old, fresh } = splitForCompaction(this.history)
+    if (old.length === 0) {
+      this.emit({ type: 'compaction', before_tokens: before, after_tokens: before })
+      return
+    }
+    const summary = await summarizeHistory({ adapter: openAiAdapter(), providerBaseURL: provider.baseURL, apiKey: provider.apiKey, model: model.name }, old)
+    this.history = [{ role: 'user', content: `[前文摘要]\n${summary}` }, ...fresh]
+    saveSession(this.sessionId, this.history)
+    this.emit({ type: 'compaction', before_tokens: before, after_tokens: estimateContextTokens(system, this.history, params) })
   }
 
   // 向 UI 提出权限请求，返回一个在收到 permission_decision 时才决议的 Promise。
@@ -156,7 +174,7 @@ export class Agent {
         this.emit({ type: 'history_cleared' })
         break
       case 'compact_request':
-        this.emit({ type: 'compaction', before_tokens: 0, after_tokens: 0 })
+        await this.compactNow()
         break
       case 'log_request':
         this.emit({ type: 'log_state', path: '~/.dogegg/logs/latest.log', tail: '' })

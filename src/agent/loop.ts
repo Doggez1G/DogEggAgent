@@ -29,7 +29,11 @@ export interface LoopDeps {
 
 // 用同一 adapter 做一次「离线」总结，把最旧的历史压成一段中文摘要。
 // 摘要是压缩后的替代，不含 tool_calls，故 tools 传空、maxOutput 控制长度。
-async function summarizeHistory(deps: LoopDeps, old: Message[]): Promise<string> {
+// 导出以便手工 /compact 也能复用同一套总结逻辑。
+export async function summarizeHistory(
+  deps: { adapter: ProviderAdapter; providerBaseURL: string; apiKey: string; model: string },
+  old: Message[],
+): Promise<string> {
   const assistant = await deps.adapter.chat(
     {
       baseURL: deps.providerBaseURL,

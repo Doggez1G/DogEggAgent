@@ -23,4 +23,10 @@ DogEggAgent 是一个自研的**代码编辑型 agent**，第一目标是学习�
 
 ## 构建 / 测试
 
-项目尚未脚手架化（无 `package.json`、构建与测试脚本）。待建立后在此补充常用命令（build / lint / test，含单测运行方式）。
+- `npm install`：安装依赖
+- `npm run typecheck`：TypeScript 类型检查（`tsc --noEmit`）
+- `npm run test:run`（或 `npm test`）：Vitest 跑测试
+- `npm run build`：esbuild 打包到 `dist/index.js`（node_modules 保持 external）
+- `npm run start`：`node dist/index.js`；`npm run dev` = build + start
+
+> 说明：TUI 用 Ink v7，其依赖 `yoga-layout` 含 top-level await，`tsx` 的 CJS 转换会报错；故运行改用 esbuild 打包（`--format=esm --packages=external`）+ node 原生运行，非 `tsx`。
