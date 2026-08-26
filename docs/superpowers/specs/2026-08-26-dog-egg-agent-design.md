@@ -541,3 +541,50 @@ DogEggAgent/
 ----------------------------------------------
   esc 关闭
 ```
+
+## 14. 视觉设计系统
+
+**主题**：Catppuccin Mocha（暗色）。图标用**基础 Unicode**（未依赖 Nerd Font）。
+
+**原则**：克制用色；层级靠 bold / dim / accent 建立；状态色语义化且低饱和；同类信息同色同字形；面板用**圆角线框**分隔。
+
+**色彩角色**：
+
+| 角色 | 色值 | ANSI | 用途 |
+|---|---|---|---|
+| 背景 | `#1e1e2e` | — | 终端底色 |
+| 正文 | `#cdd6f4` | default | 助手回答、普通文本 |
+| 次要 | `#6c7086` | dim | 时间戳、路径、面板边框、meta |
+| accent | `#89b4fa` | blue | 光标、选中项、活动元素、输入框 |
+| 成功 | `#a6e3a1` | green | `finished`、工具 ✓ |
+| 等待 | `#f9e2af` | yellow | `waiting_permission`、reasoning |
+| 工具 | `#94e2d5` | cyan | `executing` 的 `⚙` + spinner |
+| 错误 | `#f38ba8` | red | `error`、✕ |
+
+**状态 → 颜色/图标**：
+
+| 状态 | 颜色 | 指示 |
+|---|---|---|
+| `idle` | dim | `○` |
+| `thinking` | yellow | `◐`（转动） |
+| `responding` | accent | `●` 闪烁 |
+| `tool_calling` / `executing` | cyan | `⚙` + spinner |
+| `waiting_permission` | yellow | `⚠` |
+| `finished` | green | `✓` |
+| `cancelled` | dim | `○` |
+| `error` | red | `✕` |
+
+**字形层次**：用户 `▸` bold + accent；助手正文 default、reasoning 折叠后 dim；工具 `⚙` cyan + dim 摘要；当前选中项反色（inverse）；面板圆角 dim 边框、标题 bold accent。
+
+**组件**：状态栏表面色底 + 彩色状态点 + bold；输入框 accent `›` 前缀、聚焦时下划线；进度条 accent 填充 + dim 底；动效（流式光标闪烁、spinner 转动）。
+
+**标注示例**（注释即 ANSI 色）：
+
+```text
+┌─ 消息列表 ────────────────────────────────┐   dim 圆角框
+│  > 帮我修登录 bug                          │   bold + accent
+│  ⚙ read_file src/auth.ts      ✓           │   cyan + dim + green，✓ 绿
+└───────────────────────────────────────────┘
+● responding · openai/gpt-4o · #3f2a · 12k/128k   状态栏，表面色底，● accent
+> ▌                                                accent 输入光标
+```
