@@ -61,10 +61,15 @@ function reducer(state: ChatState, msg: Action): ChatState {
       return { ...state, blocks: [...state.blocks, { icon: ICON.user, role: '你', color: COLOR.user, text: msg.text }] }
     case 'local_help':
       return infoBlock(state, '帮助', HELP)
-    case 'text_delta':
-      return { ...state, status: 'responding', partial: { kind: 'assistant', text: (state.partial?.text ?? '') + msg.delta } }
-    case 'thought_delta':
-      return { ...state, status: 'thinking', partial: { kind: 'thinking', text: (state.partial?.text ?? '') + msg.delta } }
+    case 'text_delta': {
+      // 推理模型的思考与回答是两种块：轮到 text_delta 时，若有未落盘的思考块，先 flush 再开新回答块。
+      const base = state.partial?.kind === 'thinking' ? flush(state) : state
+      return { ...base, status: 'responding', partial: { kind: 'assistant', text: (base.partial?.text ?? '') + msg.delta } }
+    }
+    case 'thought_delta': {
+      const base = state.partial?.kind === 'assistant' ? flush(state) : state
+      return { ...base, status: 'thinking', partial: { kind: 'thinking', text: (base.partial?.text ?? '') + msg.delta } }
+    }
     case 'message':
       return msg.role === 'assistant' ? flush(state) : state
     case 'tool_start': {

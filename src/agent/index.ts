@@ -27,12 +27,15 @@ export class Agent {
   private cancelled = false
   private running = false
   private state: State = 'idle'
+  private controller: AbortController | null = null
+  private lastGoodConfig: string
   private providers: ProviderRegistry
   private permission: PermissionManager
 
   constructor(private config: Config, private cwd: string) {
     this.providers = new ProviderRegistry(config.providers)
     this.permission = new PermissionManager(config.permission)
+    this.lastGoodConfig = JSON.stringify(config)
   }
 
   on(listener: (m: AgentToUiMessage) => void): () => void {
@@ -86,6 +89,7 @@ export class Agent {
       case 'submit': {
         if (this.running) return
         this.cancelled = false
+        this.controller = new AbortController()
         this.running = true
         this.history.push({ role: 'user', content: cmd.text })
         this.emit({ type: 'message', role: 'user', id: '' })
@@ -106,6 +110,7 @@ export class Agent {
             maxIterations: this.config.maxIterations,
             permission: this.permission,
             cwd: this.cwd,
+            signal: this.controller.signal,
             emit: (e) => this.emit(e),
             requestPermission: (tool, input) => this.requestPermission(tool, input),
             checkCancelled: () => this.cancelled,
@@ -121,7 +126,8 @@ export class Agent {
       }
       case 'cancel': {
         this.cancelled = true
-        // 挂在等待中的权限请求全部拒绝，让 loop 立刻以 CancelledError 退出，避免悬挂。
+        this.controller?.abort()
+        // 挂起中的权限请求全部拒绝，让 loop 立刻以 CancelledError 退出，避免悬挂。
         for (const [, p] of this.pending) p.reject(new CancelledError())
         this.pending.clear()
         break
@@ -193,9 +199,16 @@ export class Agent {
     }
   }
 
-  // 配置编辑后统一：重新用 zod 校验（保证工程正确性）→ 重建 provider/permission 运行时 → 落盘 → 通知 UI。
+  // 配置编辑后统一：先重校验，无效则回滚到最后一次合法快照并报错，避免半写坏状态；有效则重建运行时并落盘。
   private afterConfigEdit(): void {
-    this.config = configSchema.parse(this.config)
+    const parsed = configSchema.safeParse(this.config)
+    if (!parsed.success) {
+      this.config = JSON.parse(this.lastGoodConfig)
+      this.emit({ type: 'error', error: new Error('配置校验失败，已回滚：' + parsed.error.issues[0]?.message) })
+      return
+    }
+    this.config = parsed.data
+    this.lastGoodConfig = JSON.stringify(this.config)
     this.providers = new ProviderRegistry(this.config.providers)
     this.permission = new PermissionManager(this.config.permission)
     saveConfig(this.config)

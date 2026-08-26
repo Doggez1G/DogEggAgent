@@ -22,6 +22,7 @@ export interface LoopDeps {
   maxIterations: number
   permission: PermissionManager
   cwd: string
+  signal: AbortSignal
   emit: (e: AgentToUiMessage) => void
   requestPermission: (tool: string, input: unknown) => Promise<PermissionDecision>
   checkCancelled: () => boolean
@@ -74,24 +75,31 @@ export async function runLoop(deps: LoopDeps): Promise<Message[]> {
       }
     }
 
-    const signal = new AbortController().signal
-    const assistant = await deps.adapter.chat(
-      {
-        baseURL: deps.providerBaseURL,
-        apiKey: deps.apiKey,
-        model: deps.model,
-        systemPrompt: deps.systemPrompt,
-        messages,
-        tools: deps.tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } })),
-        maxOutput: deps.maxOutput,
-        maxRetries: deps.maxRetries,
-      },
-      signal,
-      (e) => {
-        if (e.type === 'text_delta') deps.emit({ type: 'text_delta', delta: e.text })
-        else if (e.type === 'thought_delta') deps.emit({ type: 'thought_delta', delta: e.text })
-      },
-    )
+    // 用外部传入的 signal（由 Agent 持有，cancel 时 abort），使取消能真正中断在飞的 fetch 与工具。
+    let assistant: Message
+    try {
+      assistant = await deps.adapter.chat(
+        {
+          baseURL: deps.providerBaseURL,
+          apiKey: deps.apiKey,
+          model: deps.model,
+          systemPrompt: deps.systemPrompt,
+          messages,
+          tools: deps.tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } })),
+          maxOutput: deps.maxOutput,
+          maxRetries: deps.maxRetries,
+        },
+        deps.signal,
+        (e) => {
+          if (e.type === 'text_delta') deps.emit({ type: 'text_delta', delta: e.text })
+          else if (e.type === 'thought_delta') deps.emit({ type: 'thought_delta', delta: e.text })
+        },
+      )
+    } catch (e) {
+      // 取消引发的 AbortError 应视为取消而非错误，统一转成 CancelledError 上抛。
+      if ((e as Error).name === 'AbortError') throw new CancelledError()
+      throw e
+    }
 
     if (assistant.role !== 'assistant') throw new Error('模型未返回 assistant 消息')
     messages.push(assistant)
@@ -141,7 +149,7 @@ export async function runLoop(deps: LoopDeps): Promise<Message[]> {
 
       deps.emit({ type: 'state', from: 'waiting_permission', to: 'executing' })
       deps.emit({ type: 'tool_start', id: call.id, name: tool.name, input: args })
-      const result = await tool.execute(args, { cwd: deps.cwd, signal })
+      const result = await tool.execute(args, { cwd: deps.cwd, signal: deps.signal })
       const content = 'content' in result ? truncate(result.content) : `ERROR: ${result.error}`
       deps.emit({ type: 'tool_end', id: call.id, name: tool.name, output: content, error: 'error' in result ? result.error : undefined })
       messages.push({ role: 'tool', tool_call_id: call.id, content })

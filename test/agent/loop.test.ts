@@ -50,6 +50,7 @@ describe('runLoop', () => {
       tools: [readFileTool], systemPrompt: 's', windowTokens: 100000, maxIterations: 10,
       permission: new PermissionManager({ allow: ['read_file'], reject: [], ask: [] }),
       cwd: dir,
+      signal: new AbortController().signal,
       emit: (e) => events.push(e),
       requestPermission: async () => 'allow_once',
       checkCancelled: () => false,
