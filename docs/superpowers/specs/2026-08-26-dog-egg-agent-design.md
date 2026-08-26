@@ -14,19 +14,21 @@ DogEggAgent 是一个自研的 **code agent** 工具。第一目标是**学习�
 | 语言/运行时 | TypeScript / Node.js **≥ 20**（依赖内置全局 `fetch`，不依赖 Bun） |
 | 交互 | TUI（Ink）；`webui` 仅占位，v1 不实现 |
 
-## 2. 第一原则：Agent Core 与 UI 解耦
+## 2. 第一原则：后端与前端解耦
 
-Agent Core 与 UI **完全解耦**，所有重要的 Agent 行为都通过 **Event** 表达。
+**后端**（agent 核心及其依赖的 llm / tools / session / permission 等）与**前端**（ui：tui / webui）**完全解耦**，所有重要的后端行为都通过 **Event** 表达。
+
+`agent/` 与 `ui/` 这两个目录只是「后端」与「前端」两大部分的代称——边界不在字面的这两个文件夹，而在「后端逻辑」与「前端展示」之间。
 
 实现方式：
 - `events/` 是唯一的解耦契约（纯类型：`AgentEvent` 与 `AgentCommand`）。
-- `agent` 不 import `ui`，`ui` 不 import `agent`。
+- 后端不 import 前端，前端不 import 后端。
 - 两者仅在 `main/bootstrap.ts`（组合根）中通过事件/命令对接。
 
 事件分两层，职责不同，不可混淆：
 
 1. **LLM 级 StreamEvent**（`llm/types.ts`）：provider → agent loop 的流，表达「模型吐了什么」。
-2. **Agent 级事件/命令**（`events/`）：core ↔ ui，表达「agent 在做什么」。
+2. **Agent 级事件/命令**（`events/`）：后端 ↔ 前端，表达「agent 在做什么」。
 
 ## 3. 需求清单
 
@@ -198,7 +200,7 @@ DogEggAgent/
 │  ├─ events/
 │  │  ├─ agent-events.ts     # AgentEvent 联合类型
 │  │  └─ agent-commands.ts   # AgentCommand 联合类型
-│  ├─ agent/                 # Agent Core（不 import ui）
+│  ├─ agent/                 # Agent Core（后端核心）
 │  │  ├─ index.ts            # Agent 类：emit 事件 / 收命令
 │  │  ├─ loop/               # 循环编排
 │  │  ├─ state/              # 9 态 + transition() 纯函数
@@ -206,17 +208,17 @@ DogEggAgent/
 │  │  ├─ context/            # system prompt 组装 / 窗口预算 / Compaction
 │  │  ├─ session/            # ID / JSON 持久化 / Resume
 │  │  └─ permission/         # 三桶分类 + 运行时决策
-│  ├─ llm/                   # 不依赖 agent/tools/ui
+│  ├─ llm/                   # LLM 接入
 │  │  ├─ types.ts            # ChatRequest / LLM StreamEvent / ProviderAdapter
 │  │  ├─ provider/           # OpenAIAdapter + ProviderRegistry（多实例）
 │  │  └─ streaming/          # SSE → StreamEvent（含 reasoning_content → thought_delta）
-│  ├─ tools/                 # 不依赖 agent/llm
+│  ├─ tools/                 # 工具
 │  │  ├─ types.ts            # Tool 接口
 │  │  ├─ registry.ts
 │  │  └─ read_file/ write_file/ edit_file/ shell/ grep/ glob/
 │  ├─ config/                # schema.ts / loader.ts
 │  ├─ common/                # utils/ + errors.ts（跨域共享）
-│  └─ ui/                    # 不 import agent，只消费 events、发 commands
+│  └─ ui/                    # 前端：只消费 events、发 commands
 │     ├─ tui/                # Ink：MessageList / ToolCall / ToolResult / Input / StatusBar / PermissionPrompt
 │     └─ webui/              # 占位（v1 不实现）
 └─ test/                     # 镜像 src/ 的域结构，*.test.ts
@@ -225,7 +227,7 @@ DogEggAgent/
 
 **依赖约束（唯一硬约束）**：
 
-- `agent` 与 `ui` 互不 import，仅通过 `events/` 的事件/命令关联。这是解耦原则的实体化。
+- 后端与前端互不 import，仅通过 `events/` 的事件/命令关联。这是解耦原则的实体化。
 - 除此之外，各域之间谁依赖谁属于实现细节，不在本文档中钉死为规范。
 
 ## 10. 技术选型
