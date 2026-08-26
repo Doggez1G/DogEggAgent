@@ -21,15 +21,15 @@ DogEggAgent 是一个自研的 **code agent** 工具。第一目标是**学习�
 `agent/` 与 `ui/` 这两个目录只是「后端」与「前端」两大部分的代称——边界不在字面的这两个文件夹，而在「后端逻辑」与「前端展示」之间。
 
 实现方式：
-- `events/` 是唯一的解耦契约（纯类型：单一 `AgentMessage` 联合类型，见 §6）。
+- `events/` 是唯一的解耦契约（纯类型：按方向拆成两套消息类型 `AgentToUiMessage` / `UiToAgentMessage`，见 §6）。
 - 后端不 import 前端，前端不 import 后端。
 - 两者仅在 `main/bootstrap.ts`（组合根）中通过消息对接。
-- 消息类型是**传输无关**的单一事实源：v1 同进程内用 EventEmitter 投递；将来 WebUI 加 SSE 传输层，复用同一套消息类型，不必推倒重来。
+- 两类消息都是**传输无关**的单一事实源：v1 同进程内用 EventEmitter 投递；将来 WebUI 加 SSE 传输层，复用同一套消息类型，不必推倒重来。
 
 消息分两层，职责不同，不可混淆：
 
 1. **LLM 级 StreamEvent**（`llm/types.ts`）：provider → agent loop 的流，表达「模型吐了什么」。
-2. **Agent 级消息**（`events/`）：后端 ↔ 前端，双向共用同一 union，表达「agent 在做什么」与「前端请求后端做什么」。
+2. **Agent 级消息**（`events/`）：后端 ↔ 前端，按方向分成 `out`（后端→前端）与 `in`（前端→后端）两套 union。
 
 ## 3. 需求清单
 
@@ -45,11 +45,18 @@ DogEggAgent 是一个自研的 **code agent** 工具。第一目标是**学习�
 | 8 | Agent State | 9 态状态机（见 §4） |
 | 9 | Event System | 见 §2 |
 | 10 | Permission | 配置 `allow/reject/ask` 三桶 + 运行时 `allow_once/allow_always/reject`（见 §5） |
-| 11 | Session | Session ID / 消息持久化 / Resume / History；JSON：`~/.dogegg/sessions/<id>.json`；REPL 斜杠命令 `/new`、`/resume <id>`、`/sessions` 管理 |
+| 11 | Session | Session ID / 消息持久化 / Resume / History；JSON：`~/.dogegg/sessions/<id>.json`；REPL 斜杠命令 `/new`、`/session`（列会话并选择切换）管理 |
 | 12 | Context Compaction | LLM 把旧历史压成 summary；触发 80% 窗口、保留最近 4 条原文 |
 | 13 | UI | Message List / Markdown / Tool Call / Tool Result / Input / Status Bar / Streaming |
 
 - **Reasoning**：v1 要接入推理模型，思考内容走独立 `thought_delta` 事件，按 OpenAI 官方标准字段解析。⚠️ 具体字段名（`reasoning_content` 等）在实现时对照 OpenAI 当前文档确认，不在此写死。
+
+**运行时行为（增补）**：
+
+- **cwd**：以启动 agent 时所在目录为工作目录；无 CLI 参数、无配置项。
+- **运行时切换 provider/model**：通过 `/config` 斜杠命令交互式选择。
+- **LLM 错误重试**：请求失败自动重试 `maxRetries` 次（缺省 3），仍失败则报错给 UI。
+- **CLI 参数**：v1 无（一切通过 REPL 斜杠命令）。
 
 ## 4. 状态机（9 态）
 
@@ -114,11 +121,11 @@ text_delta / thought_delta / tool_call_start / tool_call_delta / tool_call_end /
 
 其中 `thought_delta` 承载 reasoning 内容，`text_delta` 承载答案文本，UI 可据此把「思考」与「回答」分开展示。这是后端内部更底层的一层。
 
-**Agent 级消息**（`events/`，后端 ↔ 前端）：单一 `AgentMessage` 联合类型，**双向共用**，不拆「事件」「命令」两套类型。方向只作注释；`out` = 后端 → 前端，`in` = 前端 → 后端。将来接 SSE 时，序列化/反序列化的正是下面这个 union。
+**Agent 级消息**（`events/`，后端 ↔ 前端）：按方向拆成两套 union，便于维护；两套都是「消息」，不是「事件 vs 命令」。将来接 SSE 时，序列化/反序列化的正是这两套类型。
 
 ```ts
-type AgentMessage =
-  // out: 后端 → 前端
+// out: 后端 → 前端
+type AgentToUiMessage =
   | { type: 'state'; from: State; to: State }
   | { type: 'text_delta'; delta: string }
   | { type: 'thought_delta'; delta: string }
@@ -128,21 +135,35 @@ type AgentMessage =
   | { type: 'permission_request'; id: string; tool: string; input: unknown }
   | { type: 'session_ready'; id: string; messages: Message[] }
   | { type: 'session_list'; sessions: { id: string; updatedAt: string; preview: string }[] }
+  | { type: 'config_state'; providers: { name: string; models: string[] }[]; currentProvider: string; currentModel: string }
+  | { type: 'config_updated'; provider: string; model: string }
   | { type: 'compaction'; before_tokens: number; after_tokens: number }
   | { type: 'finished'; usage?: unknown }
   | { type: 'error'; error: Error }
-  // in: 前端 → 后端
+
+// in: 前端 → 后端
+type UiToAgentMessage =
   | { type: 'submit'; text: string }
   | { type: 'permission_decision'; id: string; decision: 'allow_once' | 'allow_always' | 'reject' }
   | { type: 'cancel' }
   | { type: 'new_session' }
-  | { type: 'resume_session'; id: string }
   | { type: 'list_sessions' }
+  | { type: 'resume_session'; id: string }
+  | { type: 'config_request' }
+  | { type: 'config_set'; provider?: string; model?: string }
 ```
 
 要点：
-- `permission_request` 与 `permission_decision` 通过 `id` 配对；原 `permission` 命令改名为 `permission_decision` 以免与 request 冲突。
-- `new_session` / `resume_session` / `list_sessions` 是 REPL 斜杠命令（`/new`、`/resume <id>`、`/sessions`）翻译来的后端消息；`session_list` 是 `list_sessions` 的回包。
+- `permission_request`（out）与 `permission_decision`（in）通过 `id` 配对。
+- `resume_session.id`、`config_set.provider/model` 的取值**来自 UI 侧选择器**，不是用户手打参数。
+
+**斜杠命令（REPL）**：
+
+| 命令 | 作用 | 触发的消息 |
+|---|---|---|
+| `/new` | 新建会话 | `new_session` → `session_ready` |
+| `/session` | 列出会话并选择切换 | `list_sessions` → `session_list` → 用户选 → `resume_session { id }` → `session_ready` |
+| `/config` | 展示并切换 provider/model | `config_request` → `config_state` → 用户选 → `config_set { ... }` → `config_updated` |
 
 ## 7. 配置 schema
 
@@ -152,8 +173,9 @@ type AgentMessage =
   "defaultProvider": "openai",
   "defaultModel": "gpt-4o",
   "maxIterations": 50,
+  "maxRetries": 3,
   "permission": {
-    "allow": ["read_file", "grep", "glob"],
+    "allow": ["read_file"],
     "reject": [],
     "ask": ["write_file", "edit_file", "shell"]
   },
@@ -178,9 +200,10 @@ type AgentMessage =
 - `reasoning` 布尔标记该模型是否为推理模型（缺省 `false`），驱动 `thinking` 态与 `thought_delta` 事件。
 - 同一协议可配置多个 provider 实例（例如多个 OpenAI 兼容端点），每个实例独立 `name/baseURL/apiKey/models`。v1 只实现 `protocol: "openai"`，架构预留多协议。
 - `systemPrompt` 只存文件路径，支持绝对路径、`~` 展开、相对配置文件所在目录。
+- `maxRetries`：LLM 请求失败重试次数（缺省 3），仍失败则报错。
 - 配置文件位置：项目内 `.dogegg.json` 优先，否则 `~/.dogegg/config.json`。
 
-## 8. 工具清单（6 个，snake_case）
+## 8. 工具清单（4 个，snake_case）
 
 | 工具 | 说明 |
 |---|---|
@@ -188,8 +211,6 @@ type AgentMessage =
 | `write_file` | 整文件覆写/创建 |
 | `edit_file` | old_string → new_string 精准替换（code agent 核心） |
 | `shell` | 执行 shell 命令（解释器可配），捕获 stdout/stderr/exit code，返回可 kill 进程句柄 |
-| `grep` | 内容搜索 |
-| `glob` | 文件名/路径匹配 |
 
 工具契约：
 
@@ -219,7 +240,8 @@ DogEggAgent/
 │  │  ├─ index.ts            # 进程入口（package.json bin 指向此处）
 │  │  └─ bootstrap.ts        # 组合根：后端消息 ↔ 前端渲染接线
 │  ├─ events/
-│  │  └─ agent-messages.ts   # AgentMessage 联合类型（双向，单一事实源）
+│  │  ├─ agent-to-ui.ts      # AgentToUiMessage 联合类型（后端 → 前端）
+│  │  └─ ui-to-agent.ts      # UiToAgentMessage 联合类型（前端 → 后端）
 │  ├─ agent/                 # Agent Core（后端核心）
 │  │  ├─ index.ts            # Agent 类：emit 消息 / 收消息
 │  │  ├─ loop/               # 循环编排
@@ -235,7 +257,7 @@ DogEggAgent/
 │  ├─ tools/                 # 工具
 │  │  ├─ types.ts            # Tool 接口
 │  │  ├─ registry.ts
-│  │  └─ read_file/ write_file/ edit_file/ shell/ grep/ glob/
+│  │  └─ read_file/ write_file/ edit_file/ shell/
 │  ├─ config/                # schema.ts / loader.ts
 │  ├─ common/                # utils/ + errors.ts（跨域共享）
 │  └─ ui/                    # 前端：只消费/发送 AgentMessage
@@ -247,7 +269,7 @@ DogEggAgent/
 
 **依赖约束（唯一硬约束）**：
 
-- 后端与前端互不 import，仅通过 `events/` 的单一消息联合类型关联。这是解耦原则的实体化。
+- 后端与前端互不 import，仅通过 `events/` 的消息类型关联。这是解耦原则的实体化。
 - 除此之外，各域之间谁依赖谁属于实现细节，不在本文档中钉死为规范。
 
 ## 10. 技术选型
@@ -258,6 +280,7 @@ DogEggAgent/
 | 校验 | **zod**（配置 + 工具参数 + 消息结构，全部） |
 | 持久化 | JSON 文件 |
 | TUI | Ink（`ink` + `ink-text-input`） |
+| Markdown 渲染 | `marked` + `marked-terminal`（成熟现成，不自研） |
 | 测试 | Vitest |
 
 ## 11. 非目标（v1 不做）
@@ -266,6 +289,7 @@ DogEggAgent/
 - 会话切换多后端（仅 JSON）
 - MCP、子 agent、规划模型
 - OpenAI 以外的协议实现（架构预留多协议，v1 只实现 OpenAI）
+- `grep` / `glob` 工具（v1 砍掉，后续再加）
 - 精确 token 计数（用粗略估算；Compaction 阈值也用估算）
 
 ## 12. 测试策略
@@ -273,7 +297,8 @@ DogEggAgent/
 | 范围 | 方式 |
 |---|---|
 | LLM 流式解析器 | 喂 mock SSE，断言归一化事件（含 tool_call 参数分片拼接、reasoning→thought_delta） |
-| 工具 | 临时目录实测 read/write/edit/grep/glob/shell 的边界 |
+| 工具 | 临时目录实测 read/write/edit/shell 的边界 |
 | 权限 | 三桶分类 + 运行时四决策 |
 | 配置 | schema 合法/非法样例 |
 | Agent Loop | 注入 fake ProviderAdapter（脚本化返回 tool_calls），不联网 |
+| LLM 重试 | 注入失败 N 次的 fake provider，断言重试后成功 / 超限报错 |
