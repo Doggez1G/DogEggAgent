@@ -24,7 +24,9 @@ export function App({ port }: { port: UiPort }) {
   const [scroll, setScroll] = useState(0)
   const [browse, setBrowse] = useState<number | null>(null)
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
-  const [suggestCursor, setSuggestCursor] = useState<number | null>(null) // 联想提示选中索引（null=未选中）
+  const [suggestCursor, setSuggestCursorState] = useState<number | null>(null) // 联想提示选中索引（null=未选中）
+  const suggestCursorRef = useRef<number | null>(null) // 镜像供 handleSubmit 读取（闭包防过期）
+  const setSuggestCursor = useCallback((c: number | null) => { suggestCursorRef.current = c; setSuggestCursorState(c) }, [])
   // view/config 用 ref 镜像，避免 Ink useInput 回调闭包过期（useState 在回调里拿到的是旧值）。
   const viewRef = useRef<View>(view)
   const configRef = useRef<Config | null>(null)
@@ -164,25 +166,18 @@ export function App({ port }: { port: UiPort }) {
       }
     } else if (v.kind === 'none') {
       // 斜杠命令联想提示：输入以 / 开头且有匹配时，↑↓ 选择、回车/Tab 补全。
+      // 回车补全由 handleSubmit 拦截（TextInput 的 onSubmit 先于 useInput 触发），这里只处理 ↑↓ 和 Tab。
       const matches = matchCommands(input)
       if (matches.length > 0) {
-        if (key.upArrow) { setSuggestCursor((c) => c === null ? matches.length - 1 : (c - 1 + matches.length) % matches.length); return }
-        if (key.downArrow) { setSuggestCursor((c) => c === null ? 0 : (c + 1) % matches.length); return }
+        if (key.upArrow) { setSuggestCursor(suggestCursorRef.current === null ? matches.length - 1 : (suggestCursorRef.current - 1 + matches.length) % matches.length); return }
+        if (key.downArrow) { setSuggestCursor(suggestCursorRef.current === null ? 0 : (suggestCursorRef.current + 1) % matches.length); return }
         // Tab 补全：选中项或唯一匹配。inputChar === '\t' 兜底 key.tab 不可靠的情况。
-        if ((key.tab || inputChar === '\t')) {
-          const idx = suggestCursor ?? (matches.length === 1 ? 0 : null)
+        if (key.tab || inputChar === '\t') {
+          const idx = suggestCursorRef.current ?? (matches.length === 1 ? 0 : null)
           if (idx !== null) {
             setInput(matches[idx]!.cmd)
             setSuggestCursor(null)
           }
-          return
-        }
-        // 回车补全：选中项补全到输入框，不直接运行——吞掉这次回车避免 TextInput 的 onSubmit 触发 handleSubmit。
-        if (key.return && suggestCursor !== null) {
-          suppressEnterRef.current = true
-          queueMicrotask(() => { suppressEnterRef.current = false })
-          setInput(matches[suggestCursor]!.cmd)
-          setSuggestCursor(null)
           return
         }
         if (key.escape) { setSuggestCursor(null); return }
@@ -216,6 +211,14 @@ export function App({ port }: { port: UiPort }) {
   })
 
   const handleSubmit = (raw: string) => {
+    // 联想补全拦截：有联想匹配且选中了项时，回车补全到输入框而非提交。
+    // 用 ref 读 suggestCursor 防闭包过期；handleSubmit 由 TextInput 的 onSubmit 触发，可能先于 useInput。
+    const matches = matchCommands(raw)
+    if (matches.length > 0 && suggestCursorRef.current !== null) {
+      setInput(matches[suggestCursorRef.current]!.cmd)
+      setSuggestCursor(null)
+      return
+    }
     const result = parseCommand(raw)
     if (result.kind === 'user' && !result.text) return
     setScroll(0)
@@ -357,7 +360,7 @@ export function App({ port }: { port: UiPort }) {
             <Box flexDirection="column" marginTop={0}>
               {matchCommands(input).map((m, i) => (
                 <Text key={m.cmd} inverse={i === suggestCursor} color={i === suggestCursor ? undefined : palette.subtext}>
-                  {i === suggestCursor ? '> ' : '  '}{m.cmd}
+                  {i === suggestCursor ? '> ' : '  '}{m.cmd} <Text dimColor>{m.desc}</Text>
                 </Text>
               ))}
               <Text dimColor> ↑↓ 选择 · 回车/Tab 补全 · esc 取消</Text>
