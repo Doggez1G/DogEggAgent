@@ -3,6 +3,8 @@ import type { z } from 'zod'
 export interface ToolContext {
   cwd: string
   signal: AbortSignal
+  // 仅 shell 工具使用：配置里的解释器（如 cmd/powershell/bash），缺省按平台解析。
+  shellProgram?: string
 }
 
 export type ToolResult = { content: string } | { error: string }

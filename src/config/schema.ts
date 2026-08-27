@@ -13,7 +13,7 @@ export const modelSchema = z.object({
 
 export const providerSchema = z.object({
   name: z.string(),
-  protocol: z.literal('openai'),
+  protocol: z.enum(['openai']),
   baseURL: z.string(),
   apiKey: z.string(),
   models: z.array(modelSchema).default([]),
@@ -31,6 +31,7 @@ export const configSchema = z.object({
   defaultModel: z.string().optional(),
   maxIterations: z.number().int().positive().default(50),
   maxRetries: z.number().int().min(0).default(3),
+  shellProgram: z.string().optional(),
   permission: permissionSchema.default({ allow: [], reject: [], ask: [] }),
   providers: z.array(providerSchema).default([]),
 })

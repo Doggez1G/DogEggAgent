@@ -25,10 +25,11 @@ export function TopBar(props: { info: string }) {
 }
 
 // 消息块：保留圆角边框（A+B 结合：外层视口框 + 每条消息各自成框），彩色角色图标 + 加粗角色名 + 缩进正文。
-export function MessageBlock(props: { icon: string; role: string; color: BlockColor; children: React.ReactNode }) {
+// focused 用 accent 边框标示当前浏览焦点（消息列表里 Tab 选中、回车展开的可折叠块）。
+export function MessageBlock(props: { icon: string; role: string; color: BlockColor; focused?: boolean; children: React.ReactNode }) {
   return (
-    <Box borderStyle="round" borderColor={palette.subtext} flexDirection="column" marginBottom={1} paddingX={1}>
-      <Text bold color={props.color}>{props.icon}  {props.role}</Text>
+    <Box borderStyle="round" borderColor={props.focused ? palette.accent : palette.subtext} flexDirection="column" marginBottom={1} paddingX={1}>
+      <Text bold color={props.color}>{props.icon}  {props.role}{props.focused ? '  ▸' : ''}</Text>
       <Box paddingLeft={2}>{props.children}</Box>
     </Box>
   )

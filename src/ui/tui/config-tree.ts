@@ -20,7 +20,7 @@ export type Entry =
   | { label: string; kind: 'prompt'; title: string; save: (v: string) => void } // 回车 → 输入（新增）
   | { label: string; kind: 'bool'; value: boolean; save: (v: boolean) => void } // ←→ 切换 + 回车确认
   | { label: string; kind: 'goto'; value: string; subPath: ConfigPath; del?: () => void } // 回车钻入；数组项可带 del（按 d 删）
-  | { label: string; kind: 'action'; value: string; run: () => void } // 回车执行（添加/删除/选中即设）
+  | { label: string; kind: 'action'; value: string; run: () => void; del?: () => void } // 回车执行（添加/删除/选中即设）；可带 del（按 d 删）
 
 export interface TreeCtx {
   set: (path: string, value: unknown) => void
@@ -63,6 +63,7 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): En
         { label: 'defaultModel', kind: 'goto', value: config.defaultModel ?? '（未选择）', subPath: { kind: 'selectModel' } },
         { label: 'maxIterations', kind: 'scalar', value: String(config.maxIterations), save: (v) => ctx.set('maxIterations', nan(v)) },
         { label: 'maxRetries', kind: 'scalar', value: String(config.maxRetries), save: (v) => ctx.set('maxRetries', nan(v)) },
+        { label: 'shellProgram', kind: 'scalar', value: config.shellProgram ?? '（默认按平台）', save: (v) => ctx.set('shellProgram', v) },
         { label: 'permission', kind: 'goto', value: 'allow/reject/ask', subPath: { kind: 'permission' } },
         { label: 'providers', kind: 'goto', value: `${config.providers.length} 个`, subPath: { kind: 'providers' } },
       ]
@@ -82,8 +83,9 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): En
         ...tools.map((tool) => ({
           label: tool,
           kind: 'action' as const,
-          value: '按回车移除（或按 d）',
+          value: '按 d 删 · 回车同样移除',
           run: () => ctx.set(`permission.${bucket}`, tools.filter((t) => t !== tool)),
+          del: () => ctx.set(`permission.${bucket}`, tools.filter((t) => t !== tool)),
         })),
         { label: '＋ 添加工具', kind: 'prompt', title: '工具名', save: (v) => { const t = v.trim(); if (t && !tools.includes(t)) ctx.set(`permission.${bucket}`, [...tools, t]) } },
       ]
@@ -105,9 +107,9 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): En
       const p = config.providers[path.index]
       if (!p) return []
       return [
-        { label: 'name', kind: 'scalar', value: p.name, save: (v) => ctx.set(`providers.${p.name}.name`, v) },
-        { label: 'baseURL', kind: 'scalar', value: p.baseURL, save: (v) => ctx.set(`providers.${p.name}.baseURL`, v) },
-        { label: 'apiKey', kind: 'scalar', value: p.apiKey, save: (v) => ctx.set(`providers.${p.name}.apiKey`, v) },
+        { label: 'name', kind: 'scalar', value: p.name, save: (v) => ctx.set(`providers.${path.index}.name`, v) },
+        { label: 'baseURL', kind: 'scalar', value: p.baseURL, save: (v) => ctx.set(`providers.${path.index}.baseURL`, v) },
+        { label: 'apiKey', kind: 'scalar', value: p.apiKey, save: (v) => ctx.set(`providers.${path.index}.apiKey`, v) },
         { label: 'models', kind: 'goto', value: `${p.models.length} 个`, subPath: { kind: 'models', providerIndex: path.index } },
         { label: '删除此 provider', kind: 'action', value: '', run: () => ctx.remove('providers', path.index) },
       ]
@@ -123,7 +125,7 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): En
         subPath: { kind: 'model', providerIndex: path.providerIndex, modelIndex: i } as ConfigPath,
         del: () => ctx.remove('models', i, path.providerIndex),
       }))
-      entries.push({ label: '＋ 添加 model', kind: 'action', value: '', run: () => ctx.add(`providers.${p.name}.models`, { name: '', contextWindow: 128000, maxOutput: 16384, reasoning: false }) })
+      entries.push({ label: '＋ 添加 model', kind: 'action', value: '', run: () => ctx.add(`providers.${path.providerIndex}.models`, { name: '', contextWindow: 128000, maxOutput: 16384, reasoning: false }) })
       return entries
     }
 
@@ -131,7 +133,7 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): En
       const p = config.providers[path.providerIndex]
       const m = p?.models[path.modelIndex]
       if (!p || !m) return []
-      const base = `providers.${p.name}.models.${m.name}`
+      const base = `providers.${path.providerIndex}.models.${path.modelIndex}`
       return [
         { label: 'name', kind: 'scalar', value: m.name, save: (v) => ctx.set(`${base}.name`, v) },
         { label: 'contextWindow', kind: 'scalar', value: String(m.contextWindow), save: (v) => ctx.set(`${base}.contextWindow`, nan(v)) },

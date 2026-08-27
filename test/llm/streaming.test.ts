@@ -31,6 +31,9 @@ describe('openai stream parser', () => {
     const last = events.find((e) => e.type === 'done') as { message: any }
     expect(last.message.tool_calls[0].function.arguments).toBe('{"path":"a.ts"}')
     expect(events.some((e) => e.type === 'tool_call_start')).toBe(true)
+    const end = events.find((e) => e.type === 'tool_call_end') as { name: string; arguments: string }
+    expect(end.name).toBe('read_file')
+    expect(end.arguments).toBe('{"path":"a.ts"}')
   })
 
   it('emits thought deltas for reasoning', () => {

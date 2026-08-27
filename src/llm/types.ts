@@ -6,6 +6,7 @@ export type LlmStreamEvent =
   | { type: 'thought_delta'; text: string }
   | { type: 'tool_call_start'; index: number; id: string; name: string }
   | { type: 'tool_call_delta'; index: number; argsJsonDelta: string }
+  | { type: 'tool_call_end'; index: number; id: string; name: string; arguments: string }
   | { type: 'done'; message: Message }
   | { type: 'error'; error: Error }
 

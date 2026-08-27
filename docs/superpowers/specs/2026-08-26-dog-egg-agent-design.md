@@ -95,6 +95,8 @@ executing ──结果回填，重新请求──▶ thinking | responding
 finished / cancelled / error ──▶ idle
 ```
 
+> **串行执行细化**：一次响应可能携带多个 tool_calls。逐个工具执行期间，单个工具结束后 `executing / waiting_permission ──tool_done──▶ tool_calling`（回到工具阶段，继续下一个）；仅**最后一个**工具结束才 `result_back / reject ──▶ thinking | responding`（重新请求模型，符合 §3 需求 #1 的「串行执行 → 结果回填 → 再问」）。
+
 ## 5. 权限模型（两层）
 
 **配置层（静态分类）**：
@@ -204,6 +206,7 @@ type UiToAgentMessage =
   "defaultModel": "gpt-4o",
   "maxIterations": 50,
   "maxRetries": 3,
+  "shellProgram": "cmd",
   "permission": {
     "allow": ["read_file"],
     "reject": [],
@@ -231,8 +234,9 @@ type UiToAgentMessage =
 - 同一协议可配置多个 provider 实例（例如多个 OpenAI 兼容端点），每个实例独立 `name/baseURL/apiKey/models`。v1 只实现 `protocol: "openai"`，架构预留多协议。
 - `systemPrompt` 只存文件路径，支持绝对路径、`~` 展开、相对配置文件所在目录。
 - `maxRetries`：LLM 请求失败重试次数（缺省 3），仍失败则报错。
+- `shellProgram`：shell 工具的解释器（缺省按平台——Windows `cmd` / 其它 `bash`，可 `powershell` / `bash` / `sh` 等），详见 §8。
 - `providers` 允许为空、provider/model 的 `name/baseURL/apiKey/models` 在编辑阶段允许暂时为空，以支持 `/config` 树形「自由填字段」；能否对话由 `isConfigured()` 做完整性判定。
-- provider/model 的 `name` **必须唯一**（仅非空名判重，编辑期空名暂允许多个）；删除数组项按 index 定位。
+- provider/model 的 `name` **必须唯一**（仅非空名判重，编辑期空名暂允许多个）；数组项的增删改均按 index 定位。
 - 找不到配置文件时 `loadConfig()` 返回空配置（而非抛错），可启动但提问被 `notice` 引导去 `/config`。
 - 配置文件位置：项目内 `.dogegg.json` 优先，否则 `~/.dogegg/config.json`。
 
@@ -260,10 +264,10 @@ interface Tool {
 `tools/registry.ts` 汇总所有工具的 `name/schema/execute`。工具参数（LLM 返回的 JSON）用 **zod** 校验。
 
 **`shell` 与取消（cancel）**：
-- `shell` 的解释器可配置（Windows 默认 `cmd`，可切 `powershell`/`bash`），通过 `spawn(interp, [flag, cmd])` 显式指定。
-- `shell` 返回一个**可 kill 的进程句柄** `{ pid, kill() }`，不是跑完就丢。
+- `shell` 的解释器来自配置 `shellProgram`（缺省按平台——Windows 默认 `cmd`，可切 `powershell`/`bash`），通过 `spawn(program, [flag, command])` 显式指定（`cmd → /c`、`powershell → -Command`、`bash/sh → -c`）。
+- `shell` 的进程可被取消杀死：工具把 `killTree` 挂在 `ctx.signal` 的 `abort` 监听上，取消时由外层 `AbortController` 触发杀进程树。
 - 取消三件套：`AbortController` 中断 LLM 请求 + 工具之间检查取消标志 + 杀 shell 进程树。
-- `kill()` 按 OS 分支：`win32` 用 `taskkill /PID <pid> /T /F`（杀整棵树，对 cmd/powershell/bash 通用）；POSIX 用 detached 进程组 + `process.kill(-pid, 'SIGKILL')`。杀进程**不按 shell 类型**区分，只按 OS。
+- `killTree` 按 OS 分支：`win32` 用 `taskkill /PID <pid> /T /F`（杀整棵树，对 cmd/powershell/bash 通用）；POSIX 用 detached 进程组 + `process.kill(-pid, 'SIGKILL')`。杀进程**不按 shell 类型**区分，只按 OS。
 
 ## 9. 目录结构
 
@@ -278,11 +282,11 @@ DogEggAgent/
 │  │  └─ ui-to-agent.ts      # UiToAgentMessage 联合类型（前端 → 后端）
 │  ├─ agent/                 # Agent Core（后端核心）
 │  │  ├─ index.ts            # Agent 类：emit 消息 / 收消息
-│  │  ├─ loop/               # 循环编排
-│  │  ├─ state/              # 9 态 + transition() 纯函数
-│  │  ├─ context/            # system prompt 组装 / 窗口预算 / Compaction
-│  │  ├─ session/            # ID / JSON 持久化 / Resume（Message History 由 Agent 的 Message[] 承载）
-│  │  └─ permission/         # 三桶分类 + 运行时决策
+│  │  ├─ loop.ts             # 循环编排（用 state.ts 的 transition 驱动 9 态）
+│  │  ├─ state.ts            # 9 态 + transition() 纯函数
+│  │  ├─ context.ts          # system prompt 组装 / 窗口预算 / Compaction
+│  │  ├─ session.ts          # ID / JSON 持久化 / Resume（Message History 由 Agent 的 Message[] 承载）
+│  │  └─ permission.ts       # 三桶分类 + 运行时决策
 │  ├─ llm/                   # LLM 接入
 │  │  ├─ types.ts            # ChatRequest / LLM StreamEvent / ProviderAdapter
 │  │  ├─ provider/           # OpenAIAdapter + ProviderRegistry（多实例）
@@ -290,7 +294,7 @@ DogEggAgent/
 │  ├─ tools/                 # 工具
 │  │  ├─ types.ts            # Tool 接口
 │  │  ├─ registry.ts
-│  │  └─ read_file/ write_file/ edit_file/ shell/
+│  │  └─ read_file.ts / write_file.ts / edit_file.ts / shell.ts
 │  ├─ config/                # schema.ts / loader.ts
 │  ├─ common/                # utils/（id、token 估算、截断、logger）+ errors.ts（跨域共享）
 │  └─ ui/                    # 前端：只消费/发送 AgentMessage
@@ -359,7 +363,7 @@ DogEggAgent/
 
 | 组件 | 说明 | 键位 |
 |---|---|---|
-| 消息列表 | 每条消息为**独立圆角块**（外层视口框 + 内部消息卡，A+B 结合）：用户、思考、助手、工具（调用+结果合一）各自成块；思考块与工具结果**默认折叠**；流式时块随文本增长；`PageUp`/`PageDown` 上/下翻历史，`scroll=0` 时自动跟随最新 | — |
+| 消息列表 | 每条消息为**独立圆角块**（外层视口框 + 内部消息卡，A+B 结合）：用户、思考、助手、工具（调用+结果合一）各自成块；思考块与工具结果**默认折叠**，`Tab`/`Shift+Tab` 在可折叠块间移动焦点（accent 高亮），`回车` 展开/折叠、`Esc` 返回输入框；流式时块随文本增长；`PageUp`/`PageDown` 上/下翻历史，`scroll=0` 时自动跟随最新 | — |
 | 输入框 | 多行缓冲 | `Enter` 发送 / `Shift+Enter` 换行 / `↑↓` 历史 / `/` 命令补全 |
 | 状态栏 | `state 图标 · provider/model · #sessionId · tokens/window`，state 来自后端 `state` 事件 | — |
 | 权限弹层 | 三行列表：允许一次 / 始终允许 / 拒绝 | `↑↓` 选、`Enter` 确认、`Esc` 拒绝 → `permission_decision` |

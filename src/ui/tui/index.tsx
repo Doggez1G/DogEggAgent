@@ -14,6 +14,8 @@ interface Block {
   role: string
   color: BlockColor
   text: string
+  // 可折叠块的完整内容（工具为完整结果，思考块的 text 本就是完整推理由折叠时隐藏）。折叠时显示 text 摘要，展开时显示 full。
+  full?: string
 }
 
 interface ChatState {
@@ -90,7 +92,10 @@ function reducer(state: ChatState, msg: Action): ChatState {
       const blocks = [...state.blocks]
       const last = blocks[blocks.length - 1]
       if (last && last.icon === ICON.tool) {
-        blocks[blocks.length - 1] = { ...last, text: last.text + (msg.error ? `\n✕ ${msg.error}` : `\n✓ 完成（${msg.output.slice(0, 120)}${msg.output.length > 120 ? '…' : ''}）`) }
+        // 折叠显示：调用 + 截断摘要；full 存「调用 + 完整结果」供展开查看。
+        const summary = msg.error ? `✕ ${msg.error}` : `✓ 完成（${msg.output.slice(0, 120)}${msg.output.length > 120 ? '…' : ''}）`
+        const fullText = msg.error ? `✕ ${msg.error}` : `✓ 完成\n${msg.output}`
+        blocks[blocks.length - 1] = { ...last, text: `${last.text}\n${summary}`, full: `${last.text}\n${fullText}` }
       }
       return { ...state, blocks }
     }
@@ -103,7 +108,19 @@ function reducer(state: ChatState, msg: Action): ChatState {
     case 'notice':
       return { ...state, blocks: [...state.blocks, { icon: '🥚', role: '提示', color: 'yellow', text: msg.text }] }
     case 'session_ready':
-      return { ...state, status: 'idle', blocks: msg.messages.map((m) => ({ icon: ICON[m.role] ?? '🥚', role: m.role, color: COLOR[m.role] ?? 'gray', text: (m as { content?: string }).content ?? '' })) }
+      return {
+        ...state,
+        status: 'idle',
+        blocks: msg.messages.flatMap((m): Block[] => {
+          if (m.role === 'assistant') {
+            const content = (m as { content: string | null }).content
+            if (!content) return [] // 纯 tool_calls 的 assistant 消息：其后紧跟工具块，跳过避免空块
+            return [{ icon: ICON.assistant, role: '助手', color: COLOR.assistant, text: content }]
+          }
+          if (m.role === 'tool') return [{ icon: ICON.tool, role: '工具结果', color: COLOR.tool, text: m.content }]
+          return [{ icon: ICON.user, role: '你', color: COLOR.user, text: m.content }]
+        }),
+      }
     case 'tools_list':
       return infoBlock(state, '工具', msg.tools.map((t) => `${t.name} — ${t.description}`).join('\n'))
     case 'status_state':
@@ -128,10 +145,42 @@ export function App({ agent }: { agent: Agent }) {
   const [input, setInput] = useState('')
   const [configSnapshot, setConfigSnapshot] = useState<Config | null>(null)
   const [scroll, setScroll] = useState(0)
+  const [browse, setBrowse] = useState<number | null>(null)
+  const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const viewRef = useRef<View>(view)
   const configRef = useRef<Config | null>(null)
   const configIntent = useRef<'model' | 'config' | null>(null)
   const suppressEnterRef = useRef(false)
+  const browseRef = useRef<number | null>(null)
+  const expandedRef = useRef<Set<number>>(new Set())
+  const blocksRef = useRef<Block[]>([])
+
+  // 块浏览/展开状态既用于渲染也用 useInput 读取，故用 ref 镜像，避免 Ink 输入回调里的闭包过期。
+  const setBrowseBoth = useCallback((i: number | null) => {
+    browseRef.current = i
+    setBrowse(i)
+  }, [])
+
+  const toggleExpanded = useCallback((i: number) => {
+    const next = new Set(expandedRef.current)
+    if (next.has(i)) next.delete(i)
+    else next.add(i)
+    expandedRef.current = next
+    setExpanded(next)
+  }, [])
+
+  useEffect(() => {
+    blocksRef.current = chat.blocks
+  }, [chat.blocks])
+
+  // 清空历史 / 切换会话导致块清空时，浏览焦点与展开状态一并复位，避免残留下标误展开新块。
+  useEffect(() => {
+    if (chat.blocks.length === 0) {
+      setBrowseBoth(null)
+      expandedRef.current = new Set()
+      setExpanded(new Set())
+    }
+  }, [chat.blocks.length, setBrowseBoth])
 
   const setView = useCallback((v: View) => {
     viewRef.current = v
@@ -238,9 +287,41 @@ export function App({ agent }: { agent: Agent }) {
         if (parent) setView({ kind: 'config', path: parent, cursor: 0, preview: null })
         else setView({ kind: 'none' })
       }
-      else if (inputChar === 'd' && entry?.kind === 'goto' && entry.del) entry.del()
+      else if (inputChar === 'd' && entry) {
+        if (entry.kind === 'goto' && entry.del) entry.del()
+        else if (entry.kind === 'action' && entry.del) entry.del()
+      }
     } else if (v.kind === 'none') {
-      // 消息视口的滚动：PageUp 上翻、PageDown 下翻（scroll=0 时自动跟随最新）。
+      // 消息视口：Tab 在可折叠块（思考/工具）间移动浏览焦点，回车展开/折叠，esc 退回输入框。
+      const expandable = blocksRef.current
+        .map((b, i) => ({ b, i }))
+        .filter(({ b }) => b.icon === ICON.thinking || b.icon === ICON.tool)
+        .map(({ i }) => i)
+
+      if (key.tab) {
+        if (expandable.length === 0) return
+        const cur = browseRef.current
+        let next: number
+        if (key.shift) {
+          const idx = cur === null ? -1 : expandable.indexOf(cur)
+          next = expandable[(idx < 0 ? expandable.length - 1 : (idx - 1 + expandable.length) % expandable.length)]!
+        } else {
+          const idx = cur === null ? -1 : expandable.indexOf(cur)
+          next = expandable[(idx + 1) % expandable.length]!
+        }
+        setBrowseBoth(next)
+        return
+      }
+      if (key.return && browseRef.current !== null) {
+        toggleExpanded(browseRef.current)
+        return
+      }
+      if (key.escape && browseRef.current !== null) {
+        setBrowseBoth(null)
+        return
+      }
+
+      // 手动滚动：PageUp 上翻、PageDown 下翻（scroll=0 时自动跟随最新）。
       const page = Math.max(5, Math.floor((stdout.rows || 24) / 2))
       if (key.pageUp) setScroll((s) => s + page)
       else if (key.pageDown) setScroll((s) => Math.max(0, s - page))
@@ -286,19 +367,30 @@ export function App({ agent }: { agent: Agent }) {
     ? (configSnapshot.defaultProvider ? `${configSnapshot.defaultProvider}/${configSnapshot.defaultModel ?? '?'}` : '未配置 provider（请先 /config）')
     : '加载配置中…'
 
-  const renderedBlocks = chat.blocks.map((b) => ({
-    ...b,
-    text: (b.icon === ICON.assistant || b.icon === ICON.thinking) ? renderMarkdown(b.text) : b.text,
-  }))
-  // 行级滚动：scroll 表示「从底部往上滚了多少行」，据此裁出落在视口里的块。
-  const blocksWithLines = renderedBlocks.map((b, i) => ({ ...b, index: i, lines: estimateBlockLines(b.text, termWidth) }))
-  const totalLines = blocksWithLines.reduce((n, b) => n + b.lines, 0)
+  const renderedBlocks = chat.blocks.map((b) => {
+    const isMd = b.icon === ICON.assistant || b.icon === ICON.thinking
+    return { ...b, text: isMd ? renderMarkdown(b.text) : b.text }
+  })
+  // 每块「实际显示文本」按展开状态决定：可折叠块（思考/工具）折叠时显示摘要，展开时显示 full。
+  // 行数据此估算，保证展开后滚动裁剪仍准确。
+  type DisplayBlock = (typeof renderedBlocks)[number] & { index: number; lines: number; shownText: string; isCollapsed: boolean }
+  const displayBlocks: DisplayBlock[] = renderedBlocks.map((b, i) => {
+    const expandable = b.icon === ICON.thinking || b.icon === ICON.tool
+    const isExpanded = expanded.has(i)
+    const shownText = !expandable
+      ? b.text
+      : isExpanded
+        ? (b.icon === ICON.tool ? (b.full ?? b.text) : b.text)
+        : (b.icon === ICON.thinking ? '（思考已折叠）' : b.text)
+    return { ...b, index: i, lines: estimateBlockLines(shownText, termWidth), shownText, isCollapsed: expandable && !isExpanded }
+  })
+  const totalLines = displayBlocks.reduce((n, b) => n + b.lines, 0)
   const maxScroll = Math.max(0, totalLines - viewportHeight)
   const scrolled = Math.min(scroll, maxScroll)
   const visibleTop = totalLines - viewportHeight - scrolled
   let acc = 0
-  const visibleBlocks: typeof blocksWithLines = []
-  for (const b of blocksWithLines) {
+  const visibleBlocks: DisplayBlock[] = []
+  for (const b of displayBlocks) {
     const start = acc
     acc += b.lines
     if (acc <= visibleTop) continue
@@ -320,8 +412,12 @@ export function App({ agent }: { agent: Agent }) {
           </Box>
         ) : (
           visibleBlocks.map((b) => (
-            <MessageBlock key={b.index} icon={b.icon} role={b.role} color={b.color}>
-              {b.icon === ICON.thinking ? <Text dimColor>（思考已折叠）</Text> : <Text>{b.text}</Text>}
+            <MessageBlock key={b.index} icon={b.icon} role={b.role} color={b.color} focused={browse === b.index}>
+              {b.icon === ICON.thinking && b.isCollapsed ? (
+                <Text dimColor>{browse === b.index ? '（思考已折叠 · 回车展开）' : '（思考已折叠）'}</Text>
+              ) : (
+                <Text>{b.shownText}</Text>
+              )}
             </MessageBlock>
           ))
         )}
@@ -369,9 +465,12 @@ export function App({ agent }: { agent: Agent }) {
 
       {view.kind === 'none' && <StatusBar state={chat.status} />}
       {view.kind === 'none' && (
-        <Box>
-          <Text color="blue">› </Text>
-          <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} />
+        <Box flexDirection="column">
+          {browse !== null && <Text dimColor>Tab 下一个（Shift+Tab 上一个） · 回车展开/折叠 · esc 返回输入</Text>}
+          <Box>
+            <Text color="blue">› </Text>
+            <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} focus={browse === null} />
+          </Box>
         </Box>
       )}
     </Box>

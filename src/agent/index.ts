@@ -7,9 +7,11 @@ import { PermissionManager } from './permission'
 import { loadSystemPrompt, estimateContextTokens, splitForCompaction } from './context'
 import { saveSession, loadSession, listSessions } from './session'
 import { runLoop, summarizeHistory } from './loop'
+import { transition } from './state'
 import { configSchema, isConfigured, type Config, type ProviderConfig, type ModelConfig } from '../config/schema'
 import { saveConfig } from '../config/loader'
 import { newId } from '../common/utils/id'
+import { log, readLogTail, sessionLogPath } from '../common/utils/logger'
 import { CancelledError } from '../common/errors'
 
 interface PendingPermission {
@@ -44,7 +46,24 @@ export class Agent {
   }
 
   private emit(m: AgentToUiMessage): void {
-    if (m.type === 'state') this.state = m.to
+    if (m.type === 'state') {
+      this.state = m.to
+      log(this.sessionId, 'state', `${m.from} → ${m.to}`)
+    } else if (m.type === 'message') {
+      log(this.sessionId, 'message', m.role)
+    } else if (m.type === 'tool_start') {
+      log(this.sessionId, 'tool', `${m.name} ${JSON.stringify(m.input)}`)
+    } else if (m.type === 'tool_end') {
+      log(this.sessionId, 'tool', `${m.name} ${m.error ? '✕ ' + m.error : '✓'}`)
+    } else if (m.type === 'permission_request') {
+      log(this.sessionId, 'permission', `ask ${m.tool}`)
+    } else if (m.type === 'error') {
+      log(this.sessionId, 'error', m.error.message)
+    } else if (m.type === 'compaction') {
+      log(this.sessionId, 'compact', `${m.before_tokens} → ${m.after_tokens}`)
+    } else if (m.type === 'finished') {
+      log(this.sessionId, 'state', 'finished')
+    }
     this.listeners.forEach((l) => l(m))
   }
 
@@ -119,14 +138,16 @@ export class Agent {
             maxIterations: this.config.maxIterations,
             permission: this.permission,
             cwd: this.cwd,
+            shellProgram: this.config.shellProgram,
             signal: this.controller.signal,
             emit: (e) => this.emit(e),
             requestPermission: (tool, input) => this.requestPermission(tool, input),
             checkCancelled: () => this.cancelled,
           })
         } catch (e) {
+          // loop 已在抛出前经 transition 进入 cancelled/error；这里补非取消错误的提示，并按设计复位回 idle。
           if (!(e instanceof CancelledError)) this.emit({ type: 'error', error: e as Error })
-          this.emit({ type: 'state', from: this.state, to: 'idle' })
+          this.emit({ type: 'state', from: this.state, to: transition(this.state, { kind: 'reset' }) })
         } finally {
           this.running = false
           saveSession(this.sessionId, this.history)
@@ -145,6 +166,7 @@ export class Agent {
         const p = this.pending.get(cmd.id)
         if (p) {
           this.pending.delete(cmd.id)
+          log(this.sessionId, 'permission', `decision ${cmd.decision}`)
           p.resolve(cmd.decision)
         }
         break
@@ -198,7 +220,7 @@ export class Agent {
         await this.compactNow()
         break
       case 'log_request':
-        this.emit({ type: 'log_state', path: '~/.dogegg/logs/latest.log', tail: '' })
+        this.emit({ type: 'log_state', path: sessionLogPath(this.sessionId) ?? '~/.dogegg/logs/<session>.log', tail: readLogTail(this.sessionId) })
         break
       case 'config_set':
         this.applyConfigSet(cmd.path, cmd.value)
@@ -255,11 +277,11 @@ export class Agent {
     return null
   }
 
-  // config_set 的点号路径约定：
-  //   'defaultProvider' | 'defaultModel' | 'maxIterations' | 'maxRetries' | 'systemPrompt'
+  // config_set 的点号路径约定（provider/model 用下标定位，与 config_add/remove 的 index 语义一致）：
+  //   'defaultProvider' | 'defaultModel' | 'maxIterations' | 'maxRetries' | 'systemPrompt' | 'shellProgram'
   //   'permission.allow' | 'permission.reject' | 'permission.ask'
-  //   'providers.<name>.<field>'，field ∈ { name, baseURL, apiKey }
-  //   'providers.<name>.models.<modelName>.<field>'，field ∈ { name, contextWindow, maxOutput, reasoning }
+  //   'providers.<index>.<field>'，field ∈ { name, baseURL, apiKey }
+  //   'providers.<index>.models.<modelIndex>.<field>'，field ∈ { name, contextWindow, maxOutput, reasoning }
   private applyConfigSet(path: string, value: unknown): void {
     const seg = path.split('.')
     if (seg.length === 1) {
@@ -268,13 +290,16 @@ export class Agent {
       else if (path === 'maxIterations') this.config.maxIterations = value as number
       else if (path === 'maxRetries') this.config.maxRetries = value as number
       else if (path === 'systemPrompt') this.config.systemPrompt = value as string
+      else if (path === 'shellProgram') this.config.shellProgram = value as string
       else return
     } else if (seg.length === 2 && seg[0] === 'permission') {
       const bucket = seg[1] as 'allow' | 'reject' | 'ask'
       if (bucket === 'allow' || bucket === 'reject' || bucket === 'ask') this.config.permission[bucket] = value as string[]
       else return
     } else if (seg.length === 3 && seg[0] === 'providers') {
-      const p = this.config.providers.find((x) => x.name === seg[1])
+      const idx = Number(seg[1])
+      if (!Number.isInteger(idx) || idx < 0) return
+      const p = this.config.providers[idx]
       if (!p) return
       const field = seg[2]
       if (field === 'name') p.name = value as string
@@ -282,7 +307,10 @@ export class Agent {
       else if (field === 'apiKey') p.apiKey = value as string
       else return
     } else if (seg.length === 5 && seg[0] === 'providers' && seg[2] === 'models') {
-      const m = this.config.providers.find((x) => x.name === seg[1])?.models.find((x) => x.name === seg[3])
+      const idx = Number(seg[1])
+      const midx = Number(seg[3])
+      if (!Number.isInteger(idx) || idx < 0 || !Number.isInteger(midx) || midx < 0) return
+      const m = this.config.providers[idx]?.models[midx]
       if (!m) return
       const field = seg[4]
       if (field === 'name') m.name = value as string
@@ -296,13 +324,14 @@ export class Agent {
     this.afterConfigEdit()
   }
 
-  // config_add：'providers' 追加 provider；'providers.<name>.models' 追加 model。
+  // config_add：'providers' 追加 provider；'providers.<index>.models' 追加 model。
   private applyConfigAdd(path: string, value: unknown): void {
     if (path === 'providers') {
       this.config.providers.push(value as ProviderConfig)
     } else if (path.startsWith('providers.') && path.endsWith('.models')) {
-      const name = path.split('.')[1]!
-      this.providers.get(name)?.models.push(value as ModelConfig)
+      const idx = Number(path.split('.')[1])
+      if (!Number.isInteger(idx) || idx < 0) return
+      this.config.providers[idx]?.models.push(value as ModelConfig)
     } else {
       return
     }

@@ -8,7 +8,7 @@ const cfg = loadConfig({ providers: [{ name: 'openai', protocol: 'openai', baseU
 describe('config-tree', () => {
   it('root lists top-level fields', () => {
     const labels = buildEntries(cfg, { kind: 'root' }, ctx).map((e) => e.label)
-    expect(labels).toEqual(['systemPrompt', 'defaultProvider', 'defaultModel', 'maxIterations', 'maxRetries', 'permission', 'providers'])
+    expect(labels).toEqual(['systemPrompt', 'defaultProvider', 'defaultModel', 'maxIterations', 'maxRetries', 'shellProgram', 'permission', 'providers'])
   })
 
   it('providers lists provider entries plus an add action', () => {
@@ -38,5 +38,32 @@ describe('config-tree', () => {
     const reasoning = entries.find((e) => e.kind === 'bool')!
     expect(entryLabel(reasoning)).toBe('reasoning  false')
     expect(entryLabel(reasoning, true)).toBe('reasoning  true')
+  })
+
+  it('provider scalar edits use index-based paths, not name', () => {
+    const multi = loadConfig({
+      providers: [
+        { name: '', protocol: 'openai', baseURL: '', apiKey: '', models: [] },
+        { name: '', protocol: 'openai', baseURL: '', apiKey: '', models: [] },
+      ],
+    })
+    const calls: [string, unknown][] = []
+    const tracking = { set: (p: string, v: unknown) => calls.push([p, v]), add: () => {}, remove: () => {} }
+    const entries = buildEntries(multi, { kind: 'provider', index: 1 }, tracking)
+    const nameEntry = entries.find((e) => e.kind === 'scalar' && e.label === 'name')!
+    ;(nameEntry as { save: (v: string) => void }).save('second')
+    expect(calls).toContainEqual(['providers.1.name', 'second'])
+  })
+
+  it('model scalar edits use index-based paths', () => {
+    const multi = loadConfig({
+      providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: '' }, { name: '' }] }],
+    })
+    const calls: [string, unknown][] = []
+    const tracking = { set: (p: string, v: unknown) => calls.push([p, v]), add: () => {}, remove: () => {} }
+    const entries = buildEntries(multi, { kind: 'model', providerIndex: 0, modelIndex: 1 }, tracking)
+    const nameEntry = entries.find((e) => e.kind === 'scalar' && e.label === 'name')!
+    ;(nameEntry as { save: (v: string) => void }).save('gpt-4o-mini')
+    expect(calls).toContainEqual(['providers.0.models.1.name', 'gpt-4o-mini'])
   })
 })
