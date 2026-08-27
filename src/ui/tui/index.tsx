@@ -292,23 +292,20 @@ export function App({ agent }: { agent: Agent }) {
         else if (entry.kind === 'action' && entry.del) entry.del()
       }
     } else if (v.kind === 'none') {
-      // 消息视口：Tab 在可折叠块（思考/工具）间移动浏览焦点，回车展开/折叠，esc 退回输入框。
+      // 消息视口：↑/↓ 在可折叠块（思考/工具）间移动浏览焦点，回车展开/折叠，esc 退回输入框。
+      // 用方向键而非 Tab：ink-text-input 会忽略 ↑/↓，且方向键在本终端已被菜单/配置树验证可靠。
       const expandable = blocksRef.current
         .map((b, i) => ({ b, i }))
         .filter(({ b }) => b.icon === ICON.thinking || b.icon === ICON.tool)
         .map(({ i }) => i)
 
-      if (key.tab) {
-        if (expandable.length === 0) return
+      if (expandable.length > 0 && (key.upArrow || key.downArrow)) {
         const cur = browseRef.current
-        let next: number
-        if (key.shift) {
-          const idx = cur === null ? -1 : expandable.indexOf(cur)
-          next = expandable[(idx < 0 ? expandable.length - 1 : (idx - 1 + expandable.length) % expandable.length)]!
-        } else {
-          const idx = cur === null ? -1 : expandable.indexOf(cur)
-          next = expandable[(idx + 1) % expandable.length]!
-        }
+        const idx = cur === null ? -1 : expandable.indexOf(cur)
+        // 未聚焦时按 ↑ 从最后一个（最近）开始，↓ 从第一个开始；已聚焦则按方向在原地上下移动并回绕。
+        const next = key.upArrow
+          ? expandable[(idx < 0 ? expandable.length - 1 : (idx - 1 + expandable.length) % expandable.length)]!
+          : expandable[(idx < 0 ? 0 : (idx + 1) % expandable.length)]!
         setBrowseBoth(next)
         return
       }
@@ -466,7 +463,7 @@ export function App({ agent }: { agent: Agent }) {
       {view.kind === 'none' && <StatusBar state={chat.status} />}
       {view.kind === 'none' && (
         <Box flexDirection="column">
-          {browse !== null && <Text dimColor>Tab 下一个（Shift+Tab 上一个） · 回车展开/折叠 · esc 返回输入</Text>}
+          {browse !== null && <Text dimColor>↑↓ 切换块 · 回车展开/折叠 · esc 返回输入</Text>}
           <Box>
             <Text color="blue">› </Text>
             <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} focus={browse === null} />
