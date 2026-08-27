@@ -1,2 +1,3 @@
-// @dogegg/agent 包出口占位。Phase 2 迁移后替换为真实导出（Agent / loadConfig）。
-export {}
+// @dogegg/agent 包出口：纯 re-export，不含实现逻辑（见 §1 约束 3）。
+export { Agent } from './core'
+export { loadConfig, saveConfig } from './config'
