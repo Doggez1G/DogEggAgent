@@ -20,9 +20,11 @@ export interface CompactResult {
 // 压缩结果 = [摘要消息, ...最近 keep 条原文]；旧消息被摘要替代。
 //
 // force 语义：
-//   - force=false（默认，loop 自动触发）：仅当 token 超过窗口 80% 时才压缩。
-//   - force=true（/compact 手动触发）：无条件压缩——跳过阈值检查，只要 old 非空就压。
-//   两种情况都跳过「无可压缩旧历史」（old.length === 0）。
+//   - force=false（loop 自动触发）：仅当 token 超过窗口 80% 时才压缩。
+//   - force=true（/compact 手动触发）：无条件压缩——跳过阈值检查。
+//   两种情况都要求 context 非空（至少 1 条消息才压）。
+//   splitForCompaction 的 keep=4：消息 >4 条时压旧的留近期；≤4 条时 old 为空，
+//   force 模式下把全部消息都交给摘要（keep 降为 0），保证少消息也能压缩。
 export async function compactContext(input: {
   context: Message[]
   systemPrompt: string
@@ -32,16 +34,24 @@ export async function compactContext(input: {
   force?: boolean
 }): Promise<CompactResult> {
   const before = estimateContextTokens(input.systemPrompt, input.context, input.tools)
+  // context 为空直接跳过——没东西可压。
+  if (input.context.length === 0) {
+    return { compacted: false, context: input.context, before, after: before }
+  }
   // 手动压缩无条件执行；自动压缩需超过窗口 80% 才触发。
   if (!input.force && !shouldCompact(before, input.windowTokens)) {
     return { compacted: false, context: input.context, before, after: before }
   }
-  const { old, fresh } = splitForCompaction(input.context)
-  if (old.length === 0) {
-    // 即使 force，没有旧历史可压也跳过。
+  // 切分：自动压缩保留最近 4 条原文；手动压缩时如果消息太少（≤4 条），把全部都交给摘要。
+  const keep = input.force ? Math.min(4, Math.max(0, input.context.length - 1)) : 4
+  const { old, fresh } = splitForCompaction(input.context, keep)
+  // old 为空意味着所有消息都在 fresh 里（消息太少）——force 模式下把 fresh 也交给摘要。
+  const toSummarize = old.length > 0 ? old : fresh
+  const toKeep = old.length > 0 ? fresh : []
+  if (toSummarize.length === 0) {
     return { compacted: false, context: input.context, before, after: before }
   }
-  const summary = await input.summarize(old)
-  const context = [{ role: 'user' as const, content: `[前文摘要]\n${summary}` }, ...fresh]
+  const summary = await input.summarize(toSummarize)
+  const context = [{ role: 'user' as const, content: `[前文摘要]\n${summary}` }, ...toKeep]
   return { compacted: true, context, before, after: estimateContextTokens(input.systemPrompt, context, input.tools) }
 }

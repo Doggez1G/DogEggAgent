@@ -283,8 +283,8 @@ export class Agent {
         saveSession(this.sessionId, this.history, this.context)
         this.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after })
       } else {
-        // 无旧历史可压（消息太少）——给明确反馈而非显示 before==after 的空压缩。
-        this.emit({ type: 'notice', text: '上下文消息太少，无需压缩（至少需要 5 条才有旧历史可压）' })
+        // context 为空——没有消息可压。
+        this.emit({ type: 'notice', text: '上下文为空，无需压缩' })
       }
     } catch (e) {
       this.emit({ type: 'error', error: { message: '压缩失败：' + (e as Error).message, name: (e as Error).name } })

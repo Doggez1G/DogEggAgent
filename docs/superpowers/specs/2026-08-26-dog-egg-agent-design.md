@@ -46,7 +46,7 @@ DogEggAgent 是一个自研的 **code agent** 工具。第一目标是**学习�
 | 9 | Event System | 见 §2 |
 | 10 | Permission | 配置 `allow/reject/ask` 三桶 + 运行时 `allow_once/allow_always/reject`（见 §5） |
 | 11 | Session | Session ID / 消息持久化 / Resume / History；JSON：`~/.dogegg/sessions/<id>.json`；REPL 斜杠命令 `/new`、`/session`（列会话并选择切换）管理 |
-| 12 | Context Compaction | LLM 把旧上下文压成 summary；触发 80% 窗口、保留最近 4 条；**只压缩 Context，不动 History**（见 §3.1）；自动触发用 80% 阈值，手动 `/compact` 无条件压缩（仅看有无旧历史） |
+| 12 | Context Compaction | LLM 把旧上下文压成 summary；触发 80% 窗口、保留最近 4 条；**只压缩 Context，不动 History**（见 §3.1）；自动触发用 80% 阈值，手动 `/compact` 无条件压缩（只要 context 非空就压：消息多时压旧留近期 4 条，消息少时全部压成摘要） |
 | 13 | UI | Message List / Markdown / Tool Call / Tool Result / Input / Status Bar / Streaming |
 
 - **Reasoning**：v1 **框架就绪**——思考内容走独立 `thought_delta` 事件，按 OpenAI 官方标准字段解析。⚠️ 仅就绪：o1/o3 等推理模型的真实流式差异（如 `reasoning_effort`、增量 reasoning 协议）v1 不验证，实际可用性以运行时为准。具体字段名（`reasoning_content` 等）在实现时对照 OpenAI 当前文档确认，不在此写死。
