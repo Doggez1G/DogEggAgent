@@ -38,7 +38,7 @@ DogEggAgent 是一个自研的 **code agent** 工具。第一目标是**学习�
 | 1 | Agent Loop | 从零手写；工具**串行**执行；`while`: 问模型 → 有 tool_calls 则串行执行 → 结果回填 → 再问 → 无 tool_calls 结束 |
 | 2 | Tool Calling | 模型返回 tool_calls，Core 按 schema 本地执行，串行 |
 | 3 | Context | 每次发给模型 = System Prompt + 处理后的历史 + 工具 schema，受窗口预算约束 |
-| 4 | Message History | 有序消息列表，**原样持久化**，与 Context 分开管理 |
+| 4 | Message History | 有序消息列表，**原样持久化、永不压缩**；与 Context 是两份独立数据（见 §3.1） |
 | 5 | System Prompt | 配置只存**文件路径**，缺省用内置默认文件，用户改文件即可自定义 |
 | 6 | Tool Result | 超长结果截断，cap ≈ 8000 字符（截断处注明） |
 | 7 | Context Window | 来自**模型配置** `contextWindow`，缺省保守 128k |
@@ -46,10 +46,45 @@ DogEggAgent 是一个自研的 **code agent** 工具。第一目标是**学习�
 | 9 | Event System | 见 §2 |
 | 10 | Permission | 配置 `allow/reject/ask` 三桶 + 运行时 `allow_once/allow_always/reject`（见 §5） |
 | 11 | Session | Session ID / 消息持久化 / Resume / History；JSON：`~/.dogegg/sessions/<id>.json`；REPL 斜杠命令 `/new`、`/session`（列会话并选择切换）管理 |
-| 12 | Context Compaction | LLM 把旧历史压成 summary；触发 80% 窗口、保留最近 4 条原文 |
+| 12 | Context Compaction | LLM 把旧上下文压成 summary；触发 80% 窗口、保留最近 4 条；**只压缩 Context，不动 History**（见 §3.1） |
 | 13 | UI | Message List / Markdown / Tool Call / Tool Result / Input / Status Bar / Streaming |
 
-- **Reasoning**：v1 要接入推理模型，思考内容走独立 `thought_delta` 事件，按 OpenAI 官方标准字段解析。⚠️ 具体字段名（`reasoning_content` 等）在实现时对照 OpenAI 当前文档确认，不在此写死。
+- **Reasoning**：v1 **框架就绪**——思考内容走独立 `thought_delta` 事件，按 OpenAI 官方标准字段解析。⚠️ 仅就绪：o1/o3 等推理模型的真实流式差异（如 `reasoning_effort`、增量 reasoning 协议）v1 不验证，实际可用性以运行时为准。具体字段名（`reasoning_content` 等）在实现时对照 OpenAI 当前文档确认，不在此写死。
+
+### 3.1 History 与 Context 分离（双独立持久化）
+
+历史消息（History）与上下文（Context）是**两份独立的数据**，各自持久化、互不覆盖：
+
+| | History（消息历史） | Context（上下文） |
+|---|---|---|
+| 用途 | UI 显示历史消息 | 发给模型 |
+| 内容 | 完整原文，单调增长，**永不压缩** | 发给模型的消息列表，受窗口预算约束、会压缩 |
+| compact 时 | 不动 | 压缩成 `[摘要, 最近 keep 条]` |
+| 持久化 | 存原文 | 存压缩结果 |
+| resume 时 | 加载原文 → UI 显示 | 加载压缩版 → 喂模型 |
+
+**派生规则**：
+- 新消息（user/assistant/tool）产生时**同时 append 到 History 与 Context**。
+- compact 只改 Context，History 原封不动——压缩**不可逆地改写 Context 持久化**，但原文始终在 History。
+- resume 加载两者：History 给 UI 显示完整历史，Context 给模型用压缩版。**不重新摘要**——Context 压缩后直接存压缩结果，下次 resume 直接加载已存的压缩版。
+- compact 触发判断与 token 估算基于 Context（发给模型的就是 Context）。
+
+这样 §3 #4「原样持久化」指 History、#12「压缩」指 Context，两者各管一样，自洽。
+
+**Session 文件结构**：`{ id, updatedAt, history: Message[], context: Message[] }`。
+
+### 3.2 运行中命令分类
+
+`UiToAgentMessage` 在 agent 处于运行态（一轮 loop 进行中）时按影响面分四类处理：
+
+| 类别 | 命令 | 运行中行为 |
+|---|---|---|
+| **动 loop 工作集**（阻塞） | `submit`、`new_session`、`resume_session`、`clear_history`、`compact_request`、`config_set/add/remove` | emit `notice`（如「运行中，请稍候」），**不静默丢弃** |
+| **loop 控制**（仅运行时有意义） | `cancel`、`permission_decision` | 正常处理；非运行态时 cancel 无害 no-op、permission_decision 找不到挂起项则忽略 |
+| **纯查询**（任意时刻放行） | `list_sessions`、`config_request`、`tools_request`、`context_request`、`status_request`、`system_request`、`log_request` | 始终处理——只读快照，运行中也能 `/context` 看实时 token |
+| **UI 本地**（不发消息） | `/help`、各 overlay 的导航/开关 | 纯前端，与运行态无关 |
+
+config 编辑归「阻塞」：运行中改 config 会让 loop 持有的 provider/permission 引用半生效，turn 结束后生效更干净。
 
 **运行时行为（增补）**：
 
@@ -133,7 +168,7 @@ type AgentToUiMessage =
   | { type: 'state'; from: State; to: State }
   | { type: 'text_delta'; delta: string }
   | { type: 'thought_delta'; delta: string }
-  | { type: 'message'; role: 'user' | 'assistant' | 'tool'; id: string }
+  | { type: 'message'; role: 'user' | 'assistant' | 'tool'; id: string }   // id 为真值，与 tool_start 的 id 对齐，供 UI 定位/折叠/滚动
   | { type: 'tool_start'; id: string; name: string; input: unknown }
   | { type: 'tool_end'; id: string; name: string; output: string; error?: string }
   | { type: 'permission_request'; id: string; tool: string; input: unknown }
@@ -150,7 +185,7 @@ type AgentToUiMessage =
   | { type: 'notice'; text: string }
   | { type: 'compaction'; before_tokens: number; after_tokens: number }
   | { type: 'finished'; usage?: unknown }
-  | { type: 'error'; error: Error }
+  | { type: 'error'; error: { message: string; name?: string } }   // 可序列化形状：进程内 Port 与将来 SSE 同构
 
 // in: 前端 → 后端
 type UiToAgentMessage =
@@ -176,6 +211,9 @@ type UiToAgentMessage =
 
 要点：
 - `permission_request`（out）与 `permission_decision`（in）通过 `id` 配对。
+- `message` 的 `id` 为真值（非空串），与 `tool_start`/`tool_end` 的 `id` 同源，供 UI 做块定位/折叠/滚动跟随。
+- **拒绝/失败工具可见**：config `reject` 桶命中、`ask`→用户 reject、未知工具、参数校验失败这四种情况，也发一条 `tool_end`（`error` 标明原因，如 `denied` / `未知工具` / `参数校验失败`），让 UI 能渲染「🐾 tool ✕ denied」。`tool_start` 仅在实际执行前发。
+- `error` 用可序列化形状 `{ message, name? }`，agent 侧 emit 时从 `Error` 转换，保证进程内 Port 与将来 SSE 同构。
 - `/config` 用 `config_set` / `config_add` / `config_remove` 三个通用 path 操作，覆盖对 provider、model 及任意字段的增删改；`config_state` / `config_updated` 携带完整 `Config`。
 - `resume_session.id`、`config_*` 的取值均来自 UI 侧选择器，不是用户手打。
 
