@@ -1,1 +1,1 @@
-export { parseCommand, type CommandResult } from './commands'
+export { parseCommand, matchCommands, COMMANDS, type CommandResult } from './commands'

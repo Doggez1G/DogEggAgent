@@ -1,5 +1,32 @@
 import type { UiToAgentMessage } from '@dogegg/bridge'
 
+// 全部斜杠命令（按字母序），带简短描述供联想提示展示。
+export const COMMANDS: { cmd: string; desc: string }[] = [
+  { cmd: '/clear', desc: '清空历史' },
+  { cmd: '/compact', desc: '手动压缩上下文' },
+  { cmd: '/config', desc: '编辑配置' },
+  { cmd: '/context', desc: '查看上下文占用' },
+  { cmd: '/help', desc: '显示帮助' },
+  { cmd: '/log', desc: '查看调试日志' },
+  { cmd: '/model', desc: '快速切换模型' },
+  { cmd: '/new', desc: '新建会话' },
+  { cmd: '/quit', desc: '退出' },
+  { cmd: '/session', desc: '切换会话' },
+  { cmd: '/status', desc: '状态一览' },
+  { cmd: '/system', desc: '查看 system prompt' },
+  { cmd: '/tools', desc: '列出工具' },
+]
+
+// 前缀匹配：输入以 / 开头时，返回所有以当前输入为前缀的命令。
+// 输入 /s → /session, /status, /system；输入 /se → /session。
+export function matchCommands(input: string): { cmd: string; desc: string }[] {
+  if (!input.startsWith('/') || input.length < 2) return []
+  // 输入本身已完整匹配某命令时不再联想（用户已打完）。
+  const exact = COMMANDS.find((c) => c.cmd === input)
+  if (exact) return []
+  return COMMANDS.filter((c) => c.cmd.startsWith(input))
+}
+
 // 斜杠命令解析结果：null = 非命令（普通消息）；UiToAgentMessage = 对应的后端消息。
 // /help 是 UI 本地渲染（不发后端消息），返回特殊标记。
 export type CommandResult =

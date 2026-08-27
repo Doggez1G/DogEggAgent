@@ -3,9 +3,10 @@ import { Box, Text, useInput, useStdout } from 'ink'
 import TextInput from 'ink-text-input'
 import type { AgentToUiMessage, UiToAgentMessage, PermissionDecision, Config, UiPort } from '@dogegg/bridge'
 import { TopBar, MessageBlock, StatusBar, ListPicker } from '../components'
+import { palette } from '../theme'
 import { renderMarkdown } from '../markdown'
 import { reducer, ICON, HELP, buildDisplayBlocks, sliceViewport, expandableIndices, moveBrowse, toggleExpanded, type ChatState } from '../chat'
-import { parseCommand } from '../input'
+import { parseCommand, matchCommands } from '../input'
 import { buildEntries, entryLabel, parentPath, type ConfigPath, type TreeCtx } from '../overlays/config'
 import { type View } from './view-state'
 
@@ -23,6 +24,7 @@ export function App({ port }: { port: UiPort }) {
   const [scroll, setScroll] = useState(0)
   const [browse, setBrowse] = useState<number | null>(null)
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
+  const [suggestCursor, setSuggestCursor] = useState<number | null>(null) // 联想提示选中索引（null=未选中）
   // view/config 用 ref 镜像，避免 Ink useInput 回调闭包过期（useState 在回调里拿到的是旧值）。
   const viewRef = useRef<View>(view)
   const configRef = useRef<Config | null>(null)
@@ -161,6 +163,19 @@ export function App({ port }: { port: UiPort }) {
         else if (entry.kind === 'action' && entry.del) entry.del()
       }
     } else if (v.kind === 'none') {
+      // 斜杠命令联想提示：输入以 / 开头且有匹配时，↑↓ 选择、回车/Tab 补全。
+      const matches = matchCommands(input)
+      if (matches.length > 0) {
+        if (key.upArrow) { setSuggestCursor((c) => c === null ? matches.length - 1 : (c - 1 + matches.length) % matches.length); return }
+        if (key.downArrow) { setSuggestCursor((c) => c === null ? 0 : (c + 1) % matches.length); return }
+        if ((key.return || key.tab) && suggestCursor !== null) {
+          // 补全选中命令到输入框，光标留在输入框等用户再按回车提交。
+          setInput(matches[suggestCursor]!.cmd)
+          setSuggestCursor(null)
+          return
+        }
+        if (key.escape) { setSuggestCursor(null); return }
+      }
       // 消息视口：↑/↓ 在可折叠块间移动焦点，回车展开/折叠，esc 退回输入框。
       const expandable = expandableIndices(blocksRef.current)
       if (expandable.length > 0 && (key.upArrow || key.downArrow)) {
@@ -326,9 +341,20 @@ export function App({ port }: { port: UiPort }) {
       {view.kind === 'none' && (
         <Box flexDirection="column">
           {browse !== null && <Text dimColor>↑↓ 切换块 · 回车展开/折叠 · esc 返回输入</Text>}
+          {/* 斜杠命令联想提示：输入 / 开头且有匹配时，显示列表供 ↑↓ 选择、回车/Tab 补全 */}
+          {matchCommands(input).length > 0 && (
+            <Box flexDirection="column" marginTop={0}>
+              {matchCommands(input).map((m, i) => (
+                <Text key={m.cmd} inverse={i === suggestCursor} color={i === suggestCursor ? undefined : palette.subtext}>
+                  {i === suggestCursor ? '> ' : '  '}{m.cmd} {m.desc}
+                </Text>
+              ))}
+              <Text dimColor> ↑↓ 选择 · 回车/Tab 补全 · esc 取消</Text>
+            </Box>
+          )}
           <Box>
             <Text color="blue">› </Text>
-            <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} focus={browse === null} />
+            <TextInput value={input} onChange={(v) => { setInput(v); setSuggestCursor(null) }} onSubmit={handleSubmit} focus={browse === null} />
           </Box>
         </Box>
       )}
