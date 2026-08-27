@@ -86,6 +86,8 @@ export function reducer(state: ChatState, msg: Action): ChatState {
       return { ...state, blocks: [...state.blocks, { icon: '🥚', role: '提示', color: 'yellow', text: msg.text }] }
     case 'session_ready':
       // R1：session_ready 带的是 history（完整原文），UI 据此渲染完整历史消息。
+      // resume 重建块时，工具块设 full（完整结果）+ text（摘要），与实时 tool_end 逻辑一致，保证可折叠展开。
+      // 注意：思考块是流式 thought_delta 产生的，不持久化进 history，resume 后无法恢复（固有限制）。
       return {
         ...state,
         status: 'idle',
@@ -95,7 +97,11 @@ export function reducer(state: ChatState, msg: Action): ChatState {
             if (!content) return [] // 纯 tool_calls 的 assistant 消息：其后紧跟工具块，跳过避免空块
             return [{ icon: ICON.assistant, role: '助手', color: COLOR.assistant, text: content }]
           }
-          if (m.role === 'tool') return [{ icon: ICON.tool, role: '工具结果', color: COLOR.tool, text: m.content }]
+          if (m.role === 'tool') {
+            // 工具结果：折叠显示摘要（前 120 字符），展开显示完整内容。
+            const summary = m.content.length > 120 ? m.content.slice(0, 120) + '…' : m.content
+            return [{ icon: ICON.tool, role: '工具结果', color: COLOR.tool, text: summary, full: m.content }]
+          }
           return [{ icon: ICON.user, role: '你', color: COLOR.user, text: m.content }]
         }),
       }
