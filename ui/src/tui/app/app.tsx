@@ -167,7 +167,13 @@ export function App({ port }: { port: UiPort }) {
         setBrowseBoth(moveBrowse(blocksRef.current, browseRef.current, key.upArrow))
         return
       }
-      if (key.return && browseRef.current !== null) { toggleExpanded(expandedRef.current, browseRef.current); setExpanded(new Set(expandedRef.current)); return }
+      if (key.return && browseRef.current !== null) {
+        // toggleExpanded 返回新 Set；需同时更新 ref 和 state（useInput 回调闭包读 ref，渲染读 state）。
+        const next = toggleExpanded(expandedRef.current, browseRef.current)
+        expandedRef.current = next
+        setExpanded(next)
+        return
+      }
       if (key.escape && browseRef.current !== null) { setBrowseBoth(null); return }
       // 消息滚动：↑/↓ 在无可折叠块时滚动历史（PageUp/PageDown 也支持）。
       const page = Math.max(5, Math.floor((stdout.rows || 24) / 2))

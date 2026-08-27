@@ -258,21 +258,29 @@ export class Agent {
   }
 
   // 手动压缩（/compact）：复用 compactContext，只改 context、不动 history，落盘。
+  // 失败时 emit error 而非让外层 .catch(() => {}) 静默吞掉。
   private async compactNow(): Promise<void> {
     const cur = this.current()
-    const result = await compactContext({
-      context: this.context,
-      systemPrompt: loadSystemPrompt(this.config.systemPrompt),
-      tools: toolSchemas(),
-      windowTokens: cur.contextWindow,
-      summarize: this.summarize,
-      force: true, // 手动 /compact 无条件压缩（跳过 80% 阈值）；阈值仅 loop 自动触发时用。
-    })
-    if (result.compacted) {
-      this.context = result.context
-      saveSession(this.sessionId, this.history, this.context)
+    try {
+      const result = await compactContext({
+        context: this.context,
+        systemPrompt: loadSystemPrompt(this.config.systemPrompt),
+        tools: toolSchemas(),
+        windowTokens: cur.contextWindow,
+        summarize: this.summarize,
+        force: true, // 手动 /compact 无条件压缩（跳过 80% 阈值）；阈值仅 loop 自动触发用。
+      })
+      if (result.compacted) {
+        this.context = result.context
+        saveSession(this.sessionId, this.history, this.context)
+        this.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after })
+      } else {
+        // 无旧历史可压（消息太少）——给明确反馈而非显示 before==after 的空压缩。
+        this.emit({ type: 'notice', text: '上下文消息太少，无需压缩（至少需要 5 条才有旧历史可压）' })
+      }
+    } catch (e) {
+      this.emit({ type: 'error', error: { message: '压缩失败：' + (e as Error).message, name: (e as Error).name } })
     }
-    this.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after })
   }
 
   // 配置编辑统一入口：委托 ConfigEditor，成功后同步 permission/provider 运行时 + 落盘 + emit。
