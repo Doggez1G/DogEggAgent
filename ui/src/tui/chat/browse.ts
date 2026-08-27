@@ -5,10 +5,11 @@ import type { Block } from './block'
 // 焦点用 index 表示；expanded 是一个 Set<number>。
 
 // 找出所有可折叠块的 index 列表。
+// 只有有 full 内容的块才可折叠——tool_start 后但 tool_end 前的块无 full，不可折叠。
 export function expandableIndices(blocks: Block[]): number[] {
   return blocks
     .map((b, i) => ({ b, i }))
-    .filter(({ b }) => b.icon === ICON.thinking || b.icon === ICON.tool)
+    .filter(({ b }) => (b.icon === ICON.thinking || b.icon === ICON.tool) && b.full !== undefined)
     .map(({ i }) => i)
 }
 

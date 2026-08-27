@@ -256,8 +256,11 @@ export function App({ port }: { port: UiPort }) {
         ) : (
           visibleBlocks.map((b) => (
             <MessageBlock key={b.index} icon={b.icon} role={b.role} color={b.color} focused={browse === b.index}>
-              {b.icon === ICON.thinking && b.isCollapsed ? (
-                <Text dimColor>{browse === b.index ? '（思考已折叠 · 回车展开）' : '（思考已折叠）'}</Text>
+              {b.isCollapsed ? (
+                // 折叠状态：思考块和工具块各自显示折叠提示（选中时提示可展开）
+                <Text dimColor>{b.icon === ICON.thinking
+                  ? (browse === b.index ? '（思考已折叠 · 回车展开）' : '（思考已折叠）')
+                  : (browse === b.index ? '（结果已折叠 · 回车展开）' : '（结果已折叠）')}</Text>
               ) : (
                 <Text>{b.shownText}</Text>
               )}

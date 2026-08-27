@@ -73,10 +73,14 @@ export async function executeOneTool(
 
   const verdict = deps.permission.classify(tool.name)
 
+  // 拒绝/失败的回填消息——明确告诉模型发生了什么，避免模型盲目重试同一工具。
+  // 用户拒绝时尤其要说明「不要再次调用此工具」，否则模型可能在下一轮重新请求权限，造成循环。
+  const deniedMessage = '用户拒绝了此工具调用，请勿再次尝试同一工具，改用其它方式或询问用户。'
+
   // reject 桶：配置层直接拒绝，发 tool_end。
   if (verdict === 'reject') {
     deps.emit({ type: 'tool_end', id: call.id, name: tool.name, output: 'denied', error: 'denied' })
-    return { toolMessage: { role: 'tool', tool_call_id: call.id, content: 'denied' }, transitionInput: rejectOrDone() }
+    return { toolMessage: { role: 'tool', tool_call_id: call.id, content: deniedMessage }, transitionInput: rejectOrDone() }
   }
 
   // ask 桶：需用户审批，挂起等待决议。用户 reject 同样发 tool_end。
@@ -85,7 +89,7 @@ export async function executeOneTool(
     deps.permission.apply(tool.name, decision)
     if (decision === 'reject') {
       deps.emit({ type: 'tool_end', id: call.id, name: tool.name, output: 'denied', error: 'denied' })
-      return { toolMessage: { role: 'tool', tool_call_id: call.id, content: 'denied' }, transitionInput: rejectOrDone() }
+      return { toolMessage: { role: 'tool', tool_call_id: call.id, content: deniedMessage }, transitionInput: rejectOrDone() }
     }
     // allow_once / allow_always：执行工具
     const message = await runAndEmit(call, tool, args, toolCtx, deps.emit)

@@ -26,7 +26,9 @@ export function buildDisplayBlocks(
 ): DisplayBlock[] {
   return blocks.map((b, i) => {
     const text = isMarkdown(b.icon) ? b.text : b.text // markdown 渲染由调用方在传入前完成
-    const expandable = b.icon === '🐣' || b.icon === '🐾'
+    // 只有有 full 内容的块才可折叠（tool_end 后的完整结果、thinking 的完整推理）。
+    // tool_start 后但 tool_end 前的块无 full，不可折叠。
+    const expandable = (b.icon === '🐣' || b.icon === '🐾') && b.full !== undefined
     const isExpanded = expanded.has(i)
     const shownText = !expandable
       ? text
