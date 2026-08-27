@@ -18,18 +18,18 @@ DogEggAgent 是一个自研的 **code agent** 工具。第一目标是**学习�
 
 **后端**（agent 核心及其依赖的 llm / tools / session / permission 等）与**前端**（ui：tui / webui）**完全解耦**，所有重要的后端行为都通过 **Event** 表达。
 
-`agent/` 与 `ui/` 这两个目录只是「后端」与「前端」两大部分的代称——边界不在字面的这两个文件夹，而在「后端逻辑」与「前端展示」之间。
+`agent/` 与 `ui/` 这两个目录只是「后端」与「前端」两大部分的代称——边界不在字面的这两个文件夹，而在「后端逻辑」与「前端展示」之间。v0.1.0 起二者建模为两个独立的 workspace 包（`agent/`、`ui/`），解耦契约归入第三个包 `bridge/`。
 
 实现方式：
-- `events/` 是唯一的解耦契约（纯类型：按方向拆成两套消息类型 `AgentToUiMessage` / `UiToAgentMessage`，见 §6）。
-- 后端不 import 前端，前端不 import 后端。
-- 两者仅在 `main/bootstrap.ts`（组合根）中通过消息对接。
-- 两类消息都是**传输无关**的单一事实源：v1 同进程内用 EventEmitter 投递；将来 WebUI 加 SSE 传输层，复用同一套消息类型，不必推倒重来。
+- `bridge/` 是唯一的解耦契约：按方向拆成两套消息类型 `AgentToUiMessage` / `UiToAgentMessage`（见 §6），并提供传输无关的 `Port` 接口（`AgentPort` / `UiPort`）与同进程通道实现 `createChannelPair()`。
+- 后端不 import 前端，前端不 import 后端；二者都只依赖 `bridge/`。
+- 两者仅在根组合根 `main.ts`（唯一同时 import agent 与 ui 的地方）中通过 Port 对接。
+- 两类消息都是**传输无关**的单一事实源：v1 同进程内用 Port 同步投递；将来 WebUI 加 SSE 传输层（在 `bridge/` 内新增通道实现），复用同一套消息类型，不必推倒重来。
 
 消息分两层，职责不同，不可混淆：
 
-1. **LLM 级 StreamEvent**（`llm/types.ts`）：provider → agent loop 的流，表达「模型吐了什么」。
-2. **Agent 级消息**（`events/`）：后端 ↔ 前端，按方向分成 `out`（后端→前端）与 `in`（前端→后端）两套 union。
+1. **LLM 级 StreamEvent**（`agent/src/llm/types.ts`）：provider → agent loop 的流，表达「模型吐了什么」。这是后端内部更底层的一层，不进 `bridge/`。
+2. **Agent 级消息**（`bridge/src/contract/`）：后端 ↔ 前端，按方向分成 `out`（后端→前端）与 `in`（前端→后端）两套 union。
 
 ## 3. 需求清单
 
@@ -117,7 +117,7 @@ finished / cancelled / error ──▶ idle
 
 ## 6. 消息契约
 
-**LLM 级 StreamEvent**（`llm/types.ts`，provider → agent loop）：
+**LLM 级 StreamEvent**（`agent/src/llm/types.ts`，provider → agent loop）：
 
 ```
 text_delta / thought_delta / tool_call_start / tool_call_delta / tool_call_end / done / error
@@ -125,7 +125,7 @@ text_delta / thought_delta / tool_call_start / tool_call_delta / tool_call_end /
 
 其中 `thought_delta` 承载 reasoning 内容，`text_delta` 承载答案文本，UI 可据此把「思考」与「回答」分开展示。这是后端内部更底层的一层。
 
-**Agent 级消息**（`events/`，后端 ↔ 前端）：按方向拆成两套 union，便于维护；两套都是「消息」，不是「事件 vs 命令」。将来接 SSE 时，序列化/反序列化的正是这两套类型。
+**Agent 级消息**（`bridge/src/contract/`，后端 ↔ 前端）：按方向拆成两套 union，便于维护；两套都是「消息」，不是「事件 vs 命令」。将来接 SSE 时，序列化/反序列化的正是这两套类型。
 
 ```ts
 // out: 后端 → 前端
@@ -271,43 +271,33 @@ interface Tool {
 
 ## 9. 目录结构
 
+v0.1.0 起采用 npm workspaces 真多包 + 每个包内部再细分子模块的四层结构。完整文件级结构以 `2026-08-27-modular-refactor-design.md` 为准，这里给出权威概览：
+
 ```
 DogEggAgent/
-├─ src/
-│  ├─ main/
-│  │  ├─ index.ts            # 进程入口（package.json bin 指向此处）
-│  │  └─ bootstrap.ts        # 组合根：后端消息 ↔ 前端渲染接线
-│  ├─ events/
-│  │  ├─ agent-to-ui.ts      # AgentToUiMessage 联合类型（后端 → 前端）
-│  │  └─ ui-to-agent.ts      # UiToAgentMessage 联合类型（前端 → 后端）
-│  ├─ agent/                 # Agent Core（后端核心）
-│  │  ├─ index.ts            # Agent 类：emit 消息 / 收消息
-│  │  ├─ loop.ts             # 循环编排（用 state.ts 的 transition 驱动 9 态）
-│  │  ├─ state.ts            # 9 态 + transition() 纯函数
-│  │  ├─ context.ts          # system prompt 组装 / 窗口预算 / Compaction
-│  │  ├─ session.ts          # ID / JSON 持久化 / Resume（Message History 由 Agent 的 Message[] 承载）
-│  │  └─ permission.ts       # 三桶分类 + 运行时决策
-│  ├─ llm/                   # LLM 接入
-│  │  ├─ types.ts            # ChatRequest / LLM StreamEvent / ProviderAdapter
-│  │  ├─ provider/           # OpenAIAdapter + ProviderRegistry（多实例）
-│  │  └─ streaming/          # SSE → StreamEvent（含 reasoning_content → thought_delta）
-│  ├─ tools/                 # 工具
-│  │  ├─ types.ts            # Tool 接口
-│  │  ├─ registry.ts
-│  │  └─ read_file.ts / write_file.ts / edit_file.ts / shell.ts
-│  ├─ config/                # schema.ts / loader.ts
-│  ├─ common/                # utils/（id、token 估算、截断、logger）+ errors.ts（跨域共享）
-│  └─ ui/                    # 前端：只消费/发送 AgentMessage
-│     ├─ tui/                # Ink：MessageList / Input / StatusBar / PermissionPrompt / SessionPicker / ModelPicker / ConfigEditor / InfoPanel
-│     └─ webui/              # 占位（v1 不实现）
-└─ test/                     # 镜像 src/ 的域结构，*.test.ts
-   ├─ agent/  llm/  tools/  config/  common/
+├─ main.ts                 # 组合根（唯一同时 import agent 与 ui 的地方，~25 行）
+├─ package.json            # workspaces: ["agent","ui","bridge"]
+├─ tsconfig.base.json      # 共享 compilerOptions（strict / bundler 解析）
+├─ build.mjs               # esbuild 构建脚本（含 @dogegg/* 解析插件）
+├─ agent/                  # @dogegg/agent：后端域
+│  ├─ package.json / tsconfig.json
+│  ├─ src/                 # core / loop / context / llm / tools / session / permission / config / shared
+│  └─ test/
+├─ ui/                     # @dogegg/ui：前端域（仅此包开 jsx）
+│  ├─ package.json / tsconfig.json
+│  ├─ src/tui/             # app / chat / input / overlays / components / theme / markdown
+│  └─ test/
+└─ bridge/                 # @dogegg/bridge：契约 + 通道
+   ├─ package.json / tsconfig.json
+   ├─ src/                 # contract（消息 + 跨界数据类型 + Config schema）/ channel（Port + 同进程实现）
+   └─ test/
 ```
 
 **依赖约束（唯一硬约束）**：
 
-- 后端与前端互不 import，仅通过 `events/` 的消息类型关联。这是解耦原则的实体化。
-- 除此之外，各域之间谁依赖谁属于实现细节，不在本文档中钉死为规范。
+- 后端与前端互不 import，都只依赖 `bridge/`；`bridge/` 不依赖任何兄弟包。二者仅在根 `main.ts` 对接。
+- 除此之外，各子域之间谁依赖谁，由 `bridge/test/architecture.test.ts` 依据子域依赖矩阵强制（见重构设计 §9）。
+- 模块 = 文件夹，`index.ts` 是唯一对外脸面；文件夹内按职责分文件（禁止单文件大杂烩）；`src/` 源文件 ≤ 250 行。
 
 ## 10. 技术选型
 
@@ -363,7 +353,7 @@ DogEggAgent/
 
 | 组件 | 说明 | 键位 |
 |---|---|---|
-| 消息列表 | 每条消息为**独立圆角块**（外层视口框 + 内部消息卡，A+B 结合）：用户、思考、助手、工具（调用+结果合一）各自成块；思考块与工具结果**默认折叠**，`Tab`/`Shift+Tab` 在可折叠块间移动焦点（accent 高亮），`回车` 展开/折叠、`Esc` 返回输入框；流式时块随文本增长；`PageUp`/`PageDown` 上/下翻历史，`scroll=0` 时自动跟随最新 | — |
+| 消息列表 | 每条消息为**独立圆角块**（外层视口框 + 内部消息卡，A+B 结合）：用户、思考、助手、工具（调用+结果合一）各自成块；思考块与工具结果**默认折叠**，`↑`/`↓` 在可折叠块间移动焦点（accent 高亮），`回车` 展开/折叠、`Esc` 返回输入框；流式时块随文本增长；`PageUp`/`PageDown` 上/下翻历史，`scroll=0` 时自动跟随最新 | — |
 | 输入框 | 多行缓冲 | `Enter` 发送 / `Shift+Enter` 换行 / `↑↓` 历史 / `/` 命令补全 |
 | 状态栏 | `state 图标 · provider/model · #sessionId · tokens/window`，state 来自后端 `state` 事件 | — |
 | 权限弹层 | 三行列表：允许一次 / 始终允许 / 拒绝 | `↑↓` 选、`Enter` 确认、`Esc` 拒绝 → `permission_decision` |
