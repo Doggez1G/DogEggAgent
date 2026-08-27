@@ -18,10 +18,10 @@ export const COMMANDS: { cmd: string; desc: string }[] = [
 ]
 
 // 前缀匹配：输入以 / 开头时，返回所有以当前输入为前缀的命令。
-// 输入 /s → /session, /status, /system；输入 /se → /session。
+// 输入 / → 全部命令；输入 /s → /session, /status, /system；输入 /se → /session。
+// 输入本身已完整匹配某命令时不再联想（用户已打完）。
 export function matchCommands(input: string): { cmd: string; desc: string }[] {
-  if (!input.startsWith('/') || input.length < 2) return []
-  // 输入本身已完整匹配某命令时不再联想（用户已打完）。
+  if (!input.startsWith('/')) return []
   const exact = COMMANDS.find((c) => c.cmd === input)
   if (exact) return []
   return COMMANDS.filter((c) => c.cmd.startsWith(input))

@@ -168,8 +168,19 @@ export function App({ port }: { port: UiPort }) {
       if (matches.length > 0) {
         if (key.upArrow) { setSuggestCursor((c) => c === null ? matches.length - 1 : (c - 1 + matches.length) % matches.length); return }
         if (key.downArrow) { setSuggestCursor((c) => c === null ? 0 : (c + 1) % matches.length); return }
-        if ((key.return || key.tab) && suggestCursor !== null) {
-          // 补全选中命令到输入框，光标留在输入框等用户再按回车提交。
+        // Tab 补全：选中项或唯一匹配。inputChar === '\t' 兜底 key.tab 不可靠的情况。
+        if ((key.tab || inputChar === '\t')) {
+          const idx = suggestCursor ?? (matches.length === 1 ? 0 : null)
+          if (idx !== null) {
+            setInput(matches[idx]!.cmd)
+            setSuggestCursor(null)
+          }
+          return
+        }
+        // 回车补全：选中项补全到输入框，不直接运行——吞掉这次回车避免 TextInput 的 onSubmit 触发 handleSubmit。
+        if (key.return && suggestCursor !== null) {
+          suppressEnterRef.current = true
+          queueMicrotask(() => { suppressEnterRef.current = false })
           setInput(matches[suggestCursor]!.cmd)
           setSuggestCursor(null)
           return
@@ -346,7 +357,7 @@ export function App({ port }: { port: UiPort }) {
             <Box flexDirection="column" marginTop={0}>
               {matchCommands(input).map((m, i) => (
                 <Text key={m.cmd} inverse={i === suggestCursor} color={i === suggestCursor ? undefined : palette.subtext}>
-                  {i === suggestCursor ? '> ' : '  '}{m.cmd} {m.desc}
+                  {i === suggestCursor ? '> ' : '  '}{m.cmd}
                 </Text>
               ))}
               <Text dimColor> ↑↓ 选择 · 回车/Tab 补全 · esc 取消</Text>
