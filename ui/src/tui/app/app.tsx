@@ -115,7 +115,11 @@ export function App({ port }: { port: UiPort }) {
       } else if (msg.type === 'system_state') {
         setView({ kind: 'info', title: 'system prompt', lines: [`路径：${msg.path}`, '─'.repeat(40), msg.content] })
       } else if (msg.type === 'compaction') {
-        setView({ kind: 'info', title: '压缩上下文', lines: [`压缩前：${msg.before_tokens} tokens`, `压缩后：${msg.after_tokens} tokens`] })
+        if (msg.source === 'manual') {
+          // 手动 /compact：弹 info overlay 显示压缩结果
+          setView({ kind: 'info', title: '压缩上下文', lines: [`压缩前：${msg.before_tokens} tokens`, `压缩后：${msg.after_tokens} tokens`] })
+        }
+        // 自动压缩：不弹 overlay，reducer 插一条 dim 提示消息块（不打断对话流）
       } else if (msg.type === 'log_state') {
         setView({ kind: 'info', title: '调试日志', lines: [`路径：${msg.path}`, '─'.repeat(40), msg.tail] })
       }

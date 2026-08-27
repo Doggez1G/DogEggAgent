@@ -186,7 +186,7 @@ type AgentToUiMessage =
   | { type: 'log_state'; path: string; tail: string }
   | { type: 'history_cleared' }
   | { type: 'notice'; text: string }
-  | { type: 'compaction'; before_tokens: number; after_tokens: number }
+  | { type: 'compaction'; before_tokens: number; after_tokens: number; source: 'manual' | 'auto' }
   | { type: 'finished'; usage?: unknown }
   | { type: 'error'; error: { message: string; name?: string } }   // 可序列化形状：进程内 Port 与将来 SSE 同构
 
@@ -217,6 +217,7 @@ type UiToAgentMessage =
 - `message` 的 `id` 为真值（非空串），与 `tool_start`/`tool_end` 的 `id` 同源，供 UI 做块定位/折叠/滚动跟随。
 - **拒绝/失败工具可见**：config `reject` 桶命中、`ask`→用户 reject、未知工具、参数校验失败这四种情况，也发一条 `tool_end`（`error` 标明原因，如 `denied` / `未知工具` / `参数校验失败`），让 UI 能渲染「🐾 tool ✕ denied」。`tool_start` 仅在实际执行前发。
 - `error` 用可序列化形状 `{ message, name? }`，agent 侧 emit 时从 `Error` 转换，保证进程内 Port 与将来 SSE 同构。
+- `compaction` 带 `source: 'manual' | 'auto'`：手动 `/compact` 弹 info overlay 显示压缩结果（需 esc 关闭）；自动压缩不弹 overlay，只在对话流插一条 dim 提示块（不打断对话流）。
 - `/config` 用 `config_set` / `config_add` / `config_remove` 三个通用 path 操作，覆盖对 provider、model 及任意字段的增删改；`config_state` / `config_updated` 携带完整 `Config`。
 - `resume_session.id`、`config_*` 的取值均来自 UI 侧选择器，不是用户手打。
 

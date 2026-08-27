@@ -105,11 +105,17 @@ export function reducer(state: ChatState, msg: Action): ChatState {
           return [{ icon: ICON.user, role: '你', color: COLOR.user, text: m.content }]
         }),
       }
+    case 'compaction':
+      // 手动压缩弹 overlay（App 处理），reducer 不产生块。
+      // 自动压缩插一条 dim 提示块（不打断对话流），让用户知道发生了压缩。
+      if (msg.source === 'auto') {
+        return { ...state, blocks: [...state.blocks, { icon: '🐾', role: '自动压缩', color: 'gray', text: `${msg.before_tokens} → ${msg.after_tokens} tokens` }] }
+      }
+      return state
     case 'tools_list':
     case 'status_state':
     case 'context_state':
     case 'system_state':
-    case 'compaction':
     case 'log_state':
       // 这些命令响应改为 info overlay 呈现（App 的 onMessage 拦截切换），reducer 不再产生消息块。
       return state

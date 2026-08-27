@@ -58,7 +58,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
         // 压缩改变了 context 数组内容——用新数组替换。newMessages 不受影响（它们是本轮新增的）。
         context.length = 0
         context.push(...result.context)
-        deps.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after })
+        deps.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after, source: 'auto' })
       }
     }
 

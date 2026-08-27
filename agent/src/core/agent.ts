@@ -281,7 +281,7 @@ export class Agent {
       if (result.compacted) {
         this.context = result.context
         saveSession(this.sessionId, this.history, this.context)
-        this.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after })
+        this.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after, source: 'manual' })
       } else {
         // context 为空——没有消息可压。
         this.emit({ type: 'notice', text: '上下文为空，无需压缩' })
