@@ -266,6 +266,7 @@ export class Agent {
       tools: toolSchemas(),
       windowTokens: cur.contextWindow,
       summarize: this.summarize,
+      force: true, // 手动 /compact 无条件压缩（跳过 80% 阈值）；阈值仅 loop 自动触发时用。
     })
     if (result.compacted) {
       this.context = result.context

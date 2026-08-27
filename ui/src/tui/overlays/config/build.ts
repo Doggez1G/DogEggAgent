@@ -13,7 +13,7 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): En
         { label: 'defaultModel', kind: 'goto', value: config.defaultModel ?? '（未选择）', subPath: { kind: 'selectModel' } },
         { label: 'maxIterations', kind: 'scalar', value: String(config.maxIterations), save: (v) => ctx.set('maxIterations', nan(v)) },
         { label: 'maxRetries', kind: 'scalar', value: String(config.maxRetries), save: (v) => ctx.set('maxRetries', nan(v)) },
-        { label: 'shellProgram', kind: 'scalar', value: config.shellProgram ?? '（默认按平台）', save: (v) => ctx.set('shellProgram', v) },
+        { label: 'shellProgram', kind: 'scalar', value: config.shellProgram ?? '', save: (v) => ctx.set('shellProgram', v) },
         { label: 'permission', kind: 'goto', value: 'allow/reject/ask', subPath: { kind: 'permission' } },
         { label: 'providers', kind: 'goto', value: `${config.providers.length} 个`, subPath: { kind: 'providers' } },
       ]

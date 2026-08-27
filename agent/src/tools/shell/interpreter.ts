@@ -12,8 +12,11 @@ export function defaultShell(platform: NodeJS.Platform = process.platform): Shel
 }
 
 // 已知解释器映射到标准 flag；未知值回退为「程序名 + -c」，仍可显式执行。
+// 防御：含非 ASCII 字符的值（如误保存的占位文本「（默认按平台）」）回退到平台默认。
 export function resolveShell(program: string | undefined, platform: NodeJS.Platform = process.platform): ShellSpec {
-  if (!program) return defaultShell(platform)
+  if (!program || !program.trim()) return defaultShell(platform)
+  // 含非 ASCII（如中文占位文本）——视为非法，回退到平台默认。
+  if (/[^\x00-\x7F]/.test(program)) return defaultShell(platform)
   switch (program.toLowerCase()) {
     case 'cmd': return { program: 'cmd', flag: '/c' }
     case 'powershell':

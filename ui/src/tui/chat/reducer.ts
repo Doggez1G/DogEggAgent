@@ -92,15 +92,13 @@ export function reducer(state: ChatState, msg: Action): ChatState {
         }),
       }
     case 'tools_list':
-      return infoBlock(state, '工具', msg.tools.map((t) => `${t.name} — ${t.description}`).join('\n'))
     case 'status_state':
-      return infoBlock(state, '状态', `session=${msg.sessionId}  provider=${msg.provider}  model=${msg.model}\ncwd=${msg.cwd}  state=${msg.state}`)
     case 'context_state':
-      return infoBlock(state, '上下文', `${msg.estimatedTokens} / ${msg.windowTokens} tokens（${msg.percent}%）`)
     case 'system_state':
-      return infoBlock(state, 'system prompt', `${msg.path}\n${msg.content}`)
     case 'compaction':
-      return infoBlock(state, '压缩', `${msg.before_tokens} → ${msg.after_tokens} tokens`)
+    case 'log_state':
+      // 这些命令响应改为 info overlay 呈现（App 的 onMessage 拦截切换），reducer 不再产生消息块。
+      return state
     case 'history_cleared':
       return { ...state, blocks: [] }
     default:

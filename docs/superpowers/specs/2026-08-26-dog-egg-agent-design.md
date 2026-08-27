@@ -46,7 +46,7 @@ DogEggAgent 是一个自研的 **code agent** 工具。第一目标是**学习�
 | 9 | Event System | 见 §2 |
 | 10 | Permission | 配置 `allow/reject/ask` 三桶 + 运行时 `allow_once/allow_always/reject`（见 §5） |
 | 11 | Session | Session ID / 消息持久化 / Resume / History；JSON：`~/.dogegg/sessions/<id>.json`；REPL 斜杠命令 `/new`、`/session`（列会话并选择切换）管理 |
-| 12 | Context Compaction | LLM 把旧上下文压成 summary；触发 80% 窗口、保留最近 4 条；**只压缩 Context，不动 History**（见 §3.1） |
+| 12 | Context Compaction | LLM 把旧上下文压成 summary；触发 80% 窗口、保留最近 4 条；**只压缩 Context，不动 History**（见 §3.1）；自动触发用 80% 阈值，手动 `/compact` 无条件压缩（仅看有无旧历史） |
 | 13 | UI | Message List / Markdown / Tool Call / Tool Result / Input / Status Bar / Streaming |
 
 - **Reasoning**：v1 **框架就绪**——思考内容走独立 `thought_delta` 事件，按 OpenAI 官方标准字段解析。⚠️ 仅就绪：o1/o3 等推理模型的真实流式差异（如 `reasoning_effort`、增量 reasoning 协议）v1 不验证，实际可用性以运行时为准。具体字段名（`reasoning_content` 等）在实现时对照 OpenAI 当前文档确认，不在此写死。
@@ -391,14 +391,14 @@ DogEggAgent/
 
 | 组件 | 说明 | 键位 |
 |---|---|---|
-| 消息列表 | 每条消息为**独立圆角块**（外层视口框 + 内部消息卡，A+B 结合）：用户、思考、助手、工具（调用+结果合一）各自成块；思考块与工具结果**默认折叠**，`↑`/`↓` 在可折叠块间移动焦点（accent 高亮），`回车` 展开/折叠、`Esc` 返回输入框；流式时块随文本增长；`PageUp`/`PageDown` 上/下翻历史，`scroll=0` 时自动跟随最新 | — |
+| 消息列表 | 每条消息为**左色条块**（无全框，靠左侧色条 + marginBottom 留白分隔）：用户、思考、助手、工具（调用+结果合一）各自成块；思考块与工具结果**默认折叠**，`↑`/`↓` 在可折叠块间移动焦点（accent 左色条 + ▸ 高亮），`回车` 展开/折叠、`Esc` 返回输入框；无可折叠块时 `↑`/`↓` 滚动历史，`PageUp`/`PageDown` 翻页，`scroll=0` 时自动跟随最新；底部显示滚动提示 | — |
 | 输入框 | 多行缓冲 | `Enter` 发送 / `Shift+Enter` 换行 / `↑↓` 历史 / `/` 命令补全 |
 | 状态栏 | `state 图标 · provider/model · #sessionId · tokens/window`，state 来自后端 `state` 事件 | — |
 | 权限弹层 | 三行列表：允许一次 / 始终允许 / 拒绝 | `↑↓` 选、`Enter` 确认、`Esc` 拒绝 → `permission_decision` |
 | 会话选择器 | 列 session，选一个恢复 | `↑↓` 选、`Enter` 确认、`Esc` 返回 |
 | 模型选择器 | provider → model 两级 | 同上 |
 | 配置编辑器 | 字段类型驱动的 6 种编辑动作 | 见下 |
-| 信息面板 | /context /tools /system /status /log /help，只读 | `Esc` 关闭 |
+| 信息面板 | /context /tools /system /status /log /help，只读 overlay（圆角框 + 标题 + 内容行） | `↑↓` 翻页、`Esc` 关闭 |
 
 **配置编辑器（树形表单）**：把 config 的 JSON 结构渲染成一棵可上下导航的树，`Enter` 钻入、`Esc`/`←` 返回上一层。
 
@@ -636,7 +636,7 @@ DogEggAgent/
 
 **字形层次**：用户 🥚、助手 🐶、思考 🐣、工具 🐾 作为块头图标；正文 default、reasoning 折叠后 dim；工具块 cyan + dim 摘要；选中项反色（inverse）；面板圆角 dim 边框、标题 bold accent。
 
-**组件**：每条消息 = 独立圆角块（用户块 accent、思考块 yellow、助手块 default、工具块 cyan 调用+结果合一）；状态栏表面色底 + 彩色状态点 + bold；输入框 accent `›` 前缀、聚焦时下划线；进度条 accent 填充 + dim 底；动效（流式光标闪烁、spinner 转动，流式消息块随文本增长）。
+**组件**：每条消息 = 左色条块（用户块 accent、思考块 yellow、助手块 default、工具块 cyan 调用+结果合一），无全框靠 marginBottom 留白分隔；状态栏底色块 + 彩色状态点 + bold；输入框 accent `›` 前缀、聚焦时下划线；进度条 accent 填充 + dim 底；动效（流式光标闪烁、spinner 转动，流式消息块随文本增长）。
 
 **标注示例**（注释即 ANSI 色）：
 

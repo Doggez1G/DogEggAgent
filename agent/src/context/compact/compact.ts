@@ -18,20 +18,27 @@ export interface CompactResult {
 // ⚠️ R1 核心约束：此函数只压缩 Context，**绝不触碰 History**。
 // 它接收 context 数组、返回压缩后的新 context 数组；History 由 core/agent.ts 持有并保持原样不变。
 // 压缩结果 = [摘要消息, ...最近 keep 条原文]；旧消息被摘要替代。
-// 调用方（loop 自动 / Agent 手动）各自决定是否 emit compaction 与持久化。
+//
+// force 语义：
+//   - force=false（默认，loop 自动触发）：仅当 token 超过窗口 80% 时才压缩。
+//   - force=true（/compact 手动触发）：无条件压缩——跳过阈值检查，只要 old 非空就压。
+//   两种情况都跳过「无可压缩旧历史」（old.length === 0）。
 export async function compactContext(input: {
   context: Message[]
   systemPrompt: string
   tools: object[]
   windowTokens: number
   summarize: (old: Message[]) => Promise<string>
+  force?: boolean
 }): Promise<CompactResult> {
   const before = estimateContextTokens(input.systemPrompt, input.context, input.tools)
-  if (!shouldCompact(before, input.windowTokens)) {
+  // 手动压缩无条件执行；自动压缩需超过窗口 80% 才触发。
+  if (!input.force && !shouldCompact(before, input.windowTokens)) {
     return { compacted: false, context: input.context, before, after: before }
   }
   const { old, fresh } = splitForCompaction(input.context)
   if (old.length === 0) {
+    // 即使 force，没有旧历史可压也跳过。
     return { compacted: false, context: input.context, before, after: before }
   }
   const summary = await input.summarize(old)

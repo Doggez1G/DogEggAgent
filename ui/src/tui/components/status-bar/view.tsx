@@ -1,7 +1,20 @@
 import React from 'react'
-import { Text } from 'ink'
+import { Box, Text } from 'ink'
+import { palette } from '../../theme'
 
-// 状态栏：反色显示当前 agent 状态（来自后端 state 事件）。
+// 状态栏：底色块 + 彩色状态点 + bold 文本，比 inverse 更有质感。
 export function StatusBar(props: { state: string }) {
-  return <Text inverse dimColor>{` 🐶🥚 ${props.state} `}</Text>
+  // 状态 → 颜色映射（低饱和语义色）
+  const stateColor: Record<string, string> = {
+    idle: palette.subtext, thinking: palette.yellow, responding: palette.accent,
+    tool_calling: palette.cyan, executing: palette.cyan, waiting_permission: palette.yellow,
+    finished: palette.green, cancelled: palette.subtext, error: palette.red,
+  }
+  const color = stateColor[props.state] ?? palette.subtext
+  return (
+    <Box>
+      <Text backgroundColor={palette.subtext} color={color}> ● </Text>
+      <Text bold color={color}> {props.state} </Text>
+    </Box>
+  )
 }
