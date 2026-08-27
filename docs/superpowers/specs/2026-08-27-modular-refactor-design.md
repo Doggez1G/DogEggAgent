@@ -134,7 +134,7 @@ agent/src/
 │     ├─ index.ts  ├─ trigger.ts      # 80% 阈值判断（需求 #12）
 │     ├─ split.ts                # 保留最近 4 条的切分（切 Context）
 │     ├─ summarize.ts            # 调 LLM 压摘要（summarizeHistory 唯一归宿）
-│     └─ compact.ts              # compactContext 编排（自动 + 手动统一入口；只改 Context，History 由 core 持有不动）
+│     └─ compact.ts              # compactContext 编排（自动 + 手动统一入口；只改 Context，History 由 core 持有不动；force 参数：手动无条件压缩、自动走 80% 阈值）
 ├─ llm/                          # LLM 接入
 │  ├─ index.ts  ├─ types.ts      # LlmStreamEvent / ChatRequest / ProviderAdapter
 │  ├─ adapter-for.ts             # protocol → adapter 分派（R6）：输入 protocol 返回 ProviderAdapter，agent 只调它（收编 Agent 两处 openAiAdapter() 硬编码）
@@ -224,7 +224,7 @@ ui/src/
    ├─ app/                       # 应用装配层
    │  ├─ index.ts
    │  ├─ app.tsx                 # App 组件：状态持有 + 渲染骨架（装配，不含逻辑）
-   │  ├─ view-state.ts           # View 视图态联合（弹层状态机，纯）
+   │  ├─ view-state.ts           # View 视图态联合（none/permission/menu/prompt/config/info，纯）
    │  ├─ keys.ts                 # 键盘路由：按键 → 视图/输入框/块浏览 的分发
    │  └─ entry.ts                # renderTui(port)：Ink render + 备用屏幕进出
    ├─ chat/                      # §13 消息列表
@@ -235,7 +235,7 @@ ui/src/
    │  └─ browse.ts               # 块浏览焦点 + 折叠展开集合管理（纯）
    ├─ input/                     # §13 输入框
    │  ├─ index.ts
-   │  ├─ commands.ts             # 斜杠命令表：/cmd → UiToAgentMessage（纯）★可单测
+   │  ├─ commands.ts             # 斜杠命令表：/cmd → UiToAgentMessage + matchCommands 前缀匹配联想（纯）★可单测
    │  └─ input-box.tsx           # 输入框组件 + 提交流程
    ├─ overlays/                  # §13 叠加视图
    │  ├─ index.ts
@@ -364,10 +364,10 @@ renderTui(uiPort)                                 // @dogegg/ui
 
 1. `npm run typecheck` 绿；
 2. `npm run test:run` 绿，测试断言数 ≥ 现有 15 个文件的全部断言（另新增 bridge 2 个、ui 3 个、agent 2 个：paths/compact）；
-3. `npm run build` 产出 `dist/index.js`，`npm start` 可启动 TUI，人工冒烟：发消息、`/config`、权限弹层、折叠展开；
+3. `npm run build` 产出 `dist/index.js`，`npm start` 可启动 TUI，人工冒烟：发消息、`/config`、权限弹层、折叠展开、`/compact` 压缩（状态栏显示 compacting）、`/` 联想补全、`/session` resume 后工具块可折叠；
 4. `grep -r "from.*agent" ui/src` 无结果——UI 零反向依赖；
 5. 架构测试通过（依赖方向 + 模块边界；index.ts 纯 re-export）；~~体量红线已移除~~。
-6. 行为变更已落实并验证：R1（resume 显示压缩前历史 + 模型用压缩后上下文）、R3（拒绝/失败工具在 UI 可见）、R4（message 事件带真 id）。
+6. 行为变更已落实并验证：R1（resume 显示压缩前历史 + 模型用压缩后上下文）、R3（拒绝/失败工具在 UI 可见 + 拒绝回填明确提示防循环）、R4（message 事件带真 id）、compact force（手动无条件压缩）、compacting 状态（UI 可感知压缩中）、斜杠命令联想补全。
 
 ## 12. 非目标（本次明确不做）
 

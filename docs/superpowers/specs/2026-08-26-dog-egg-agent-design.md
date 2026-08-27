@@ -124,7 +124,7 @@ responding ──返回 tool_calls──▶ tool_calling
 tool_calling ──自动放行/已允许──▶ executing
 tool_calling ──需审批──▶ waiting_permission
 waiting_permission ──allow_once / allow_always──▶ executing
-waiting_permission ──reject（回填 denied）──▶ thinking | responding
+waiting_permission ──reject（回填明确拒绝提示，告知模型勿重试）──▶ thinking | responding
 executing ──结果回填，重新请求──▶ thinking | responding
 任意运行态 ──compact_start──▶ compacting
 compacting ──compact_done──▶ thinking | responding | idle
@@ -149,7 +149,7 @@ finished / cancelled / error ──▶ idle
 
 - `allow_once`：仅放行本次调用
 - `allow_always`：将工具在本会话内挪入允许
-- `reject`：拒绝本次调用（回填 denied，继续）
+- `reject`：拒绝本次调用（回填明确提示「用户拒绝了此工具调用，请勿再次尝试同一工具」，让模型停止重试而非循环弹框，继续）
 
 审批通过注入的回调交给 UI（TUI = await Y/n），`agent/permission` 本身不依赖 UI。
 
@@ -305,7 +305,7 @@ interface Tool {
 `tools/registry.ts` 汇总所有工具的 `name/schema/execute`。工具参数（LLM 返回的 JSON）用 **zod** 校验。
 
 **`shell` 与取消（cancel）**：
-- `shell` 的解释器来自配置 `shellProgram`（缺省按平台——Windows 默认 `cmd`，可切 `powershell`/`bash`），通过 `spawn(program, [flag, command])` 显式指定（`cmd → /c`、`powershell → -Command`、`bash/sh → -c`）。
+- `shell` 的解释器来自配置 `shellProgram`（缺省按平台——Windows 默认 `cmd`，可切 `powershell`/`bash`），通过 `spawn(program, [flag, command])` 显式指定（`cmd → /c`、`powershell → -Command`、`bash/sh → -c`）。Windows 上加 `shell: true` 避免 `cmd` 的 ENOENT；`shellProgram` 含非 ASCII（如误存的占位文本）时自动回退到平台默认。
 - `shell` 的进程可被取消杀死：工具把 `killTree` 挂在 `ctx.signal` 的 `abort` 监听上，取消时由外层 `AbortController` 触发杀进程树。
 - 取消三件套：`AbortController` 中断 LLM 请求 + 工具之间检查取消标志 + 杀 shell 进程树。
 - `killTree` 按 OS 分支：`win32` 用 `taskkill /PID <pid> /T /F`（杀整棵树，对 cmd/powershell/bash 通用）；POSIX 用 detached 进程组 + `process.kill(-pid, 'SIGKILL')`。杀进程**不按 shell 类型**区分，只按 OS。
@@ -394,8 +394,8 @@ DogEggAgent/
 
 | 组件 | 说明 | 键位 |
 |---|---|---|
-| 消息列表 | 每条消息为**左色条块**（无全框，靠左侧色条 + marginBottom 留白分隔）：用户、思考、助手、工具（调用+结果合一）各自成块；思考块与工具结果**默认折叠**，`↑`/`↓` 在可折叠块间移动焦点（accent 左色条 + ▸ 高亮），`回车` 展开/折叠、`Esc` 返回输入框；无可折叠块时 `↑`/`↓` 滚动历史，`PageUp`/`PageDown` 翻页，`scroll=0` 时自动跟随最新；底部显示滚动提示 | — |
-| 输入框 | 多行缓冲 | `Enter` 发送 / `Shift+Enter` 换行 / `↑↓` 历史 / `/` 命令补全 |
+| 消息列表 | 每条消息为**左色条块**（无全框，靠左侧色条 + marginBottom 留白分隔）：用户、思考、助手、工具（调用+结果合一）各自成块；思考块与工具结果**默认折叠**（思考折叠显示前 3 行摘要、工具折叠显示前 120 字符摘要，展开显示全文/完整结果），`↑`/`↓` 在可折叠块间移动焦点（accent 左色条 + ▸ 高亮），`回车` 展开/折叠、`Esc` 返回输入框；无可折叠块时 `↑`/`↓` 滚动历史，`PageUp`/`PageDown` 翻页，`scroll=0` 时自动跟随最新；底部显示滚动提示。⚠️ resume 加载历史会话时工具块可折叠（full 从持久化的 tool 消息 content 重建），但思考块不可恢复——思考内容来自流式 `thought_delta`、不持久化进 history，resume 后无思考块（固有限制） | — |
+| 输入框 | 多行缓冲 | `Enter` 发送 / `Shift+Enter` 换行 / `↑↓` 历史 / `/` 命令联想补全：输入 `/` 前缀时上方显示匹配命令列表（前缀匹配），`↑↓` 选择、`Enter`/`Tab` 补全到输入框、`Esc` 取消 |
 | 状态栏 | `state 图标 · provider/model · #sessionId · tokens/window`，state 来自后端 `state` 事件 | — |
 | 权限弹层 | 三行列表：允许一次 / 始终允许 / 拒绝 | `↑↓` 选、`Enter` 确认、`Esc` 拒绝 → `permission_decision` |
 | 会话选择器 | 列 session，选一个恢复 | `↑↓` 选、`Enter` 确认、`Esc` 返回 |
