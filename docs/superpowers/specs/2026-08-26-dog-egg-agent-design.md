@@ -42,7 +42,7 @@ DogEggAgent 是一个自研的 **code agent** 工具。第一目标是**学习�
 | 5 | System Prompt | 配置只存**文件路径**，缺省用内置默认文件，用户改文件即可自定义 |
 | 6 | Tool Result | 超长结果截断，cap ≈ 8000 字符（截断处注明） |
 | 7 | Context Window | 来自**模型配置** `contextWindow`，缺省保守 128k |
-| 8 | Agent State | 9 态状态机（见 §4） |
+| 8 | Agent State | 10 态状态机（见 §4） |
 | 9 | Event System | 见 §2 |
 | 10 | Permission | 配置 `allow/reject/ask` 三桶 + 运行时 `allow_once/allow_always/reject`（见 §5） |
 | 11 | Session | Session ID / 消息持久化 / Resume / History；JSON：`~/.dogegg/sessions/<id>.json`；REPL 斜杠命令 `/new`、`/session`（列会话并选择切换）管理 |
@@ -95,7 +95,7 @@ config 编辑归「阻塞」：运行中改 config 会让 loop 持有的 provide
 - **无配置可启动**：找不到配置文件时仍进入 TUI（空配置）；仅 `submit` / `status` / `context` / `compact` 在未配置时发 `notice` 提示先 `/config`。
 - **CLI 参数**：v1 无（一切通过 REPL 斜杠命令）。
 
-## 4. 状态机（9 态）
+## 4. 状态机（10 态）
 
 状态语义：
 
@@ -110,6 +110,7 @@ config 编辑归「阻塞」：运行中改 config 会让 loop 持有的 provide
 | `finished` | 本轮正常结束 |
 | `cancelled` | 用户取消（cancel） |
 | `error` | 出错 |
+| `compacting` | 压缩上下文中（手动 `/compact` 或自动触发 80% 阈值时进入，UI 可感知） |
 
 **通用规则**：每次「重新请求模型」进入 `thinking`（推理模型）或 `responding`（普通模型）。这条规则同时作用于 submit、reject 之后、executing 结果回填之后。
 
@@ -125,6 +126,8 @@ tool_calling ──需审批──▶ waiting_permission
 waiting_permission ──allow_once / allow_always──▶ executing
 waiting_permission ──reject（回填 denied）──▶ thinking | responding
 executing ──结果回填，重新请求──▶ thinking | responding
+任意运行态 ──compact_start──▶ compacting
+compacting ──compact_done──▶ thinking | responding | idle
 任意运行态 ──cancel──▶ cancelled
 任意运行态 ──error──▶ error
 finished / cancelled / error ──▶ idle
@@ -371,7 +374,7 @@ DogEggAgent/
 
 ## 13. TUI 界面设计
 
-**架构**：TUI 有独立的「视图态」，叠加在后端 9 态之上；TUI = 后端事件流 + UI 本地视图态的纯函数（Ink 渲染）；运行在备用屏幕（full-screen）中，避免污染终端滚动条。视图态：`chat`（默认）、`permission`（弹层）、`session` / `model`（选择器）、`config`（编辑器）、`info`（只读面板）。
+**架构**：TUI 有独立的「视图态」，叠加在后端 10 态之上；TUI = 后端事件流 + UI 本地视图态的纯函数（Ink 渲染）；运行在备用屏幕（full-screen）中，避免污染终端滚动条。视图态：`chat`（默认）、`permission`（弹层）、`session` / `model`（选择器）、`config`（编辑器）、`info`（只读面板）。
 
 **布局**（启动即显示顶部品牌条 + 欢迎语；消息在专用圆角视口内以消息卡呈现，支持滚动）：
 
@@ -633,6 +636,7 @@ DogEggAgent/
 | `finished` | green | 🐥 |
 | `cancelled` | dim | 🥚 |
 | `error` | red | 🐶 汪 |
+| `compacting` | cyan | 🐾 ⟳ |
 
 **字形层次**：用户 🥚、助手 🐶、思考 🐣、工具 🐾 作为块头图标；正文 default、reasoning 折叠后 dim；工具块 cyan + dim 摘要；选中项反色（inverse）；面板圆角 dim 边框、标题 bold accent。
 

@@ -114,7 +114,7 @@ agent/src/
 │  └─ state/
 │     ├─ index.ts
 │     ├─ events.ts               # TransitionInput 迁移输入类型
-│     └─ transition.ts           # 9 态纯函数迁移表
+│     └─ transition.ts           # 10 态纯函数迁移表
 ├─ loop/                         # 需求 #1：问模型 → 串行工具 → 回填 → 再问
 │  ├─ index.ts
 │  ├─ types.ts                   # LoopDeps

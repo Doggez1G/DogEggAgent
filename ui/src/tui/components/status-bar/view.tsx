@@ -9,6 +9,7 @@ export function StatusBar(props: { state: string }) {
     idle: palette.subtext, thinking: palette.yellow, responding: palette.accent,
     tool_calling: palette.cyan, executing: palette.cyan, waiting_permission: palette.yellow,
     finished: palette.green, cancelled: palette.subtext, error: palette.red,
+    compacting: palette.cyan,
   }
   const color = stateColor[props.state] ?? palette.subtext
   return (

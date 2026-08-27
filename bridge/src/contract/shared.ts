@@ -10,6 +10,7 @@ export type State =
   | 'finished'
   | 'cancelled'
   | 'error'
+  | 'compacting'
 
 export type PermissionDecision = 'allow_once' | 'allow_always' | 'reject'
 

@@ -3,7 +3,7 @@ import type { UiToAgentMessage } from '@dogegg/bridge'
 import type { AgentToUiMessage } from '@dogegg/bridge'
 import type { Message, State, Config } from '@dogegg/bridge'
 import { isConfigured } from '@dogegg/bridge'
-import { transition } from './state'
+import { transition, type TransitionInput } from './state'
 import { PendingPermissions } from './pending'
 import { ConfigEditor } from '../config/editor'
 import { resolveCurrent } from '../config/resolve'
@@ -44,6 +44,12 @@ export class Agent {
     this.permission = new PermissionManager(config.permission)
     // 自订阅：UI 发来的消息都经 port 路由到 send。
     this.port.onMessage((msg) => { this.send(msg).catch(() => {}) })
+  }
+
+  // emitState：状态迁移的快捷方法——经 transition 算下一态后 emit state 事件。
+  private emitState(input: TransitionInput): void {
+    const next = transition(this.state, input)
+    if (next !== this.state) this.emit({ type: 'state', from: this.state, to: next })
   }
 
   // emit = port.post + 日志埋点。日志按消息类型分 scope，便于 /log 面板按类型过滤。
@@ -258,9 +264,11 @@ export class Agent {
   }
 
   // 手动压缩（/compact）：复用 compactContext，只改 context、不动 history，落盘。
+  // 压缩期间 emit state → compacting 让 UI 可感知，完成后回 idle。
   // 失败时 emit error 而非让外层 .catch(() => {}) 静默吞掉。
   private async compactNow(): Promise<void> {
     const cur = this.current()
+    this.emitState({ kind: 'compact_start' })
     try {
       const result = await compactContext({
         context: this.context,
@@ -280,6 +288,8 @@ export class Agent {
       }
     } catch (e) {
       this.emit({ type: 'error', error: { message: '压缩失败：' + (e as Error).message, name: (e as Error).name } })
+    } finally {
+      this.emitState({ kind: 'compact_done', next: 'idle' })
     }
   }
 

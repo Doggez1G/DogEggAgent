@@ -14,9 +14,15 @@ export type Action = AgentToUiMessage | { type: 'local_user'; text: string } | {
 export const HELP = '/new /session /model /config /clear /compact /context /tools /system /status /log /help /quit'
 
 // 把进行中的 partial 块落盘成一个完整块（思考或助手），清空 partial。
+// 思考块的 text 存完整推理；折叠时显示摘要（前几行），full 存全文供展开。
 function flush(state: ChatState): ChatState {
   if (!state.partial) return state
   const isThinking = state.partial.kind === 'thinking'
+  const fullText = state.partial.text
+  // 折叠摘要：思考取前 3 行 + …；助手不需要折叠（无 full）。
+  const summary = isThinking
+    ? fullText.split('\n').slice(0, 3).join('\n') + (fullText.split('\n').length > 3 ? '\n…（回车展开完整思考）' : '')
+    : fullText
   return {
     ...state,
     partial: null,
@@ -24,7 +30,9 @@ function flush(state: ChatState): ChatState {
       icon: isThinking ? ICON.thinking : ICON.assistant,
       role: isThinking ? '思考' : '助手',
       color: isThinking ? COLOR.thinking : COLOR.assistant,
-      text: state.partial.text,
+      text: isThinking ? summary : fullText,
+      // 思考块设 full 供展开；助手块不需要 full（不可折叠）。
+      ...(isThinking ? { full: fullText } : {}),
     }],
   }
 }

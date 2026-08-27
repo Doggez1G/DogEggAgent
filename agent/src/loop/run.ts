@@ -42,8 +42,10 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
     }
 
     // 上下文窗口管理：逼近上限时压缩 context（只改 context，不动 history）。
+    // 压缩期间 emit state → compacting 让 UI 可感知，完成后回到 thinking/responding（继续本轮请求）。
     const used = estimateContextTokens(deps.systemPrompt, context, toolParams)
     if (used > deps.windowTokens * 0.8) {
+      state = trans({ kind: 'compact_start' })
       const result = await compactContext({
         context,
         systemPrompt: deps.systemPrompt,
@@ -51,6 +53,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
         windowTokens: deps.windowTokens,
         summarize: deps.summarize,
       })
+      state = trans({ kind: 'compact_done', next: deps.reasoning ? 'thinking' : 'responding' })
       if (result.compacted) {
         // 压缩改变了 context 数组内容——用新数组替换。newMessages 不受影响（它们是本轮新增的）。
         context.length = 0

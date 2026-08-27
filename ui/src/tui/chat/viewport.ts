@@ -33,8 +33,8 @@ export function buildDisplayBlocks(
     const shownText = !expandable
       ? text
       : isExpanded
-        ? (b.icon === '🐾' ? (b.full ?? b.text) : b.text)
-        : (b.icon === '🐣' ? '（思考已折叠）' : b.text)
+        ? (b.full ?? b.text) // 展开：tool 和 thinking 都显示 full
+        : b.text // 折叠：显示 text（摘要）
     return { ...b, index: i, lines: estimateBlockLines(shownText, termWidth), shownText, isCollapsed: expandable && !isExpanded }
   })
 }
