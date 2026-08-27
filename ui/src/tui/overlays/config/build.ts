@@ -1,59 +1,9 @@
 import type { Config } from '@dogegg/bridge'
+import type { ConfigPath } from './navigation'
+import type { Entry, TreeCtx } from './entries'
+import { nan } from './label'
 
-// 配置树编辑器：把 config 的 JSON 结构渲染成一棵可上下导航的树。
-// 导航路径 ConfigPath 表示「当前钻取到哪一层」；buildEntries 依据 config + path 生成这一层的字段列表。
-
-export type ConfigPath =
-  | { kind: 'root' }
-  | { kind: 'permission' }
-  | { kind: 'permissionBucket'; bucket: 'allow' | 'reject' | 'ask' }
-  | { kind: 'providers' }
-  | { kind: 'provider'; index: number }
-  | { kind: 'models'; providerIndex: number }
-  | { kind: 'model'; providerIndex: number; modelIndex: number }
-  | { kind: 'selectProvider' }
-  | { kind: 'selectModel' }
-
-// 每个字段可能的呈现/交互形态。
-export type Entry =
-  | { label: string; kind: 'scalar'; value: string; save: (v: string) => void } // 回车 → 输入（带当前值）
-  | { label: string; kind: 'prompt'; title: string; save: (v: string) => void } // 回车 → 输入（新增）
-  | { label: string; kind: 'bool'; value: boolean; save: (v: boolean) => void } // ←→ 切换 + 回车确认
-  | { label: string; kind: 'goto'; value: string; subPath: ConfigPath; del?: () => void } // 回车钻入；数组项可带 del（按 d 删）
-  | { label: string; kind: 'action'; value: string; run: () => void; del?: () => void } // 回车执行（添加/删除/选中即设）；可带 del（按 d 删）
-
-export interface TreeCtx {
-  set: (path: string, value: unknown) => void
-  add: (path: string, value: unknown) => void
-  remove: (path: string, index: number, providerIndex?: number) => void
-}
-
-const nan = (s: string) => (Number.isFinite(Number(s)) ? Number(s) : 0)
-
-// 返回当前路径的父层；根层返回 null（再往上即关闭编辑器）。
-export function parentPath(path: ConfigPath): ConfigPath | null {
-  switch (path.kind) {
-    case 'root': return null
-    case 'permission': return { kind: 'root' }
-    case 'permissionBucket': return { kind: 'permission' }
-    case 'providers': case 'selectProvider': case 'selectModel': return { kind: 'root' }
-    case 'provider': return { kind: 'providers' }
-    case 'models': return { kind: 'provider', index: path.providerIndex }
-    case 'model': return { kind: 'models', providerIndex: path.providerIndex }
-  }
-}
-
-// 条目的展示文本；bool 条目支持用 previewBool 体现「左右切换未确认」的预览值。
-export function entryLabel(e: Entry, previewBool?: boolean): string {
-  switch (e.kind) {
-    case 'scalar': return `${e.label}  ${e.value || '（空）'}`
-    case 'prompt': case 'action': return e.label
-    case 'bool': return `${e.label}  ${previewBool ?? e.value}`
-    case 'goto': return `${e.label}  ${e.value}`
-  }
-}
-
-// 生成给定路径下的一层字段列表。
+// 生成给定路径下的一层字段列表。依据 config + path 决定展示哪些字段、它们的交互形态。
 export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): Entry[] {
   switch (path.kind) {
     case 'root':

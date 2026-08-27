@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { buildEntries, parentPath, entryLabel } from '../../src/ui/tui/config-tree'
-import { loadConfig } from '../../src/config/loader'
+import { buildEntries, parentPath, entryLabel } from '../../../src/tui/overlays/config'
+import { configSchema, type Config } from '@dogegg/bridge'
 
 const ctx = { set: () => {}, add: () => {}, remove: () => {} }
-const cfg = loadConfig({ providers: [{ name: 'openai', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'gpt-4o', reasoning: false }] }] })
+const cfg = configSchema.parse({ providers: [{ name: 'openai', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'gpt-4o', reasoning: false }] }] })
 
 describe('config-tree', () => {
   it('root lists top-level fields', () => {
@@ -41,7 +41,7 @@ describe('config-tree', () => {
   })
 
   it('provider scalar edits use index-based paths, not name', () => {
-    const multi = loadConfig({
+    const multi = configSchema.parse({
       providers: [
         { name: '', protocol: 'openai', baseURL: '', apiKey: '', models: [] },
         { name: '', protocol: 'openai', baseURL: '', apiKey: '', models: [] },
@@ -56,7 +56,7 @@ describe('config-tree', () => {
   })
 
   it('model scalar edits use index-based paths', () => {
-    const multi = loadConfig({
+    const multi = configSchema.parse({
       providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: '' }, { name: '' }] }],
     })
     const calls: [string, unknown][] = []

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { renderMarkdown } from '../../src/common/utils/markdown'
+import { renderMarkdown } from '../../../src/tui/markdown'
 
 describe('renderMarkdown', () => {
   it('strips heading markers', () => {

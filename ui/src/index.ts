@@ -1,2 +1,2 @@
-// @dogegg/ui 包出口占位。Phase 3 迁移后替换为真实导出（renderTui）。
-export {}
+// @dogegg/ui 包出口：纯 re-export，不含实现逻辑（见 §1 约束 3）。
+export { App, renderTui, type View } from './tui'
