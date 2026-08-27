@@ -1,5 +1,5 @@
 import type { LlmStreamEvent } from '../types'
-import type { Message } from '../../events/types'
+import type { Message } from '@dogegg/bridge'
 
 interface PendingToolCall {
   id: string

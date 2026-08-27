@@ -1,4 +1,4 @@
-import type { State } from '../events/types'
+import type { State } from '@dogegg/bridge'
 
 export type TransitionInput =
   | { kind: 'submit'; reasoning: boolean }

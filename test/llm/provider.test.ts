@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { ProviderRegistry } from '../../src/llm/provider/openai'
-import type { ProviderConfig } from '../../src/config/schema'
+import type { ProviderConfig } from '@dogegg/bridge'
 
 const provider: ProviderConfig = {
   name: 'openai',

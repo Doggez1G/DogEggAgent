@@ -1,6 +1,6 @@
-import type { UiToAgentMessage } from '../events/ui-to-agent'
-import type { AgentToUiMessage } from '../events/agent-to-ui'
-import type { Message, PermissionDecision, State } from '../events/types'
+import type { UiToAgentMessage } from '@dogegg/bridge'
+import type { AgentToUiMessage } from '@dogegg/bridge'
+import type { Message, PermissionDecision, State } from '@dogegg/bridge'
 import { getAllTools } from '../tools/registry'
 import { ProviderRegistry, openAiAdapter } from '../llm/provider/openai'
 import { PermissionManager } from './permission'
@@ -8,7 +8,7 @@ import { loadSystemPrompt, estimateContextTokens, splitForCompaction } from './c
 import { saveSession, loadSession, listSessions } from './session'
 import { runLoop, summarizeHistory } from './loop'
 import { transition } from './state'
-import { configSchema, isConfigured, type Config, type ProviderConfig, type ModelConfig } from '../config/schema'
+import { configSchema, isConfigured, type Config, type ProviderConfig, type ModelConfig } from '@dogegg/bridge'
 import { saveConfig } from '../config/loader'
 import { newId } from '../common/utils/id'
 import { log, readLogTail, sessionLogPath } from '../common/utils/logger'
@@ -119,7 +119,7 @@ export class Agent {
         this.controller = new AbortController()
         this.running = true
         this.history.push({ role: 'user', content: cmd.text })
-        this.emit({ type: 'message', role: 'user', id: '' })
+        this.emit({ type: 'message', role: 'user', id: newId() })
         const provider = this.currentProvider()
         const model = this.currentModel()
         try {
@@ -146,7 +146,7 @@ export class Agent {
           })
         } catch (e) {
           // loop 已在抛出前经 transition 进入 cancelled/error；这里补非取消错误的提示，并按设计复位回 idle。
-          if (!(e instanceof CancelledError)) this.emit({ type: 'error', error: e as Error })
+          if (!(e instanceof CancelledError)) this.emit({ type: 'error', error: { message: (e as Error).message, name: (e as Error).name } })
           this.emit({ type: 'state', from: this.state, to: transition(this.state, { kind: 'reset' }) })
         } finally {
           this.running = false
@@ -241,13 +241,13 @@ export class Agent {
     const parsed = configSchema.safeParse(this.config)
     if (!parsed.success) {
       this.config = JSON.parse(this.lastGoodConfig)
-      this.emit({ type: 'error', error: new Error('配置校验失败，已回滚：' + parsed.error.issues[0]?.message) })
+      this.emit({ type: 'error', error: { message: '配置校验失败，已回滚：' + parsed.error.issues[0]?.message } })
       return
     }
     const dup = this.findDuplicateName()
     if (dup) {
       this.config = JSON.parse(this.lastGoodConfig)
-      this.emit({ type: 'error', error: new Error('名称重复，已回滚：' + dup) })
+      this.emit({ type: 'error', error: { message: '名称重复，已回滚：' + dup } })
       return
     }
     this.config = parsed.data

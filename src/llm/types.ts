@@ -1,4 +1,4 @@
-import type { Message } from '../events/types'
+import type { Message } from '@dogegg/bridge'
 
 // LLM 级流事件：provider → agent loop 的底层流，表达「模型吐了什么」。
 export type LlmStreamEvent =

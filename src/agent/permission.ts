@@ -1,4 +1,4 @@
-import type { PermissionDecision } from '../events/types'
+import type { PermissionDecision } from '@dogegg/bridge'
 
 export interface PermissionConfig {
   allow: string[]

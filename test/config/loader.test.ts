@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadConfig, saveConfig } from '../../src/config/loader'
-import { isConfigured } from '../../src/config/schema'
+import { isConfigured } from '@dogegg/bridge'
 
 describe('loadConfig', () => {
   it('returns empty config when no providers', () => {

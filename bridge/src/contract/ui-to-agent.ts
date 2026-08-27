@@ -1,4 +1,4 @@
-import type { PermissionDecision } from './types'
+import type { PermissionDecision } from './shared'
 
 // 前端 → 后端的消息契约。command 与 event 本质相同，只是方向相反，故统一为「消息」。
 export type UiToAgentMessage =

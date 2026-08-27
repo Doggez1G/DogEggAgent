@@ -1,6 +1,6 @@
 import type { ProviderAdapter, LlmStreamEvent, ChatRequest } from '../types'
-import type { Message } from '../../events/types'
-import type { ProviderConfig } from '../../config/schema'
+import type { Message } from '@dogegg/bridge'
+import type { ProviderConfig } from '@dogegg/bridge'
 import { createOpenAiStreamParser } from '../streaming/openai'
 
 // OpenAI 兼容 adapter：原生 fetch + 手写 SSE，返回组装好的 assistant 消息，并对网络/HTTP 错误重试。

@@ -1,4 +1,4 @@
-import type { Config } from '../../config/schema'
+import type { Config } from '@dogegg/bridge'
 
 // 配置树编辑器：把 config 的 JSON 结构渲染成一棵可上下导航的树。
 // 导航路径 ConfigPath 表示「当前钻取到哪一层」；buildEntries 依据 config + path 生成这一层的字段列表。

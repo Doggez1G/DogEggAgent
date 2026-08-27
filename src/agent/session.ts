@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import type { Message } from '../events/types'
+import type { Message } from '@dogegg/bridge'
 
 // JSON 会话持久化。baseDir 可注入（测试传临时目录），运行时默认 ~/.dogegg/sessions。
 export function defaultSessionsDir(): string {

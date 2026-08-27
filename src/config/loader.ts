@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
-import { configSchema, type Config } from './schema'
+import { configSchema, type Config } from '@dogegg/bridge'
 
 // 定位配置：项目内 .dogegg.json 优先，否则 ~/.dogegg/config.json。
 export function findConfig(): string | null {

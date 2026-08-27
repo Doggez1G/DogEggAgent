@@ -1,11 +1,12 @@
 import type { ProviderAdapter } from '../llm/types'
 import type { Tool } from '../tools/types'
-import type { Message, PermissionDecision, State } from '../events/types'
-import type { AgentToUiMessage } from '../events/agent-to-ui'
+import type { Message, PermissionDecision, State } from '@dogegg/bridge'
+import type { AgentToUiMessage } from '@dogegg/bridge'
 import { transition, type TransitionInput } from './state'
 import { PermissionManager } from './permission'
 import { estimateContextTokens, shouldCompact, splitForCompaction } from './context'
 import { truncate } from '../common/utils/truncate'
+import { newId } from '../common/utils/id'
 import { CancelledError } from '../common/errors'
 
 // 核心循环所需的外部依赖。emit 向上发 Agent 级事件，requestPermission 等待审批决议，checkCancelled 轮询取消。
@@ -136,7 +137,7 @@ export async function runLoop(deps: LoopDeps): Promise<Message[]> {
     // 推理模型只返回 tool_calls 而无 text_delta 时，此处补上 thinking → responding 的收尾。
     if (state === 'thinking') state = trans({ kind: 'thought_done' })
     messages.push(assistant)
-    deps.emit({ type: 'message', role: 'assistant', id: '' })
+    deps.emit({ type: 'message', role: 'assistant', id: newId() })
 
     const calls = assistant.tool_calls ?? []
     if (calls.length === 0) {
