@@ -151,6 +151,25 @@ export function App({ port }: { port: UiPort }) {
 
   // 键盘路由：按 view 类型分发到不同处理。
   useInput((inputChar, key) => {
+    // Ctrl+C：全局拦截——优先级最高，覆盖所有 view 类型。
+    // 运行中（chat.status 不是 idle/finished/cancelled/error）→ 发 cancel 打断当前操作，不退出。
+    // 空闲 → 弹退出确认（和 /quit 一致）。
+    // 兜底：如果 Ink 的 useInput 没收到（程序卡死），entry.tsx 的全局 SIGINT handler 走两次 Ctrl+C 强制退出。
+    if (key.ctrl && inputChar === 'c') {
+      const running = chat.status !== 'idle' && chat.status !== 'finished' && chat.status !== 'cancelled' && chat.status !== 'error'
+      if (running) {
+        port.post({ type: 'cancel' })
+      } else if (viewRef.current.kind !== 'menu') {
+        // 空闲且没在菜单里 → 弹退出确认（和 /quit 一致）
+        suppressEnterRef.current = true
+        queueMicrotask(() => { suppressEnterRef.current = false })
+        setView({ kind: 'menu', title: '退出 DogEggAgent？', items: [
+          { label: '确认退出', onSelect: () => { port.post({ type: 'quit' }); setView({ kind: 'none' }) } },
+          { label: '取消', onSelect: () => setView({ kind: 'none' }) },
+        ], cursor: 0 })
+      }
+      return
+    }
     // 命令提交的回车会被 TextInput 与 useInput 各处理一次：吞掉紧随命令后的第一次回车，避免误触发 overlay。
     if (key.return && suppressEnterRef.current) { suppressEnterRef.current = false; return }
     const v = viewRef.current
