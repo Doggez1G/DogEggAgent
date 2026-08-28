@@ -11,12 +11,15 @@ import type { LoopDeps, LoopResult } from './types'
 // 用 toolSchemas()（wrapped OpenAI 格式）而非 raw tool.parameters，使估算与实际请求一致。
 const toolParams = toolSchemas()
 
-// 核心 Agent Loop：问模型 → 有 tool_calls 就串行执行 → 结果回填 → 再问，直到无 tool_calls 或触发停止。
-// 状态完全由 state.ts 的 transition() 纯函数驱动——这是 9 态状态机的落地处。
+// 核心Agent Loop：问模型 → 有 tool_calls 就串行执行 → 结果回填 → 再问，直到无 tool_calls 或触发停止。
+// 状态完全由 state.ts 的 transition() 纯函数驱动——这是 10 态状态机的落地处。
 //
 // R1：loop 只操作 context（发给模型的消息），不碰 history。
 // 本轮新增的 assistant/tool 消息收集到 newMessages，供 core 同步 append 到 history。
 // 压缩只改 context（丢旧消息换摘要），history 不受影响。
+//
+// 打断（cancel）：catch CancelledError 时返回部分结果（已 push 到 context/newMessages 的消息），
+// 并补全未配对的 tool_calls（补 tool: cancelled 消息），保证 context 是完整的对话状态。
 export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
   const context = [...deps.context]
   const newMessages: Message[] = []
@@ -30,110 +33,138 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
     return next
   }
 
-  // 每次「重新请求模型」进入 thinking（推理）或 responding（普通）——首次提交亦由此进入。
-  state = trans({ kind: 'submit', reasoning: deps.reasoning })
-
-  for (;;) {
-    if (deps.checkCancelled()) {
-      state = trans({ kind: 'cancel' })
-      throw new CancelledError()
-    }
-    if (iterations++ >= deps.maxIterations) {
-      state = trans({ kind: 'error' })
-      throw new Error('达到 maxIterations 上限')
-    }
-
-    // 上下文窗口管理：逼近上限时压缩 context（只改 context，不动 history）。
-    // 压缩期间 emit state → compacting 让 UI 可感知，完成后回到 thinking/responding（继续本轮请求）。
-    // 压缩失败时降级——跳过压缩继续用未压缩 context 请求模型，不 abort 整个 turn。
-    const used = estimateContextTokens(deps.systemPrompt, context, toolParams)
-    if (used > deps.windowTokens * 0.8) {
-      state = trans({ kind: 'compact_start' })
-      try {
-        const result = await compactContext({
-          context,
-          systemPrompt: deps.systemPrompt,
-          tools: toolParams,
-          windowTokens: deps.windowTokens,
-          summarize: deps.summarize,
-          signal: deps.signal,
-        })
-        if (result.compacted) {
-          context.length = 0
-          context.push(...result.context)
-          deps.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after, source: 'auto' })
+  // 补全未配对的 tool_calls：如果 context 尾部有带 tool_calls 的 assistant 消息但缺少配对的 tool 结果，
+  // 补一条 tool: cancelled 消息——OpenAI API 要求 tool_calls 必须有配对的 tool 消息，否则模型报错或困惑。
+  const patchUnpairedToolCalls = (msgs: Message[]): void => {
+    const last = msgs[msgs.length - 1]
+    if (last?.role === 'assistant' && last.tool_calls && last.tool_calls.length > 0) {
+      // 找出已有 tool 结果的 tool_call_id。
+      const paired = new Set(msgs.filter((m) => m.role === 'tool').map((m) => m.tool_call_id))
+      // 为每个未配对的 tool_call 补一条 cancelled 消息。
+      for (const tc of last.tool_calls) {
+        if (!paired.has(tc.id)) {
+          const cancelledMsg: Message = { role: 'tool', tool_call_id: tc.id, content: 'cancelled（用户打断了操作）' }
+          msgs.push(cancelledMsg)
+          newMessages.push(cancelledMsg)
         }
-      } catch {
-        // 压缩失败（如 LLM 调用出错）——降级继续，模型仍可用未压缩 context 回答。
       }
-      state = trans({ kind: 'compact_done', next: deps.reasoning ? 'thinking' : 'responding' })
     }
+  }
 
-    // 用外部传入的 signal（由 Agent 持有，cancel 时 abort），使取消能真正中断在飞的 fetch 与工具。
-    let assistant: Message
-    try {
-      assistant = await deps.adapter.chat(
-        {
-          baseURL: deps.providerBaseURL,
-          apiKey: deps.apiKey,
-          model: deps.model,
-          systemPrompt: deps.systemPrompt,
-          messages: context,
-          tools: toolSchemas(),
-          maxOutput: deps.maxOutput,
-          maxRetries: deps.maxRetries,
-        },
-        deps.signal,
-        (e) => {
-          if (e.type === 'text_delta') {
-            // 推理模型的 reasoning 阶段结束、开始吐正文：thinking → responding。
-            if (state === 'thinking') state = trans({ kind: 'thought_done' })
-            deps.emit({ type: 'text_delta', delta: e.text })
-          } else if (e.type === 'thought_delta' && deps.reasoning) {
-            deps.emit({ type: 'thought_delta', delta: e.text })
-          }
-        },
-      )
-    } catch (e) {
-      // 取消引发的 AbortError 视为取消而非错误，统一转成 CancelledError 上抛。
-      if ((e as Error).name === 'AbortError') {
-        state = trans({ kind: 'cancel' })
-        throw new CancelledError()
-      }
-      state = trans({ kind: 'error' })
-      throw e
-    }
+  try {
+    // 每次「重新请求模型」进入 thinking（推理）或 responding（普通）——首次提交亦由此进入。
+    state = trans({ kind: 'submit', reasoning: deps.reasoning })
 
-    if (assistant.role !== 'assistant') throw new Error('模型未返回 assistant 消息')
-    // 推理模型只返回 tool_calls 而无 text_delta 时，此处补上 thinking → responding 的收尾。
-    if (state === 'thinking') state = trans({ kind: 'thought_done' })
-    context.push(assistant)
-    newMessages.push(assistant)
-    deps.emit({ type: 'message', role: 'assistant', id: newId() })
-
-    const calls = assistant.tool_calls ?? []
-    if (calls.length === 0) {
-      state = trans({ kind: 'final_answer' })
-      deps.emit({ type: 'finished' })
-      return { context, newMessages }
-    }
-
-    state = trans({ kind: 'tool_calls' })
-
-    // 串行执行本次响应的工具，逐个回填 tool 消息。每个工具处理完回到 tool_calling；
-    // 最后一个处理完（执行或拒绝）才进入 result_back/reject → 重新请求模型。
-    for (let i = 0; i < calls.length; i++) {
-      const call = calls[i]!
-      const isLast = i === calls.length - 1
+    for (;;) {
       if (deps.checkCancelled()) {
         state = trans({ kind: 'cancel' })
         throw new CancelledError()
       }
+      if (iterations++ >= deps.maxIterations) {
+        state = trans({ kind: 'error' })
+        throw new Error('达到 maxIterations 上限')
+      }
 
-      const step = await executeOneTool(call, { ...deps, trans: (input) => { state = trans(input) } }, isLast, deps.reasoning)
-      context.push(step.toolMessage)
-      newMessages.push(step.toolMessage)
-      state = trans(step.transitionInput)
+      // 上下文窗口管理：逼近上限时压缩 context（只改 context，不动 history）。
+      // 压缩期间 emit state → compacting 让 UI 可感知，完成后回到 thinking/responding（继续本轮请求）。
+      // 压缩失败时降级——跳过压缩继续用未压缩 context 请求模型，不 abort 整个 turn。
+      const used = estimateContextTokens(deps.systemPrompt, context, toolParams)
+      if (used > deps.windowTokens * 0.8) {
+        state = trans({ kind: 'compact_start' })
+        try {
+          const result = await compactContext({
+            context,
+            systemPrompt: deps.systemPrompt,
+            tools: toolParams,
+            windowTokens: deps.windowTokens,
+            summarize: deps.summarize,
+            signal: deps.signal,
+          })
+          if (result.compacted) {
+            context.length = 0
+            context.push(...result.context)
+            deps.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after, source: 'auto' })
+          }
+        } catch {
+          // 压缩失败（如 LLM 调用出错）——降级继续，模型仍可用未压缩 context 回答。
+        }
+        state = trans({ kind: 'compact_done', next: deps.reasoning ? 'thinking' : 'responding' })
+      }
+
+      // 用外部传入的 signal（由 Agent 持有，cancel 时 abort），使取消能真正中断在飞的 fetch 与工具。
+      let assistant: Message
+      try {
+        assistant = await deps.adapter.chat(
+          {
+            baseURL: deps.providerBaseURL,
+            apiKey: deps.apiKey,
+            model: deps.model,
+            systemPrompt: deps.systemPrompt,
+            messages: context,
+            tools: toolSchemas(),
+            maxOutput: deps.maxOutput,
+            maxRetries: deps.maxRetries,
+          },
+          deps.signal,
+          (e) => {
+            if (e.type === 'text_delta') {
+              // 推理模型的 reasoning 阶段结束、开始吐正文：thinking → responding。
+              if (state === 'thinking') state = trans({ kind: 'thought_done' })
+              deps.emit({ type: 'text_delta', delta: e.text })
+            } else if (e.type === 'thought_delta' && deps.reasoning) {
+              deps.emit({ type: 'thought_delta', delta: e.text })
+            }
+          },
+        )
+      } catch (e) {
+        // 取消引发的 AbortError 视为取消而非错误，统一转成 CancelledError 上抛。
+        if ((e as Error).name === 'AbortError') {
+          state = trans({ kind: 'cancel' })
+          throw new CancelledError()
+        }
+        state = trans({ kind: 'error' })
+        throw e
+      }
+
+      if (assistant.role !== 'assistant') throw new Error('模型未返回 assistant 消息')
+      // 推理模型只返回 tool_calls 而无 text_delta 时，此处补上 thinking → responding 的收尾。
+      if (state === 'thinking') state = trans({ kind: 'thought_done' })
+      context.push(assistant)
+      newMessages.push(assistant)
+      deps.emit({ type: 'message', role: 'assistant', id: newId() })
+
+      const calls = assistant.tool_calls ?? []
+      if (calls.length === 0) {
+        state = trans({ kind: 'final_answer' })
+        deps.emit({ type: 'finished' })
+        return { context, newMessages }
+      }
+
+      state = trans({ kind: 'tool_calls' })
+
+      // 串行执行本次响应的工具，逐个回填 tool 消息。每个工具处理完回到 tool_calling；
+      // 最后一个处理完（执行或拒绝）才进入 result_back/reject → 重新请求模型。
+      for (let i = 0; i < calls.length; i++) {
+        const call = calls[i]!
+        const isLast = i === calls.length - 1
+        if (deps.checkCancelled()) {
+          state = trans({ kind: 'cancel' })
+          throw new CancelledError()
+        }
+
+        const step = await executeOneTool(call, { ...deps, trans: (input) => { state = trans(input) } }, isLast, deps.reasoning)
+        context.push(step.toolMessage)
+        newMessages.push(step.toolMessage)
+        state = trans(step.transitionInput)
+      }
     }
+  } catch (e) {
+    if (e instanceof CancelledError) {
+      // 打断：补全未配对的 tool_calls，返回部分结果（含已完成的 assistant/tool 消息）。
+      patchUnpairedToolCalls(context)
+      patchUnpairedToolCalls(newMessages)
+      return { context, newMessages, cancelled: true }
+    }
+    throw e // 非 cancel 错误继续抛出
   }
 }

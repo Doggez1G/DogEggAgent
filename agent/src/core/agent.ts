@@ -285,9 +285,14 @@ export class Agent {
       })
       // R1：loop 返回更新后的 context + 本轮新增消息。context 已被 loop 修改（含压缩）；
       // newMessages 是本轮产生的 assistant/tool，同步 append 到 history（history 不受压缩影响）。
+      // 打断时 loop 也返回部分结果（cancelled=true，含已完成的 assistant/tool 消息 + 补全的 tool: cancelled）。
       this.context = result.context
       this.history.push(...result.newMessages)
+      if (result.cancelled) {
+        this.emit({ type: 'notice', text: '已打断当前操作' })
+      }
     } catch (e) {
+      // 非 cancel 的错误（如 API 失败、maxIterations）——发 error 消息。
       if (!(e instanceof CancelledError)) this.emit({ type: 'error', error: { message: (e as Error).message, name: (e as Error).name } })
     } finally {
       // 无论成功/失败/取消，turn 结束后状态回到 idle（成功路径 loop 停在 finished，需复位）。

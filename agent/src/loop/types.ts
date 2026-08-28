@@ -41,4 +41,6 @@ export interface LoopDeps {
 export interface LoopResult {
   context: Message[]
   newMessages: Message[]
+  /** 是否被用户取消（Ctrl+C / cancel）。true 时 context 可能含未完成的 tool_calls。 */
+  cancelled?: boolean
 }

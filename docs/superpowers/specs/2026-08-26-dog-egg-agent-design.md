@@ -35,7 +35,7 @@ DogEggAgent 是一个自研的 **code agent** 工具。第一目标是**学习�
 
 | # | 需求 | 关键决定 |
 |---|---|---|
-| 1 | Agent Loop | 从零手写；工具**串行**执行；`while`: 问模型 → 有 tool_calls 则串行执行 → 结果回填 → 再问 → 无 tool_calls 结束 |
+| 1 | Agent Loop | 从零手写；工具**串行**执行；`while`: 问模型 → 有 tool_calls 则串行执行 → 结果回填 → 再问 → 无 tool_calls 结束。**打断保存**：用户 Ctrl+C 打断时，已完成的 assistant/tool 消息保存到 context+history；未配对的 tool_calls 补全 `tool: cancelled` 消息，保证对话状态完整；部分流式文本（半句话）不保存 |
 | 2 | Tool Calling | 模型返回 tool_calls，Core 按 schema 本地执行，串行 |
 | 3 | Context | 每次发给模型 = System Prompt + 处理后的历史 + 工具 schema，受窗口预算约束 |
 | 4 | Message History | 有序消息列表，**原样持久化、永不压缩**；与 Context 是两份独立数据（见 §3.1） |
