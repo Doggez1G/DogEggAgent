@@ -1,4 +1,5 @@
 import type { Block } from './block'
+import { ICON } from './block'
 
 // 粗略估算一个消息块占用的终端行数（角色头 1 + 正文换行 + 上下边框 2），用于消息视口的自动滚动裁切。
 export function estimateBlockLines(text: string, width: number): number {
@@ -18,20 +19,19 @@ export interface DisplayBlock extends Block {
 // 按展开状态决定每块「实际显示文本」：
 // 可折叠块（思考/工具）折叠时显示摘要，展开时显示 full。
 // 行数据此估算，保证展开后滚动裁剪仍准确。
+// markdown 渲染由调用方在传入前完成，此函数只管展开/折叠的文本选择。
 export function buildDisplayBlocks(
   blocks: Block[],
   expanded: ReadonlySet<number>,
   termWidth: number,
-  isMarkdown: (icon: string) => boolean,
 ): DisplayBlock[] {
   return blocks.map((b, i) => {
-    const text = isMarkdown(b.icon) ? b.text : b.text // markdown 渲染由调用方在传入前完成
     // 只有有 full 内容的块才可折叠（tool_end 后的完整结果、thinking 的完整推理）。
-    // tool_start 后但 tool_end 前的块无 full，不可折叠。
-    const expandable = (b.icon === '🐣' || b.icon === '🐾') && b.full !== undefined
+    // 用 ICON 常量而非字面量 emoji，避免 ICON 变更后此处失配。
+    const expandable = (b.icon === ICON.thinking || b.icon === ICON.tool) && b.full !== undefined
     const isExpanded = expanded.has(i)
     const shownText = !expandable
-      ? text
+      ? b.text
       : isExpanded
         ? (b.full ?? b.text) // 展开：tool 和 thinking 都显示 full
         : b.text // 折叠：显示 text（摘要）

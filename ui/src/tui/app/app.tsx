@@ -5,7 +5,7 @@ import type { AgentToUiMessage, UiToAgentMessage, PermissionDecision, Config, Ui
 import { TopBar, MessageBlock, StatusBar, ListPicker } from '../components'
 import { palette } from '../theme'
 import { renderMarkdown } from '../markdown'
-import { reducer, ICON, HELP, buildDisplayBlocks, sliceViewport, expandableIndices, moveBrowse, toggleExpanded, type ChatState } from '../chat'
+import { reducer, ICON, buildDisplayBlocks, sliceViewport, expandableIndices, moveBrowse, toggleExpanded, type ChatState } from '../chat'
 import { parseCommand, matchCommands } from '../input'
 import { buildEntries, entryLabel, parentPath, type ConfigPath, type TreeCtx } from '../overlays/config'
 import { type View } from './view-state'
@@ -297,11 +297,13 @@ export function App({ port }: { port: UiPort }) {
     : '加载配置中…'
 
   // markdown 渲染（助手/思考块）+ 展开/折叠状态 + 行数估算 + 滚动窗口裁切。
+  // 联想匹配提取一次（渲染里多处用，避免重复调用）。
+  const suggestMatches = view.kind === 'none' ? matchCommands(input) : []
   const renderedBlocks = chat.blocks.map((b) => ({
     ...b,
     text: b.icon === ICON.assistant || b.icon === ICON.thinking ? renderMarkdown(b.text) : b.text,
   }))
-  const displayBlocks = buildDisplayBlocks(renderedBlocks, expanded, termWidth, (icon) => icon === ICON.assistant || icon === ICON.thinking)
+  const displayBlocks = buildDisplayBlocks(renderedBlocks, expanded, termWidth)
   // 滚动裁切：计算总行数与可见窗口，scrolled > 0 表示有内容被滚出顶部。
   const totalLines = displayBlocks.reduce((n, b) => n + b.lines, 0)
   const maxScroll = Math.max(0, totalLines - viewportHeight)
@@ -396,9 +398,9 @@ export function App({ port }: { port: UiPort }) {
         <Box flexDirection="column">
           {browse !== null && <Text dimColor>↑↓ 切换块 · 回车展开/折叠 · esc 返回输入</Text>}
           {/* 斜杠命令联想提示：输入 / 开头且有匹配时，显示列表供 ↑↓ 选择、回车/Tab 补全 */}
-          {matchCommands(input).length > 0 && (
+          {suggestMatches.length > 0 && (
             <Box flexDirection="column" marginTop={0}>
-              {matchCommands(input).map((m, i) => (
+              {suggestMatches.map((m, i) => (
                 <Text key={m.cmd} inverse={i === suggestCursor} color={i === suggestCursor ? undefined : palette.subtext}>
                   {i === suggestCursor ? '> ' : '  '}{m.cmd} <Text dimColor>{m.desc}</Text>
                 </Text>

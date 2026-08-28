@@ -1,5 +1,11 @@
 import type { ProviderConfig, ModelConfig } from '@dogegg/bridge'
 
+// 运行时类型检查辅助——替代 as 断言，避免错误类型的值静默通过（zod 校验在 afterEdit 兜底，但提前检查更健壮）。
+function asString(v: unknown): string { return typeof v === 'string' ? v : String(v) }
+function asNumber(v: unknown): number { return typeof v === 'number' && Number.isFinite(v) ? v : Number(v) || 0 }
+function asStringArray(v: unknown): string[] { return Array.isArray(v) ? v.map(String) : [] }
+function asBoolean(v: unknown): boolean { return typeof v === 'boolean' ? v : Boolean(v) }
+
 // config_set 的点号路径文法解析。路径约定（与 config_add/remove 的 index 语义一致）：
 //   'defaultProvider' | 'defaultModel' | 'maxIterations' | 'maxRetries' | 'systemPrompt' | 'shellProgram'
 //   'permission.allow' | 'permission.reject' | 'permission.ask'
@@ -32,13 +38,13 @@ export function parseConfigSet(path: string, value: unknown): ConfigSetOp | null
 
   // 单段顶层标量
   if (seg.length === 1 && isTopField(path)) {
-    if (path === 'maxIterations' || path === 'maxRetries') return { kind: 'top', field: path, value: value as number }
-    return { kind: 'top', field: path, value: value as string }
+    if (path === 'maxIterations' || path === 'maxRetries') return { kind: 'top', field: path, value: asNumber(value) }
+    return { kind: 'top', field: path, value: asString(value) }
   }
   // permission.<bucket>
   if (seg.length === 2 && seg[0] === 'permission') {
     const bucket = seg[1]!
-    if (bucket === 'allow' || bucket === 'reject' || bucket === 'ask') return { kind: 'permission', bucket, value: value as string[] }
+    if (bucket === 'allow' || bucket === 'reject' || bucket === 'ask') return { kind: 'permission', bucket, value: asStringArray(value) }
     return null
   }
   // providers.<i>.<field>
@@ -46,15 +52,15 @@ export function parseConfigSet(path: string, value: unknown): ConfigSetOp | null
     const idx = Number(seg[1])
     const field = seg[2]!
     if (!Number.isInteger(idx) || idx < 0 || !isProviderField(field)) return null
-    return { kind: 'provider', index: idx, field, value: value as string }
+    return { kind: 'provider', index: idx, field, value: asString(value) }
   }
   // providers.<i>.models.<j>.<field>
   if (seg.length === 5 && seg[0] === 'providers' && seg[2] === 'models') {
     const pi = Number(seg[1]); const mi = Number(seg[3]); const field = seg[4]!
     if (!Number.isInteger(pi) || pi < 0 || !Number.isInteger(mi) || mi < 0 || !isModelField(field)) return null
-    if (field === 'reasoning') return { kind: 'model', providerIndex: pi, modelIndex: mi, field, value: value as boolean }
-    if (field === 'name') return { kind: 'model', providerIndex: pi, modelIndex: mi, field, value: value as string }
-    return { kind: 'model', providerIndex: pi, modelIndex: mi, field, value: value as number }
+    if (field === 'reasoning') return { kind: 'model', providerIndex: pi, modelIndex: mi, field, value: asBoolean(value) }
+    if (field === 'name') return { kind: 'model', providerIndex: pi, modelIndex: mi, field, value: asString(value) }
+    return { kind: 'model', providerIndex: pi, modelIndex: mi, field, value: asNumber(value) }
   }
   return null
 }

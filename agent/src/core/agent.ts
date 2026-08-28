@@ -325,7 +325,7 @@ export class Agent {
   private applyConfigEdit(fn: (e: ConfigEditor) => { ok: boolean; error?: string }): void {
     const result = fn(this.editor)
     if (!result.ok) {
-      this.emit({ type: 'error', error: { message: result.error ?? '配置编辑失败' } })
+      this.emit({ type: 'notice', text: result.error ?? '配置编辑失败' })
       return
     }
     this.config = this.editor.getConfig()

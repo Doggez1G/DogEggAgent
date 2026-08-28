@@ -8,10 +8,8 @@ export interface ChatState {
   partial: { kind: 'assistant' | 'thinking'; text: string } | null
 }
 
-// reducer 的输入：后端消息 + UI 本地动作（local_user 本地即时显示、local_help 显示帮助）。
-export type Action = AgentToUiMessage | { type: 'local_user'; text: string } | { type: 'local_help' }
-
-export const HELP = '/new /session /model /config /clear /compact /context /tools /system /status /log /help /quit'
+// reducer 的输入：后端消息 + UI 本地动作（local_user 本地即时显示）。
+export type Action = AgentToUiMessage | { type: 'local_user'; text: string }
 
 // 把进行中的 partial 块落盘成一个完整块（思考或助手），清空 partial。
 // 思考块的 text 存完整推理；折叠时显示摘要（前几行），full 存全文供展开。
@@ -37,19 +35,12 @@ function flush(state: ChatState): ChatState {
   }
 }
 
-// 信息块：/status /context 等只读面板的内容，渲染成一个灰色块。
-function infoBlock(state: ChatState, role: string, text: string): ChatState {
-  return { ...state, blocks: [...state.blocks, { icon: '🥚', role, color: 'gray', text }] }
-}
-
 // reducer：AgentToUiMessage → ChatState 的纯函数。★ 可单测。
 // R4：message 事件带真 id，reducer 不直接用 id（块定位靠数组顺序），但 id 保证后续可做精确块操作。
 export function reducer(state: ChatState, msg: Action): ChatState {
   switch (msg.type) {
     case 'local_user':
       return { ...state, blocks: [...state.blocks, { icon: ICON.user, role: '你', color: COLOR.user, text: msg.text }] }
-    case 'local_help':
-      return infoBlock(state, '帮助', HELP)
     case 'text_delta': {
       // 推理模型的思考与回答是两种块：轮到 text_delta 时，若有未落盘的思考块，先 flush 再开新回答块。
       const base = state.partial?.kind === 'thinking' ? flush(state) : state
