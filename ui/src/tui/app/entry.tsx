@@ -32,5 +32,7 @@ export function renderTui(port: UiPort): void {
   })
   process.on('SIGTERM', () => { leave(); process.exit(0) })
 
-  render(<App port={port} />)
+  // exitOnCtrlC: false——让 Ctrl+C (\x03) 流到 useInput 由 App 处理（运行中打断/空闲弹退出确认），
+  // 而非 Ink 直接退出程序。
+  render(<App port={port} />, { exitOnCtrlC: false })
 }
