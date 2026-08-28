@@ -9,6 +9,7 @@ export interface Block {
   text: string
   full?: string
   toolId?: string // tool_start/tool_end 的 id，用于精确匹配（不靠数组尾部）
+  toolInput?: unknown // tool_start 的 input，供 tool_end 格式化 diff 预览
 }
 
 // 「狗蛋」人格：🐶 狗 = 助手/本体，🥚 蛋 = 用户/主人，🐣 思考，🐾 工具。见设计 §14。

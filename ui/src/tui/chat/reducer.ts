@@ -74,6 +74,28 @@ function rebuildBlocksFromHistory(messages: Message[]): Block[] {
   return blocks
 }
 
+// 从工具名和 input 参数格式化 diff 预览文本（展开时显示在工具块的 full 里）。
+// edit_file: 显示 -old_string / +new_string；write_file: 显示 +content；shell: 显示命令。
+function formatToolDiff(toolName: string, input: unknown): string | null {
+  if (!input || typeof input !== 'object') return null
+  const inp = input as Record<string, unknown>
+  if (toolName === 'edit_file') {
+    const path = String(inp.path ?? '')
+    const oldStr = String(inp.old_string ?? '')
+    const newStr = String(inp.new_string ?? '')
+    return `变更预览 (${path}):\n- ${oldStr.slice(0, 500)}\n+ ${newStr.slice(0, 500)}`
+  }
+  if (toolName === 'write_file') {
+    const path = String(inp.path ?? '')
+    const content = String(inp.content ?? '')
+    return `写入预览 (${path}):\n+ ${content.slice(0, 500)}`
+  }
+  if (toolName === 'shell') {
+    return `命令: ${String(inp.command ?? '')}`
+  }
+  return null
+}
+
 // reducer：AgentToUiMessage → ChatState 的纯函数。★ 可单测。
 // R4：message 事件带真 id，reducer 不直接用 id（块定位靠数组顺序），但 id 保证后续可做精确块操作。
 export function reducer(state: ChatState, msg: Action): ChatState {
@@ -93,18 +115,22 @@ export function reducer(state: ChatState, msg: Action): ChatState {
       return msg.role === 'assistant' ? flush(state) : state
     case 'tool_start': {
       const flushed = flush(state)
-      return { ...flushed, status: 'executing', blocks: [...flushed.blocks, { icon: ICON.tool, role: '工具', color: COLOR.tool, text: `${msg.name} ${JSON.stringify(msg.input)}`, toolId: msg.id }] }
+      return { ...flushed, status: 'executing', blocks: [...flushed.blocks, { icon: ICON.tool, role: '工具', color: COLOR.tool, text: `${msg.name} ${JSON.stringify(msg.input)}`, toolId: msg.id, toolInput: msg.input }] }
     }
     case 'tool_end': {
       // R3：拒绝/失败工具也有 tool_end（error 标记），此处统一渲染为 ✕ 或 ✓。
       // 用 toolId 精确匹配 tool_start 的块——不靠数组尾部（notice/compaction 块可能插在中间）。
+      // full 里附带 diff 预览（edit_file/write_file/shell 的参数格式化），不只是工具返回的 content。
       const blocks = [...state.blocks]
       const idx = blocks.findIndex((b) => b.toolId === msg.id)
       if (idx >= 0) {
         const target = blocks[idx]!
         const summary = msg.error ? `✕ ${msg.error}` : `✓ 完成（${msg.output.slice(0, 120)}${msg.output.length > 120 ? '…' : ''}）`
-        const fullText = msg.error ? `✕ ${msg.error}` : `✓ 完成\n${msg.output}`
-        blocks[idx] = { ...target, text: `${target.text}\n${summary}`, full: `${target.text}\n${fullText}` }
+        // 构建 full：工具调用 + 结果 + diff 预览（从 toolInput 格式化）
+        const diffPreview = formatToolDiff(msg.name, target.toolInput)
+        const fullParts = [target.text, msg.error ? `✕ ${msg.error}` : `✓ 完成\n${msg.output}`]
+        if (diffPreview) fullParts.push(diffPreview)
+        blocks[idx] = { ...target, text: `${target.text}\n${summary}`, full: fullParts.join('\n') }
       }
       return { ...state, blocks }
     }
