@@ -436,9 +436,35 @@ export function App({ port }: { port: UiPort }) {
         )}
       </Box>
 
-      {view.kind === 'permission' && (
-        <ListPicker title={`工具 ${view.tool} 请求权限`} items={DECISION_LABELS} cursor={view.cursor} hint="↑↓ 选择 · 回车确认 · esc 拒绝" />
-      )}
+      {view.kind === 'permission' && (() => {
+        // diff 预览：edit_file 显示 old→new，write_file 显示要写入的内容
+        const inp = view.input as Record<string, unknown> | null
+        return (
+        <Box flexDirection="column" borderStyle="round" borderColor={palette.subtext} paddingX={1} marginY={1}>
+          <Text bold color={palette.accent}>工具 {view.tool} 请求权限</Text>
+          {view.tool === 'edit_file' && inp && (
+            <Box flexDirection="column" marginTop={0}>
+              <Text dimColor>文件：{String(inp.path ?? '')}</Text>
+              <Text color={palette.red}>- {String(inp.old_string ?? '').slice(0, 200)}</Text>
+              <Text color={palette.green}>+ {String(inp.new_string ?? '').slice(0, 200)}</Text>
+            </Box>
+          )}
+          {view.tool === 'write_file' && inp && (
+            <Box flexDirection="column" marginTop={0}>
+              <Text dimColor>文件：{String(inp.path ?? '')}</Text>
+              <Text color={palette.green} wrap="truncate">+ {String(inp.content ?? '').slice(0, 200)}</Text>
+            </Box>
+          )}
+          {view.tool === 'shell' && inp && (
+            <Text dimColor>命令：{String(inp.command ?? '')}</Text>
+          )}
+          {DECISION_LABELS.map((label, i) => (
+            <Text key={label} inverse={i === view.cursor}>{i === view.cursor ? '> ' : '  '}{label}</Text>
+          ))}
+          <Text dimColor>↑↓ 选择 · 回车确认 · esc 拒绝</Text>
+        </Box>
+        )
+      })()}
       {view.kind === 'menu' && (
         <ListPicker title={view.title} items={view.items.map((i) => i.label)} cursor={view.cursor} hint="↑↓ 选择 · 回车确认 · esc 返回" />
       )}
