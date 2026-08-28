@@ -312,12 +312,15 @@ export function App({ port }: { port: UiPort }) {
       }
       // 命令消息：/model /config 需要 intent 标记（后端回 config_state 时据此打开对应 overlay）。
       if (result.msg.type === 'config_request') {
-        suppressEnterRef.current = true
-        queueMicrotask(() => { suppressEnterRef.current = false })
         // 从命令文本推断 intent（/model vs /config）
         const cmd = raw.trim().split(/\s+/)[0]
         configIntent.current = cmd === '/model' ? 'model' : 'config'
       }
+      // 所有会打开 overlay 的命令统一吞掉提交回车——
+      // port 是同步通道，agent 回响应可能立即设 view 为 menu/info，
+      // 不吞的话同一个回车被 useInput 在新 view 里处理（误选中第一项）。
+      suppressEnterRef.current = true
+      queueMicrotask(() => { suppressEnterRef.current = false })
       port.post(result.msg)
     }
     setInput('')
