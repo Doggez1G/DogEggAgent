@@ -308,7 +308,7 @@ interface Tool {
 `tools/registry.ts` 汇总所有工具的 `name/schema/execute`。工具参数（LLM 返回的 JSON）用 **zod** 校验。
 
 **`shell` 与取消（cancel）**：
-- `shell` 的解释器来自配置 `shellProgram`（缺省按平台——Windows 默认 `cmd`，可切 `powershell`/`bash`），通过 `spawn(program, [flag, command])` 显式指定（`cmd → /c`、`powershell → -Command`、`bash/sh → -c`）。Windows 上加 `shell: true` 避免 `cmd` 的 ENOENT；`shellProgram` 含非 ASCII（如误存的占位文本）时自动回退到平台默认。
+- `shell` 的解释器来自配置 `shellProgram`（缺省按平台——Windows 默认 `cmd`，可切 `powershell`/`bash`），通过 `spawn(program, [flag, command])` 显式指定（`cmd → /c`、`powershell → -Command`、`bash/sh → -c`）。不用 `shell: true`（会触发 Node DEP0190 弃用警告）；`shellProgram` 含非 ASCII（如误存的占位文本）时自动回退到平台默认。
 - `shell` 的进程可被取消杀死：工具把 `killTree` 挂在 `ctx.signal` 的 `abort` 监听上，取消时由外层 `AbortController` 触发杀进程树。
 - 取消三件套：`AbortController` 中断 LLM 请求 + 工具之间检查取消标志 + 杀 shell 进程树。
 - `killTree` 按 OS 分支：`win32` 用 `taskkill /PID <pid> /T /F`（杀整棵树，对 cmd/powershell/bash 通用）；POSIX 用 detached 进程组 + `process.kill(-pid, 'SIGKILL')`。杀进程**不按 shell 类型**区分，只按 OS。
