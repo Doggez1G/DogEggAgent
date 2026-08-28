@@ -117,8 +117,8 @@ agent/src/
 │     └─ transition.ts           # 10 态纯函数迁移表
 ├─ loop/                         # 需求 #1：问模型 → 串行工具 → 回填 → 再问
 │  ├─ index.ts
-│  ├─ types.ts                   # LoopDeps
-│  ├─ run.ts                     # 主循环：迭代 / maxIterations / 取消检查
+│  ├─ types.ts                   # LoopDeps（含 trans 回调）/ LoopResult（含 cancelled 标记）
+│  ├─ run.ts                     # 主循环：迭代 / maxIterations / 取消检查 / 打断时返回部分结果+补全未配对 tool_calls
 │  └─ tool-calls.ts              # 串行工具执行：executeOneTool helper（消重 ask/auto 两分支）+ 逐个回填 / 最后重问
 ├─ context/                      # 需求 #3：上下文组装门面（index.ts 汇总对外 API）；只管 Context，不动 History
 │  ├─ index.ts
@@ -158,7 +158,7 @@ agent/src/
 │     ├─ interpreter.ts          # shellProgram → {program, flag}（← common/utils/shell）
 │     └─ kill-tree.ts            # 进程树终止（win taskkill / POSIX 进程组）
 ├─ session/                      # 需求 #11：持久化 / Resume / 列表
-│  ├─ index.ts  ├─ store.ts      # save / load（JSON 持久化 { id, updatedAt, history, context }）
+│  ├─ index.ts  ├─ store.ts      # save / load（原子写：.tmp + rename；持久化 { id, updatedAt, history, context, allowedTools }）
 │  └─ list.ts                    # 会话列表 + preview
 ├─ permission/                   # 需求 #10：三桶 + 运行时决策
 │  ├─ index.ts  ├─ classify.ts   # 三桶静态分类

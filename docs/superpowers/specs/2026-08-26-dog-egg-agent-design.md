@@ -45,7 +45,7 @@ DogEggAgent 是一个自研的 **code agent** 工具。第一目标是**学习�
 | 8 | Agent State | 10 态状态机（见 §4） |
 | 9 | Event System | 见 §2 |
 | 10 | Permission | 配置 `allow/reject/ask` 三桶 + 运行时 `allow_once/allow_always/reject`（见 §5） |
-| 11 | Session | Session ID / 消息持久化 / Resume / History；JSON：`~/.dogegg/sessions/<id>.json`；REPL 斜杠命令 `/new`、`/session`（列会话并选择切换，按 `updatedAt` 降序排列——最新在最前）管理；**权限会话隔离**：`allow_always` 只对当前会话生效，新建/切换会话时清空 |
+| 11 | Session | Session ID / 消息持久化 / Resume / History；JSON：`~/.dogegg/sessions/<id>.json`，文件结构 `{ id, updatedAt, history, context, allowedTools }`；REPL 斜杠命令 `/new`、`/session`（列会话并选择切换，按 `updatedAt` 降序排列——最新在最前）管理；**权限会话隔离**：`allow_always` 只对当前会话生效，新建会话（`/new`）时清空，`/session` 切换时保留（授权持久化到 allowedTools 字段，resume 后恢复） |
 | 12 | Context Compaction | LLM 把旧上下文压成 summary；触发 80% 窗口、保留最近 4 条；**只压缩 Context，不动 History**（见 §3.1）；自动触发用 80% 阈值，手动 `/compact` 无条件压缩（只要 context 非空就压：消息多时压旧留近期 4 条，消息少时全部压成摘要） |
 | 13 | UI | Message List / Markdown / Tool Call / Tool Result / Input / Status Bar / Streaming |
 
@@ -71,7 +71,7 @@ DogEggAgent 是一个自研的 **code agent** 工具。第一目标是**学习�
 
 这样 §3 #4「原样持久化」指 History、#12「压缩」指 Context，两者各管一样，自洽。
 
-**Session 文件结构**：`{ id, updatedAt, history: Message[], context: Message[] }`。
+**Session 文件结构**：`{ id, updatedAt, history: Message[], context: Message[], allowedTools: string[] }`。
 
 ### 3.2 运行中命令分类
 
@@ -186,6 +186,7 @@ type AgentToUiMessage =
   | { type: 'log_state'; path: string; tail: string }
   | { type: 'history_cleared' }
   | { type: 'notice'; text: string }
+  | { type: 'permissions_list'; tools: string[] } // /permissions 响应：当前会话的 allow_always 授权列表
   | { type: 'compaction'; before_tokens: number; after_tokens: number; source: 'manual' | 'auto' }
   | { type: 'finished'; usage?: unknown }
   | { type: 'error'; error: { message: string; name?: string } }   // 可序列化形状：进程内 Port 与将来 SSE 同构
@@ -207,6 +208,8 @@ type UiToAgentMessage =
   | { type: 'system_request' }
   | { type: 'status_request' }
   | { type: 'log_request' }
+  | { type: 'permissions_request' } // /permissions：查询当前会话的 allow_always 授权
+  | { type: 'permission_revoke'; tool: string } // 撤销某工具的 allow_always 授权
   | { type: 'clear_history' }
   | { type: 'compact_request' }
   | { type: 'quit' }
@@ -238,7 +241,6 @@ type UiToAgentMessage =
 | `/log` | 查看调试日志 | `log_request` → `log_state` |
 | `/permissions` | 查看/撤销当前会话的 allow_always 授权 | `permissions_request` → `permissions_list` → `permission_revoke { tool }` → `permissions_list` |
 | `/help` | 列出所有命令 | UI 本地渲染（无后端消息） |
-| `/permissions` | 查看/撤销当前会话权限授权 | `permissions_request` → `permissions_list` → `permission_revoke` |
 | `/quit` | 退出 | `quit` |
 
 ## 7. 配置 schema
