@@ -1,4 +1,4 @@
-import type { AgentToUiMessage } from '@dogegg/bridge'
+import type { AgentToUiMessage, Message, ToolCall } from '@dogegg/bridge'
 import { ICON, COLOR, type Block } from './block'
 
 // UI 的聊天状态：已落盘的块 + 当前状态 + 进行中的流式块（未落盘的 partial）。
@@ -33,6 +33,44 @@ function flush(state: ChatState): ChatState {
       ...(isThinking ? { full: fullText } : {}),
     }],
   }
+}
+
+// 从持久化的 history 消息重建 UI 块——与实时 tool_start+tool_end 逻辑对齐。
+// 遍历消息：assistant 带 tool_calls 时暂存（按 tool_call_id 索引）；tool 消息用 tool_call_id
+// 找到对应的 tool_call，组成完整工具块（工具名+参数+结果摘要/全文）。
+// assistant 的正文（content）单独成块；纯 tool_calls 的 assistant（content 为 null）不产生块。
+function rebuildBlocksFromHistory(messages: Message[]): Block[] {
+  const pendingCalls = new Map<string, ToolCall>()
+  const blocks: Block[] = []
+  for (const m of messages) {
+    if (m.role === 'user') {
+      blocks.push({ icon: ICON.user, role: '你', color: COLOR.user, text: m.content })
+    } else if (m.role === 'assistant') {
+      // 暂存 tool_calls 供后续 tool 消息配对。
+      if (m.tool_calls) for (const tc of m.tool_calls) pendingCalls.set(tc.id, tc)
+      // 有正文的 assistant 单独成块；纯 tool_calls（content 为 null）不产生块（避免空块）。
+      if (m.content) {
+        blocks.push({ icon: ICON.assistant, role: '助手', color: COLOR.assistant, text: m.content })
+      }
+    } else if (m.role === 'tool') {
+      // 用 tool_call_id 找到对应的 tool_call，提取工具名+参数。
+      const call = pendingCalls.get(m.tool_call_id)
+      const toolName = call?.function.name ?? '工具'
+      const argsStr = call ? ` ${call.function.arguments}` : ''
+      const callLine = `${toolName}${argsStr}`
+      // 与实时 tool_end 一致：text = 调用+摘要，full = 调用+完整结果。
+      const summary = m.content.length > 120 ? m.content.slice(0, 120) + '…' : m.content
+      blocks.push({
+        icon: ICON.tool,
+        role: '工具',
+        color: COLOR.tool,
+        text: `${callLine}\n✓ ${summary}`,
+        full: `${callLine}\n✓ 完成\n${m.content}`,
+      })
+      pendingCalls.delete(m.tool_call_id)
+    }
+  }
+  return blocks
 }
 
 // reducer：AgentToUiMessage → ChatState 的纯函数。★ 可单测。
@@ -77,26 +115,15 @@ export function reducer(state: ChatState, msg: Action): ChatState {
       return { ...state, blocks: [...state.blocks, { icon: '🥚', role: '提示', color: 'yellow', text: msg.text }] }
     case 'session_ready':
       // R1：session_ready 带的是 history（完整原文），UI 据此渲染完整历史消息。
-      // resume 重建块时，工具块设 full（完整结果）+ text（摘要），与实时 tool_end 逻辑一致，保证可折叠展开。
+      // resume 重建块时，从 assistant.tool_calls 提取工具名+参数，与后续 tool 消息配对，
+      // 组成完整工具块（工具名+参数+结果），与实时 tool_start+tool_end 逻辑一致，保证可折叠展开。
       // 注意：思考块是流式 thought_delta 产生的，不持久化进 history，resume 后无法恢复（固有限制）。
       // 清空 partial——否则切换会话时旧会话的流式文本残留显示。
       return {
         ...state,
         status: 'idle',
         partial: null,
-        blocks: msg.messages.flatMap((m): Block[] => {
-          if (m.role === 'assistant') {
-            const content = (m as { content: string | null }).content
-            if (!content) return [] // 纯 tool_calls 的 assistant 消息：其后紧跟工具块，跳过避免空块
-            return [{ icon: ICON.assistant, role: '助手', color: COLOR.assistant, text: content }]
-          }
-          if (m.role === 'tool') {
-            // 工具结果：折叠显示摘要（前 120 字符），展开显示完整内容。
-            const summary = m.content.length > 120 ? m.content.slice(0, 120) + '…' : m.content
-            return [{ icon: ICON.tool, role: '工具结果', color: COLOR.tool, text: summary, full: m.content }]
-          }
-          return [{ icon: ICON.user, role: '你', color: COLOR.user, text: m.content }]
-        }),
+        blocks: rebuildBlocksFromHistory(msg.messages),
       }
     case 'compaction':
       // 手动压缩弹 overlay（App 处理），reducer 不产生块。

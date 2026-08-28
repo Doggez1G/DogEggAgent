@@ -45,7 +45,7 @@ DogEggAgent 是一个自研的 **code agent** 工具。第一目标是**学习�
 | 8 | Agent State | 10 态状态机（见 §4） |
 | 9 | Event System | 见 §2 |
 | 10 | Permission | 配置 `allow/reject/ask` 三桶 + 运行时 `allow_once/allow_always/reject`（见 §5） |
-| 11 | Session | Session ID / 消息持久化 / Resume / History；JSON：`~/.dogegg/sessions/<id>.json`；REPL 斜杠命令 `/new`、`/session`（列会话并选择切换）管理 |
+| 11 | Session | Session ID / 消息持久化 / Resume / History；JSON：`~/.dogegg/sessions/<id>.json`；REPL 斜杠命令 `/new`、`/session`（列会话并选择切换，按 `updatedAt` 降序排列——最新在最前）管理；**权限会话隔离**：`allow_always` 只对当前会话生效，新建/切换会话时清空 |
 | 12 | Context Compaction | LLM 把旧上下文压成 summary；触发 80% 窗口、保留最近 4 条；**只压缩 Context，不动 History**（见 §3.1）；自动触发用 80% 阈值，手动 `/compact` 无条件压缩（只要 context 非空就压：消息多时压旧留近期 4 条，消息少时全部压成摘要） |
 | 13 | UI | Message List / Markdown / Tool Call / Tool Result / Input / Status Bar / Streaming |
 
@@ -148,7 +148,7 @@ finished / cancelled / error ──▶ idle
 **运行时层（仅 `ask` 桶命中时）**：用户决策三值：
 
 - `allow_once`：仅放行本次调用
-- `allow_always`：将工具在本会话内挪入允许
+- `allow_always`：将工具在本会话内挪入允许。**会话隔离**：`allow_always` 只对当前会话生效，新建会话（`/new`）或切换会话（`/session`）时清空运行时授权，不跨会话残留。
 - `reject`：拒绝本次调用（回填明确提示「用户拒绝了此工具调用，请勿再次尝试同一工具」，让模型停止重试而非循环弹框，继续）
 
 审批通过注入的回调交给 UI（TUI = await Y/n），`agent/permission` 本身不依赖 UI。

@@ -130,6 +130,7 @@ export class Agent {
         this.history = []
         this.context = []
         this.sessionId = newId()
+        this.permission.reset() // 会话隔离：allow_always 只对当前会话生效
         this.emit({ type: 'session_ready', id: this.sessionId, messages: this.history })
         break
       }
@@ -140,6 +141,7 @@ export class Agent {
           this.history = s.history
           this.context = s.context
           this.sessionId = s.id
+          this.permission.reset() // 会话隔离：切换会话时清空旧会话的 allow_always
           this.emit({ type: 'session_ready', id: s.id, messages: this.history })
         } catch {
           this.emit({ type: 'notice', text: `会话 ${cmd.id} 加载失败（文件不存在或已损坏）` })
@@ -330,9 +332,9 @@ export class Agent {
     }
     this.config = this.editor.getConfig()
     // 重建 PermissionManager 时保留运行时 allow_always 授权（配置编辑不该丢失会话授权）。
-    const savedAllowed = this.permission['sessionAllowed'] as ReadonlySet<string> | undefined
+    const savedAllowed = this.permission.snapshot()
     this.permission = new PermissionManager(this.config.permission)
-    if (savedAllowed) for (const t of savedAllowed) this.permission.apply(t, 'allow_always')
+    for (const t of savedAllowed) this.permission.apply(t, 'allow_always')
     saveConfig(this.config)
     this.emit({ type: 'config_updated', config: this.config })
   }
