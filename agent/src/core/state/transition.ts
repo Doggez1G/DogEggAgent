@@ -13,7 +13,7 @@ const VALID_FROM: Record<TransitionInput['kind'], ReadonlySet<State>> = {
   tool_needs_permission: new Set(['tool_calling']),
   allow: new Set(['waiting_permission']),
   tool_done: new Set(['executing', 'waiting_permission']),
-  reject: new Set(['executing', 'waiting_permission']),
+  reject: new Set(['executing', 'waiting_permission', 'tool_calling']),
   result_back: new Set(['executing']),
   compact_start: new Set(['thinking', 'responding', 'idle', 'tool_calling', 'executing', 'waiting_permission']),
   compact_done: new Set(['compacting']),

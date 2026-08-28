@@ -8,7 +8,7 @@ import { withRetry } from './retry'
 export function openAiAdapter(): ProviderAdapter {
   return {
     async chat(req: ChatRequest, signal: AbortSignal, emit: (e: LlmStreamEvent) => void): Promise<Message> {
-      return withRetry(req.maxRetries + 1, () => streamOnce(req, signal, emit))
+      return withRetry(req.maxRetries + 1, () => streamOnce(req, signal, emit), signal)
     },
   }
 }
