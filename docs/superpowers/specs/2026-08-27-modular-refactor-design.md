@@ -257,7 +257,7 @@ ui/src/
    ├─ components/                # 无状态展示组件，一组件一文件夹（view + index）
    │  ├─ top-bar/       ├─ index.tsx └─ view.tsx
    │  ├─ message-block/ ├─ index.tsx └─ view.tsx
-   │  ├─ status-bar/    ├─ index.tsx └─ view.tsx
+   │  ├─ status-bar/    ├─ index.tsx └─ view.tsx  # 状态栏 + 狗蛋 spinner 动效（useEffect+setInterval 80ms/帧）
    │  └─ list-picker/   ├─ index.tsx └─ view.tsx
    ├─ theme/
    │  ├─ index.ts  └─ palette.ts # Catppuccin Mocha 调色板（§14）
