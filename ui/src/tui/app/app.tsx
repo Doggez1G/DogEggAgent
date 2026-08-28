@@ -99,6 +99,12 @@ export function App({ port }: { port: UiPort }) {
         setScroll(0)
         setSuggestCursor(null)
       }
+      // 错误恢复：error 时自动预填上次提交的文本到输入框，用户可直接改或重新提交。
+      if (msg.type === 'error' && inputHistoryRef.current.length > 0) {
+        const lastText = inputHistoryRef.current[inputHistoryRef.current.length - 1]!
+        setInput(lastText)
+        historyCursorRef.current = -1
+      }
       if (msg.type === 'permission_request') {
         setView({ kind: 'permission', id: msg.id, tool: msg.tool, input: msg.input, cursor: 0 })
       } else if (msg.type === 'state' && msg.to !== 'waiting_permission' && viewRef.current.kind === 'permission') {

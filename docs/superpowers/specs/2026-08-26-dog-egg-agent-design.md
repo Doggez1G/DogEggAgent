@@ -93,6 +93,7 @@ config 编辑归「阻塞」：运行中改 config 会让 loop 持有的 provide
 - **LLM 错误重试**：请求失败自动重试 `maxRetries` 次（缺省 3），仍失败则报错给 UI。
 - **调试日志**：每轮消息流 / 工具调用 / 状态迁移追加写到 `~/.dogegg/logs/<session-id>.log`。
 - **无配置可启动**：找不到配置文件时仍进入 TUI（空配置）；仅 `submit` / `status` / `context` / `compact` 在未配置时发 `notice` 提示先 `/config`。
+- **错误恢复**：API 失败 / maxIterations 等 error 后，输入框自动预填上次提交的文本——用户可直接修改或重新提交，不用重新输入。
 - **CLI 参数**：v1 无（一切通过 REPL 斜杠命令）。
 
 ## 4. 状态机（10 态）
