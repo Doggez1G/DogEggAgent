@@ -401,7 +401,7 @@ DogEggAgent/
 |---|---|---|
 | 消息列表 | 每条消息为**左色条块**（无全框，靠左侧色条 + marginBottom 留白分隔）：用户、思考、助手、工具（调用+结果合一）各自成块；思考块与工具结果**默认折叠**（思考折叠显示前 3 行摘要、工具折叠显示前 120 字符摘要，展开显示全文/完整结果），`↑`/`↓` 在可折叠块间移动焦点（accent 左色条 + ▸ 高亮），`回车` 展开/折叠、`Esc` 返回输入框；无可折叠块时 `↑`/`↓` 滚动历史，`PageUp`/`PageDown` 翻页，`scroll=0` 时自动跟随最新；底部显示滚动提示。⚠️ resume 加载历史会话时工具块可折叠（full 从持久化的 tool 消息 content 重建），但思考块不可恢复——思考内容来自流式 `thought_delta`、不持久化进 history，resume 后无思考块（固有限制） | — |
 | 输入框 | 多行缓冲 | `Enter` 发送 / `Shift+Enter` 换行 / `↑↓` 召回输入历史（无可折叠块时）/ `Ctrl+C` 运行中打断当前操作（发 cancel，不退出）/ 空闲时弹退出确认 / `PageUp`/`PageDown` 滚动历史 / `/` 命令联想补全：输入 `/` 前缀时上方显示匹配命令列表（命令名+描述，前缀匹配），`↑↓` 选择、`Enter`/`Tab` 补全命令到输入框（不补全描述，不直接运行，需再按 `Enter` 提交）、`Esc` 取消 |
-| 状态栏 | `state 图标 · provider/model · #sessionId · tokens/window`，state 来自后端 `state` 事件 | — |
+| 状态栏 | `<品牌> <Emoji+Braille spinner> <状态文字> · provider/model · #sessionId · tokens/window`；运行态（thinking/responding/executing/compacting）显示 Braille spinner 旋转动画（`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` 循环，80ms/帧）+ 对应状态 Emoji；非运行态（idle/finished/cancelled/error/waiting_permission）静态显示。状态来自后端 `state` 事件 | — |
 | 权限弹层 | 三行列表：允许一次 / 始终允许 / 拒绝 | `↑↓` 选、`Enter` 确认、`Esc` 拒绝 → `permission_decision` |
 | 会话选择器 | 列 session，选一个恢复 | `↑↓` 选、`Enter` 确认、`Esc` 返回 |
 | 模型选择器 | provider → model 两级 | 同上 |
@@ -629,19 +629,21 @@ DogEggAgent/
 | 工具 | `#94e2d5` | cyan | `executing` 的 `⚙` + spinner |
 | 错误 | `#f38ba8` | red | `error`、✕ |
 
-**状态 → 颜色/图标**：
+**状态 → 颜色/图标/Spinner**：
 
-| 状态 | 颜色 | 指示 |
-|---|---|---|
-| `idle` | dim | 🥚 |
-| `thinking` | yellow | 🐣 |
-| `responding` | accent | 🐶 |
-| `tool_calling` / `executing` | cyan | 🐾 + spinner |
-| `waiting_permission` | yellow | ⚠ |
-| `finished` | green | 🐥 |
-| `cancelled` | dim | 🥚 |
-| `error` | red | 🐶 汪 |
-| `compacting` | cyan | 🐾 ⟳ |
+| 状态 | 颜色 | Emoji | Braille Spinner | 说明 |
+|---|---|---|---|---|
+| `idle` | dim | 🥚 | — | 静止，蛋等主人 |
+| `thinking` | yellow | 🐣 | `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` | 蛋孵化中，spinner 旋转 |
+| `responding` | accent | 🐶 | `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` | 狗在回答，spinner 旋转 |
+| `tool_calling` / `executing` | cyan | 🐾 | `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` | 狗爪动手，spinner 旋转 |
+| `waiting_permission` | yellow | ⚠ | — | 静止，等待用户审批 |
+| `finished` | green | 🐥 | — | 孵出小鸡，完成 |
+| `cancelled` | dim | 🥚 | — | 静止，已打断 |
+| `error` | red | 🐶 | — | 静止，汪！出错了 |
+| `compacting` | cyan | 🥚 | `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` | 蛋压缩中，spinner 旋转 |
+
+Spinner 帧序列 10 帧循环，80ms/帧（12.5fps），完整一圈 800ms。运行态启动定时器，非运行态停止。格式：`<Emoji> <Braille帧> <状态文字>`。
 
 **字形层次**：用户 🥚、助手 🐶、思考 🐣、工具 🐾 作为块头图标；正文 default、reasoning 折叠后 dim；工具块 cyan + dim 摘要；选中项反色（inverse）；面板圆角 dim 边框、标题 bold accent。
 
@@ -654,7 +656,7 @@ DogEggAgent/
 │  > 帮我修登录 bug                          │   bold + accent
 │  ⚙ read_file src/auth.ts      ✓           │   cyan + dim + green，✓ 绿
 └───────────────────────────────────────────┘
-● responding · openai/gpt-4o · #3f2a · 12k/128k   状态栏，表面色底，● accent
+● 🐶 ⠹ responding · openai/gpt-4o · #3f2a · 12k/128k   状态栏，表面色底，● accent，spinner 旋转
 > ▌                                                accent 输入光标
 ```
 
