@@ -17,7 +17,6 @@ export function renderTui(port: UiPort): void {
   process.on('exit', leave)
   process.on('SIGINT', () => { leave(); process.exit(0) })
   process.on('SIGTERM', () => { leave(); process.exit(0) })
-  process.on('uncaughtException', (err) => { leave(); console.error(err); process.exit(1) })
 
   render(<App port={port} />)
 }

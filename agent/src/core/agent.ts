@@ -201,16 +201,20 @@ export class Agent {
         break
       case 'context_request': {
         if (!isConfigured(this.config)) { this.emit({ type: 'notice', text: '尚未配置 provider，请先 /config' }); break }
-        const cur = this.current()
-        const tokens = this.estimateCurrentTokens()
-        this.emit({ type: 'context_state', estimatedTokens: tokens, windowTokens: cur.contextWindow, percent: cur.contextWindow ? Math.round((tokens / cur.contextWindow) * 100) : 0 })
+        try {
+          const m = this.current()
+          const tokens = this.estimateCurrentTokens()
+          this.emit({ type: 'context_state', estimatedTokens: tokens, windowTokens: m.contextWindow, percent: m.contextWindow ? Math.round((tokens / m.contextWindow) * 100) : 0 })
+        } catch { this.emit({ type: 'notice', text: '上下文状态读取失败' }) }
         break
       }
       case 'status_request': {
         if (!isConfigured(this.config)) { this.emit({ type: 'notice', text: '尚未配置 provider，请先 /config' }); break }
-        const { provider, model } = resolveCurrent(this.config)
-        const cur = this.current()
-        this.emit({ type: 'status_state', sessionId: this.sessionId, provider: provider.name, model: model.name, cwd: this.cwd, state: this.state, estimatedTokens: this.estimateCurrentTokens(), windowTokens: cur.contextWindow })
+        try {
+          const { provider, model } = resolveCurrent(this.config)
+          const cur = this.current()
+          this.emit({ type: 'status_state', sessionId: this.sessionId, provider: provider.name, model: model.name, cwd: this.cwd, state: this.state, estimatedTokens: this.estimateCurrentTokens(), windowTokens: cur.contextWindow })
+        } catch { this.emit({ type: 'notice', text: '状态读取失败' }) }
         break
       }
       case 'system_request':
@@ -218,7 +222,8 @@ export class Agent {
         catch { this.emit({ type: 'notice', text: 'system prompt 加载失败（路径不存在或无法读取）' }) }
         break
       case 'log_request':
-        this.emit({ type: 'log_state', path: sessionLogPath(this.sessionId) ?? '~/.dogegg/logs/<session>.log', tail: readLogTail(this.sessionId) })
+        try { this.emit({ type: 'log_state', path: sessionLogPath(this.sessionId) ?? '~/.dogegg/logs/<session>.log', tail: readLogTail(this.sessionId) }) }
+        catch { this.emit({ type: 'notice', text: '日志读取失败' }) }
         break
 
       case 'quit':
@@ -303,9 +308,15 @@ export class Agent {
         this.emit({ type: 'notice', text: '上下文为空，无需压缩' })
       }
     } catch (e) {
-      this.emit({ type: 'error', error: { message: '压缩失败：' + (e as Error).message, name: (e as Error).name } })
+      // AbortError 是用户取消——走 cancelled 态而非 error（与 runTurn catch 一致）。
+      if ((e as Error).name === 'AbortError') {
+        this.emitState({ kind: 'cancel' })
+      } else {
+        this.emit({ type: 'error', error: { message: '压缩失败：' + (e as Error).message, name: (e as Error).name } })
+      }
     } finally {
       this.running = false
+      // cancelled/error → idle 由 reset 完成；成功时也复位（compact_done 回 idle）。
       this.emitState({ kind: 'compact_done', next: 'idle' })
     }
   }
