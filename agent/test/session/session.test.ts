@@ -10,7 +10,7 @@ describe('session store', () => {
   it('R1: 双持久化 save/load（history + context）', () => {
     const history = [{ role: 'user' as const, content: 'hi' }]
     const context = [{ role: 'user' as const, content: 'hi' }]
-    saveSession('s1', history, context, dir)
+    saveSession('s1', history, context, [], dir)
     const loaded = loadSession('s1', dir)
     expect(loaded.id).toBe('s1')
     expect(loaded.history[0]).toMatchObject({ role: 'user', content: 'hi' })

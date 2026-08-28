@@ -148,7 +148,7 @@ finished / cancelled / error ──▶ idle
 **运行时层（仅 `ask` 桶命中时）**：用户决策三值：
 
 - `allow_once`：仅放行本次调用
-- `allow_always`：将工具在本会话内挪入允许。**会话隔离**：`allow_always` 只对当前会话生效，新建会话（`/new`）或切换会话（`/session`）时清空运行时授权，不跨会话残留。
+- `allow_always`：将工具在本会话内挪入允许。**会话隔离**：`allow_always` 只对当前会话生效，新建会话（`/new`）时清空；切换会话（`/session`）时**保留授权**——授权持久化到 session 文件，resume 后恢复。`/permissions` 可查看/撤销当前会话的授权。
 - `reject`：拒绝本次调用（回填明确提示「用户拒绝了此工具调用，请勿再次尝试同一工具」，让模型停止重试而非循环弹框，继续）
 
 审批通过注入的回调交给 UI（TUI = await Y/n），`agent/permission` 本身不依赖 UI。

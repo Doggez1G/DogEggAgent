@@ -36,6 +36,7 @@ export function App({ port }: { port: UiPort }) {
   const browseRef = useRef<number | null>(null)
   const expandedRef = useRef<Set<number>>(new Set())
   const blocksRef = useRef(chat.blocks)
+  const statusRef = useRef(chat.status) // 镜像 chat.status 供 useInput 读取（闭包防过期）
 
   const setBrowseBoth = useCallback((i: number | null) => { browseRef.current = i; setBrowse(i) }, [])
   const setView = useCallback((v: View) => { viewRef.current = v; setViewState(v) }, [])
@@ -43,6 +44,7 @@ export function App({ port }: { port: UiPort }) {
   const openMenu = useCallback((title: string, items: { label: string; onSelect: () => void }[]) => setView({ kind: 'menu', title, items, cursor: 0 }), [setView])
 
   useEffect(() => { blocksRef.current = chat.blocks }, [chat.blocks])
+  useEffect(() => { statusRef.current = chat.status }, [chat.status])
 
   // 块清空时复位浏览焦点与展开状态，避免残留下标误展开新块。
   useEffect(() => {
@@ -156,7 +158,8 @@ export function App({ port }: { port: UiPort }) {
     // 空闲 → 弹退出确认（和 /quit 一致）。
     // 兜底：如果 Ink 的 useInput 没收到（程序卡死），entry.tsx 的全局 SIGINT handler 走两次 Ctrl+C 强制退出。
     if (key.ctrl && inputChar === 'c') {
-      const running = chat.status !== 'idle' && chat.status !== 'finished' && chat.status !== 'cancelled' && chat.status !== 'error'
+      const status = statusRef.current
+      const running = status !== 'idle' && status !== 'finished' && status !== 'cancelled' && status !== 'error'
       if (running) {
         port.post({ type: 'cancel' })
       } else if (viewRef.current.kind !== 'menu') {

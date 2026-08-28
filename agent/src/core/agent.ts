@@ -141,7 +141,9 @@ export class Agent {
           this.history = s.history
           this.context = s.context
           this.sessionId = s.id
-          this.permission.reset() // 会话隔离：切换会话时清空旧会话的 allow_always
+          // 恢复该会话的 allow_always 授权（resume 不清空，保留之前设置的授权）。
+          this.permission.reset()
+          for (const t of s.allowedTools) this.permission.apply(t, 'allow_always')
           this.emit({ type: 'session_ready', id: s.id, messages: this.history })
         } catch {
           this.emit({ type: 'notice', text: `会话 ${cmd.id} 加载失败（文件不存在或已损坏）` })
@@ -291,7 +293,7 @@ export class Agent {
       // 无论成功/失败/取消，turn 结束后状态回到 idle（成功路径 loop 停在 finished，需复位）。
       this.running = false
       this.emitState({ kind: 'reset' })
-      saveSession(this.sessionId, this.history, this.context)
+      saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed())
     }
   }
 
@@ -317,7 +319,7 @@ export class Agent {
       })
       if (result.compacted) {
         this.context = result.context
-        saveSession(this.sessionId, this.history, this.context)
+        saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed())
         this.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after, source: 'manual' })
       } else {
         // context 为空——没有消息可压。
