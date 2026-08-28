@@ -35,7 +35,7 @@ DogEggAgent 是一个自研的 **code agent** 工具。第一目标是**学习�
 
 | # | 需求 | 关键决定 |
 |---|---|---|
-| 1 | Agent Loop | 从零手写；工具**串行**执行；`while`: 问模型 → 有 tool_calls 则串行执行 → 结果回填 → 再问 → 无 tool_calls 结束。**打断保存**：用户 Ctrl+C 打断时，已完成的 assistant/tool 消息保存到 context+history；未配对的 tool_calls 补全 `tool: cancelled` 消息，保证对话状态完整；部分流式文本（半句话）不保存 |
+| 1 | Agent Loop | 从零手写；工具**串行**执行；`while`: 问模型 → 有 tool_calls 则串行执行 → 结果回填 → 再问 → 无 tool_calls 结束。**打断/错误保存**：用户 Ctrl+C 打断或 maxIterations/API 失败时，已完成的 assistant/tool 消息保存到 context+history；未配对的 tool_calls 补全 `tool: cancelled` 消息，保证对话状态完整；部分流式文本（半句话）不保存 |
 | 2 | Tool Calling | 模型返回 tool_calls，Core 按 schema 本地执行，串行 |
 | 3 | Context | 每次发给模型 = System Prompt + 处理后的历史 + 工具 schema，受窗口预算约束 |
 | 4 | Message History | 有序消息列表，**原样持久化、永不压缩**；与 Context 是两份独立数据（见 §3.1） |
@@ -400,7 +400,7 @@ DogEggAgent/
 | 组件 | 说明 | 键位 |
 |---|---|---|
 | 消息列表 | 每条消息为**左色条块**（无全框，靠左侧色条 + marginBottom 留白分隔）：用户、思考、助手、工具（调用+结果合一）各自成块；思考块与工具结果**默认折叠**（思考折叠显示前 3 行摘要、工具折叠显示前 120 字符摘要，展开显示全文/完整结果），`↑`/`↓` 在可折叠块间移动焦点（accent 左色条 + ▸ 高亮），`回车` 展开/折叠、`Esc` 返回输入框；无可折叠块时 `↑`/`↓` 滚动历史，`PageUp`/`PageDown` 翻页，`scroll=0` 时自动跟随最新；底部显示滚动提示。⚠️ resume 加载历史会话时工具块可折叠（full 从持久化的 tool 消息 content 重建），但思考块不可恢复——思考内容来自流式 `thought_delta`、不持久化进 history，resume 后无思考块（固有限制） | — |
-| 输入框 | 多行缓冲 | `Enter` 发送 / `Shift+Enter` 换行 / `↑↓` 历史 / `Ctrl+C` 运行中打断当前操作（发 cancel，不退出）/ 空闲时弹退出确认 / `/` 命令联想补全：输入 `/` 前缀时上方显示匹配命令列表（命令名+描述，前缀匹配），`↑↓` 选择、`Enter`/`Tab` 补全命令到输入框（不补全描述，不直接运行，需再按 `Enter` 提交）、`Esc` 取消 |
+| 输入框 | 多行缓冲 | `Enter` 发送 / `Shift+Enter` 换行 / `↑↓` 召回输入历史（无可折叠块时）/ `Ctrl+C` 运行中打断当前操作（发 cancel，不退出）/ 空闲时弹退出确认 / `PageUp`/`PageDown` 滚动历史 / `/` 命令联想补全：输入 `/` 前缀时上方显示匹配命令列表（命令名+描述，前缀匹配），`↑↓` 选择、`Enter`/`Tab` 补全命令到输入框（不补全描述，不直接运行，需再按 `Enter` 提交）、`Esc` 取消 |
 | 状态栏 | `state 图标 · provider/model · #sessionId · tokens/window`，state 来自后端 `state` 事件 | — |
 | 权限弹层 | 三行列表：允许一次 / 始终允许 / 拒绝 | `↑↓` 选、`Enter` 确认、`Esc` 拒绝 → `permission_decision` |
 | 会话选择器 | 列 session，选一个恢复 | `↑↓` 选、`Enter` 确认、`Esc` 返回 |
