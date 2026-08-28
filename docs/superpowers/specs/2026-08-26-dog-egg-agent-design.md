@@ -236,7 +236,9 @@ type UiToAgentMessage =
 | `/system` | 查看 system prompt | `system_request` → `system_state` |
 | `/status` | 会话/模型/上下文一览 | `status_request` → `status_state` |
 | `/log` | 查看调试日志 | `log_request` → `log_state` |
+| `/permissions` | 查看/撤销当前会话的 allow_always 授权 | `permissions_request` → `permissions_list` → `permission_revoke { tool }` → `permissions_list` |
 | `/help` | 列出所有命令 | UI 本地渲染（无后端消息） |
+| `/permissions` | 查看/撤销当前会话权限授权 | `permissions_request` → `permissions_list` → `permission_revoke` |
 | `/quit` | 退出 | `quit` |
 
 ## 7. 配置 schema

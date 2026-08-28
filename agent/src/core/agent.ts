@@ -228,6 +228,20 @@ export class Agent {
         catch { this.emit({ type: 'notice', text: '日志读取失败' }) }
         break
 
+      case 'permissions_request': {
+        // /permissions：返回当前会话的 allow_always 授权列表。
+        const allowed = this.permission.listAllowed()
+        this.emit({ type: 'permissions_list', tools: allowed })
+        break
+      }
+      case 'permission_revoke': {
+        // 撤销某工具的 allow_always 授权。
+        this.permission.revoke(cmd.tool)
+        const allowed = this.permission.listAllowed()
+        this.emit({ type: 'permissions_list', tools: allowed })
+        break
+      }
+
       case 'quit':
         process.exit(0)
     }

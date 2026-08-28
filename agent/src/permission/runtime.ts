@@ -22,8 +22,18 @@ export class PermissionManager {
     this.sessionAllowed.clear()
   }
 
-  // 导出当前 allow_always 集合——配置编辑时保留授权用。
+  // 撤销某工具的 allow_always 授权（/permissions 命令用）。
+  revoke(tool: string): void {
+    this.sessionAllowed.delete(tool)
+  }
+
+  // 导出当前 allow_always 集合——配置编辑时保留授权用 / /permissions 命令用。
   snapshot(): ReadonlySet<string> {
     return new Set(this.sessionAllowed)
+  }
+
+  // 返回当前 allow_always 授权的工具列表——/permissions 命令用。
+  listAllowed(): string[] {
+    return [...this.sessionAllowed]
   }
 }

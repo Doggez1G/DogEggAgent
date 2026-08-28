@@ -10,6 +10,7 @@ export const COMMANDS: { cmd: string; desc: string }[] = [
   { cmd: '/log', desc: '查看调试日志' },
   { cmd: '/model', desc: '快速切换模型' },
   { cmd: '/new', desc: '新建会话' },
+  { cmd: '/permissions', desc: '查看/撤销会话权限授权' },
   { cmd: '/quit', desc: '退出' },
   { cmd: '/session', desc: '切换会话' },
   { cmd: '/status', desc: '状态一览' },
@@ -54,6 +55,7 @@ export function parseCommand(text: string): CommandResult {
     case '/system': return { kind: 'message', msg: { type: 'system_request' } }
     case '/status': return { kind: 'message', msg: { type: 'status_request' } }
     case '/log': return { kind: 'message', msg: { type: 'log_request' } }
+    case '/permissions': return { kind: 'message', msg: { type: 'permissions_request' } }
     case '/quit': return { kind: 'message', msg: { type: 'quit' } }
     case '/help': return { kind: 'help' }
     default: return { kind: 'help' } // 未知命令也显示帮助

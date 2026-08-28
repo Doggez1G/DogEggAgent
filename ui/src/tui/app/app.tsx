@@ -128,6 +128,18 @@ export function App({ port }: { port: UiPort }) {
           setInfoScroll(0)
           setView({ kind: 'info', title: '压缩上下文', lines: [`压缩前：${msg.before_tokens} tokens`, `压缩后：${msg.after_tokens} tokens`] })
         }
+      } else if (msg.type === 'permissions_list') {
+        // /permissions：用 menu overlay 显示当前会话的 allow_always 授权列表。
+        // 选中某项发 permission_revoke 撤销；列表为空时显示提示。
+        if (msg.tools.length === 0) {
+          setInfoScroll(0)
+          setView({ kind: 'info', title: '会话权限', lines: ['当前会话没有 allow_always 授权的工具', '（选择权限弹层时选「始终允许」才会出现在这里）'] })
+        } else {
+          openMenu('会话权限（回车撤销授权）', msg.tools.map((t) => ({
+            label: `${t}  （回车撤销）`,
+            onSelect: () => { port.post({ type: 'permission_revoke', tool: t }) },
+          })))
+        }
       } else if (msg.type === 'log_state') {
         setInfoScroll(0); setView({ kind: 'info', title: '调试日志', lines: [`路径：${msg.path}`, '─'.repeat(40), msg.tail] })
       }
@@ -251,7 +263,8 @@ export function App({ port }: { port: UiPort }) {
         '/clear 清空历史     /compact 手动压缩',
         '/context 查看占用   /tools 列出工具',
         '/system 系统提示词  /status 状态一览',
-        '/log 调试日志       /quit 退出       /help 本帮助',
+        '/log 调试日志       /permissions 会话权限',
+        '/quit 退出          /help 本帮助',
       ] })
     } else {
       // /clear 和 /quit 需确认弹层（不可逆操作）。

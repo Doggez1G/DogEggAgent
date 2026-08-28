@@ -17,6 +17,8 @@ export type UiToAgentMessage =
   | { type: 'system_request' }
   | { type: 'status_request' }
   | { type: 'log_request' }
+  | { type: 'permissions_request' } // /permissions：查询当前会话的 allow_always 授权
+  | { type: 'permission_revoke'; tool: string } // 撤销某工具的 allow_always 授权
   | { type: 'clear_history' }
   | { type: 'compact_request' }
   | { type: 'quit' }

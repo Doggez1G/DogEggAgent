@@ -22,6 +22,7 @@ export type AgentToUiMessage =
   | { type: 'log_state'; path: string; tail: string }
   | { type: 'history_cleared' }
   | { type: 'notice'; text: string }
+  | { type: 'permissions_list'; tools: string[] } // /permissions 命令响应：当前会话的 allow_always 授权工具列表
   | { type: 'compaction'; before_tokens: number; after_tokens: number; source: 'manual' | 'auto' } // source 区分手动/自动，UI 据此决定弹 overlay 还是插提示块
   | { type: 'finished'; usage?: unknown }
   | { type: 'error'; error: { message: string; name?: string } } // 可序列化：JSON.stringify(Error) 会丢 stack/name，进程内 Port 与将来 SSE 需同构
