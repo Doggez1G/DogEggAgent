@@ -19,17 +19,20 @@ export class ConfigEditor {
 
   set(path: string, value: unknown): { ok: boolean; error?: string } {
     const op = parseConfigSet(path, value)
-    if (op) applySet(this.config, op)
+    if (!op) return { ok: false, error: `无效的配置路径：${path}` }
+    applySet(this.config, op)
     return this.afterEdit()
   }
 
   add(path: string, value: unknown): { ok: boolean; error?: string } {
     const op = parseConfigAdd(path, value)
-    if (op) applyAdd(this.config, op)
+    if (!op) return { ok: false, error: `无效的配置路径：${path}` }
+    applyAdd(this.config, op)
     return this.afterEdit()
   }
 
   remove(path: string, index: number, providerIndex?: number): { ok: boolean; error?: string } {
+    if (path !== 'providers' && path !== 'models') return { ok: false, error: `无效的删除路径：${path}` }
     applyRemove(this.config, path, index, providerIndex)
     return this.afterEdit()
   }

@@ -11,11 +11,16 @@ export function listSessions(baseDir = defaultSessionsDir()): { id: string; upda
   return readdirSync(baseDir)
     .filter((f) => f.endsWith('.json'))
     .map((f) => {
-      const raw = JSON.parse(readFileSync(join(baseDir, f), 'utf8'))
-      const history: Message[] = raw.history ?? raw.messages ?? []
-      const last: Message | undefined = history[history.length - 1]
-      const preview = last && last.role !== 'tool' && typeof last.content === 'string' ? last.content.slice(0, 40) : ''
-      return { id: raw.id, updatedAt: raw.updatedAt ?? '', preview }
+      // 单个文件损坏不阻断整个列表——跳过并返回占位项。
+      try {
+        const raw = JSON.parse(readFileSync(join(baseDir, f), 'utf8'))
+        const history: Message[] = raw.history ?? raw.messages ?? []
+        const last: Message | undefined = history[history.length - 1]
+        const preview = last && last.role !== 'tool' && typeof last.content === 'string' ? last.content.slice(0, 40) : ''
+        return { id: raw.id ?? f.replace('.json', ''), updatedAt: raw.updatedAt ?? '', preview }
+      } catch {
+        return { id: f.replace('.json', ''), updatedAt: '', preview: '（文件损坏）' }
+      }
     })
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) // 降序：最新在前
 }

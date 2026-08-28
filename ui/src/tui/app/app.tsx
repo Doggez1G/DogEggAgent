@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { Box, Text, useInput, useStdout } from 'ink'
 import TextInput from 'ink-text-input'
 import type { AgentToUiMessage, UiToAgentMessage, PermissionDecision, Config, UiPort } from '@dogegg/bridge'
 import { TopBar, MessageBlock, StatusBar, ListPicker } from '../components'
 import { palette } from '../theme'
 import { renderMarkdown } from '../markdown'
+import { resetSigintTimer } from './entry'
 import { reducer, ICON, buildDisplayBlocks, sliceViewport, expandableIndices, moveBrowse, toggleExpanded, type ChatState } from '../chat'
 import { parseCommand, matchCommands } from '../input'
 import { buildEntries, entryLabel, parentPath, type ConfigPath, type TreeCtx } from '../overlays/config'
@@ -28,6 +29,10 @@ export function App({ port }: { port: UiPort }) {
   const suggestCursorRef = useRef<number | null>(null) // 镜像供 handleSubmit 读取（闭包防过期）
   const setSuggestCursor = useCallback((c: number | null) => { suggestCursorRef.current = c; setSuggestCursorState(c) }, [])
   const [infoScroll, setInfoScroll] = useState(0) // info overlay 独立滚动（不与 chat scroll 共用）
+  const [statusBarData, setStatusBarData] = useState<{ provider?: string; model?: string; sessionId?: string; tokens?: number; windowTokens?: number }>({})
+  const [inputHistory] = useState<string[]>([])
+  const inputHistoryRef = useRef<string[]>([])
+  const historyCursorRef = useRef<number>(-1) // 输入历史游标（-1=未在浏览历史）
   // view/config 用 ref 镜像，避免 Ink useInput 回调闭包过期（useState 在回调里拿到的是旧值）。
   const viewRef = useRef<View>(view)
   const configRef = useRef<Config | null>(null)
@@ -96,6 +101,9 @@ export function App({ port }: { port: UiPort }) {
       }
       if (msg.type === 'permission_request') {
         setView({ kind: 'permission', id: msg.id, tool: msg.tool, input: msg.input, cursor: 0 })
+      } else if (msg.type === 'state' && msg.to !== 'waiting_permission' && viewRef.current.kind === 'permission') {
+        // 权限等待期间状态离开 waiting_permission（如 cancel）→ 关闭 permission overlay。
+        setView({ kind: 'none' })
       } else if (msg.type === 'session_list') {
         openMenu('选择会话（回车切换）', msg.sessions.map((s) => ({
           label: `${s.id}  ${s.preview}`,
@@ -110,6 +118,7 @@ export function App({ port }: { port: UiPort }) {
       } else if (msg.type === 'tools_list') {
         setInfoScroll(0); setView({ kind: 'info', title: '工具', lines: msg.tools.map((t) => `${t.name} — ${t.description}`) })
       } else if (msg.type === 'status_state') {
+        setStatusBarData({ provider: msg.provider, model: msg.model, sessionId: msg.sessionId, tokens: msg.estimatedTokens, windowTokens: msg.windowTokens })
         setInfoScroll(0); setView({ kind: 'info', title: '状态', lines: [
           `session   ${msg.sessionId}`,
           `provider  ${msg.provider}`,
@@ -119,6 +128,7 @@ export function App({ port }: { port: UiPort }) {
           `context   ${msg.estimatedTokens} / ${msg.windowTokens}`,
         ] })
       } else if (msg.type === 'context_state') {
+        setStatusBarData((d) => ({ ...d, tokens: msg.estimatedTokens, windowTokens: msg.windowTokens }))
         setInfoScroll(0); setView({ kind: 'info', title: '上下文', lines: [
           `${msg.estimatedTokens} / ${msg.windowTokens} tokens（${msg.percent}%）`,
           `压缩阈值：窗口 80% = ${Math.round(msg.windowTokens * 0.8)}`,
@@ -158,6 +168,8 @@ export function App({ port }: { port: UiPort }) {
     // 空闲 → 弹退出确认（和 /quit 一致）。
     // 兜底：如果 Ink 的 useInput 没收到（程序卡死），entry.tsx 的全局 SIGINT handler 走两次 Ctrl+C 强制退出。
     if (key.ctrl && inputChar === 'c') {
+      // Ctrl+C 被 useInput 处理——重置 SIGINT 兜底计时器，避免"cancel 后再 Ctrl+C 跳过退出确认"。
+      resetSigintTimer()
       const status = statusRef.current
       const running = status !== 'idle' && status !== 'finished' && status !== 'cancelled' && status !== 'error'
       if (running) {
@@ -204,7 +216,13 @@ export function App({ port }: { port: UiPort }) {
         else if (entry?.kind === 'scalar') setView({ kind: 'prompt', title: `输入 ${entry.label}`, value: entry.value, returnPath: v.path, returnCursor: v.cursor, onSubmit: (val) => { entry.save(val); setView({ kind: 'config', path: v.path, cursor: v.cursor, preview: null }) } })
         else if (entry?.kind === 'prompt') setView({ kind: 'prompt', title: entry.title, value: '', returnPath: v.path, returnCursor: v.cursor, onSubmit: (val) => { entry.save(val); setView({ kind: 'config', path: v.path, cursor: v.cursor, preview: null }) } })
         else if (entry?.kind === 'bool') { entry.save(v.preview ?? entry.value); setView({ kind: 'config', path: v.path, cursor: v.cursor, preview: null }) }
-        else if (entry?.kind === 'action') entry.run()
+        else if (entry?.kind === 'action') {
+          entry.run()
+          // selectProvider/selectModel 选中即设后自动回 root（不留在选择列表）。
+          if (v.path.kind === 'selectProvider' || v.path.kind === 'selectModel') {
+            setView({ kind: 'config', path: { kind: 'root' }, cursor: 0, preview: null })
+          }
+        }
       } else if (key.escape) {
         const parent = parentPath(v.path)
         if (parent) setView({ kind: 'config', path: parent, cursor: 0, preview: null })
@@ -245,17 +263,38 @@ export function App({ port }: { port: UiPort }) {
         return
       }
       if (key.escape && browseRef.current !== null) { setBrowseBoth(null); return }
-      // 消息滚动：↑/↓ 在无可折叠块时滚动历史（PageUp/PageDown 也支持）。
+      // 消息滚动用 PageUp/PageDown；无可折叠块时 ↑/↓ 召回输入历史。
       const page = Math.max(5, Math.floor((stdout.rows || 24) / 2))
       if (key.pageUp) setScroll((s) => s + page)
       else if (key.pageDown) setScroll((s) => Math.max(0, s - page))
-      else if (key.upArrow && expandable.length === 0) setScroll((s) => s + 1)
-      else if (key.downArrow && expandable.length === 0) setScroll((s) => Math.max(0, s - 1))
+      else if (key.upArrow && expandable.length === 0 && browseRef.current === null) {
+        // 输入历史召回：↑ 向上（更早的输入），↓ 向下（更新的输入），到底部清空。
+        const history = inputHistoryRef.current
+        if (history.length === 0) return
+        const next = historyCursorRef.current < 0 ? history.length - 1 : Math.max(0, historyCursorRef.current - 1)
+        historyCursorRef.current = next
+        setInput(history[next] ?? '')
+      } else if (key.downArrow && expandable.length === 0 && browseRef.current === null) {
+        const history = inputHistoryRef.current
+        if (history.length === 0 || historyCursorRef.current < 0) return
+        const next = historyCursorRef.current + 1
+        if (next >= history.length) {
+          // 到底部——清空输入框，退出历史浏览。
+          historyCursorRef.current = -1
+          setInput('')
+        } else {
+          historyCursorRef.current = next
+          setInput(history[next] ?? '')
+        }
+      }
     } else if (v.kind === 'info') {
       // 信息面板：esc 关闭，↑/↓ 翻页（用独立 infoScroll，不污染 chat scroll）。
       const page = Math.max(3, Math.floor((stdout.rows || 24) / 3))
       if (key.escape) { setView({ kind: 'none' }) }
-      else if (key.upArrow) setInfoScroll((s) => s + page)
+      else if (key.upArrow) setInfoScroll((s) => {
+        const maxScroll = Math.max(0, (v.lines.length ?? 0) - (viewportHeight - 4))
+        return Math.min(s + page, maxScroll)
+      })
       else if (key.downArrow) setInfoScroll((s) => Math.max(0, s - page))
     }
   })
@@ -274,11 +313,14 @@ export function App({ port }: { port: UiPort }) {
     setScroll(0)
     if (result.kind === 'user') {
       dispatch({ type: 'local_user', text: result.text })
+      inputHistoryRef.current.push(result.text)
+      historyCursorRef.current = -1
       port.post({ type: 'submit', text: result.text })
     } else if (result.kind === 'help') {
       // /help 改为 info overlay 呈现命令列表，不再塞消息块。
       suppressEnterRef.current = true
       queueMicrotask(() => { suppressEnterRef.current = false })
+      setInfoScroll(0)
       setView({ kind: 'info', title: '帮助', lines: [
         '/new 新建会话      /config 编辑配置',
         '/session 切换会话   /model 快速切模型',
@@ -336,11 +378,18 @@ export function App({ port }: { port: UiPort }) {
 
   // markdown 渲染（助手/思考块）+ 展开/折叠状态 + 行数估算 + 滚动窗口裁切。
   // 联想匹配提取一次（渲染里多处用，避免重复调用）。
+  // useMemo 缓存 renderedBlocks——chat.blocks 不变时不重复解析 markdown（流式时只 partial 变）。
   const suggestMatches = view.kind === 'none' ? matchCommands(input) : []
-  const renderedBlocks = chat.blocks.map((b) => ({
-    ...b,
-    text: b.icon === ICON.assistant || b.icon === ICON.thinking ? renderMarkdown(b.text) : b.text,
-  }))
+  const isMd = (icon: string) => icon === ICON.assistant || icon === ICON.thinking
+  const renderedBlocks = useMemo(() =>
+    chat.blocks.map((b) => ({
+      ...b,
+      text: isMd(b.icon) ? renderMarkdown(b.text) : b.text,
+      full: b.full !== undefined ? (isMd(b.icon) ? renderMarkdown(b.full) : b.full) : undefined,
+    })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [chat.blocks],
+  )
   const displayBlocks = buildDisplayBlocks(renderedBlocks, expanded, termWidth)
   // 滚动裁切：计算总行数与可见窗口，scrolled > 0 表示有内容被滚出顶部。
   const totalLines = displayBlocks.reduce((n, b) => n + b.lines, 0)
@@ -379,7 +428,7 @@ export function App({ port }: { port: UiPort }) {
             role={chat.partial.kind === 'thinking' ? '思考（流式）' : '助手（流式）'}
             color={chat.partial.kind === 'thinking' ? '#f9e2af' : '#cdd6f4'}
           >
-            <Text dimColor={chat.partial.kind === 'thinking'}>{chat.partial.text}</Text>
+            <Text dimColor={chat.partial.kind === 'thinking'}>{chat.partial.kind === 'thinking' ? chat.partial.text : renderMarkdown(chat.partial.text)}</Text>
           </MessageBlock>
         ) : null}
         {scrolled > 0 && (
@@ -431,7 +480,7 @@ export function App({ port }: { port: UiPort }) {
         </Box>
       )}
 
-      {view.kind === 'none' && <StatusBar state={chat.status} />}
+      {view.kind === 'none' && <StatusBar state={chat.status} provider={statusBarData.provider} model={statusBarData.model} sessionId={statusBarData.sessionId} tokens={statusBarData.tokens} windowTokens={statusBarData.windowTokens} />}
       {view.kind === 'none' && (
         <Box flexDirection="column">
           {browse !== null && <Text dimColor>↑↓ 切换块 · 回车展开/折叠 · esc 返回输入</Text>}

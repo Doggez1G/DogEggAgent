@@ -49,8 +49,23 @@ describe('architecture: 模块边界（index 只做 re-export）', () => {
       .filter((idx) => {
         const src = readFileSync(idx, 'utf8')
         const lines = src.split('\n').map((l) => l.trim()).filter((l) => l.length > 0 && !l.startsWith('//'))
-        // 允许 import / export / re-export；出现其它声明（const/function/class/interface 等）即视为塞了实现。
-        return lines.some((l) => !l.startsWith('import ') && !l.startsWith('export ') && !l.startsWith('import{') && !l.startsWith('export{'))
+        // 只允许 re-export 形式（export ... from / export { ... } / export * / export type），
+        // 拒绝 export const/function/class/let/var/interface/type X = 等实现声明。
+        return lines.some((l) => {
+          // import 行允许。
+          if (l.startsWith('import ') || l.startsWith('import{')) return false
+          // export 行：只允许 re-export（含 from），不允许 export const/function/class 等声明。
+          if (l.startsWith('export ') || l.startsWith('export{')) {
+            // re-export 形式：export ... from '...' / export * from / export { } from / export type { } from
+            if (l.includes(' from ') || l.startsWith('export *') || l.startsWith('export{') || l.startsWith('export {')) return false
+            // export type { ... }（纯类型 re-export，无 from 也允许）
+            if (l.startsWith('export type {')) return false
+            // 其他 export 形式（export const/function/class/let/var/interface/type X =）视为实现。
+            return true
+          }
+          // 非空非注释非 import/export 行 → 视为实现。
+          return true
+        })
       })
     expect(violators).toEqual([])
   })

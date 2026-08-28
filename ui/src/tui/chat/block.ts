@@ -8,6 +8,7 @@ export interface Block {
   color: BlockColor
   text: string
   full?: string
+  toolId?: string // tool_start/tool_end 的 id，用于精确匹配（不靠数组尾部）
 }
 
 // 「狗蛋」人格：🐶 狗 = 助手/本体，🥚 蛋 = 用户/主人，🐣 思考，🐾 工具。见设计 §14。

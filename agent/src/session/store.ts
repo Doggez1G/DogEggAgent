@@ -31,5 +31,5 @@ export function loadSession(id: string, baseDir = defaultSessionsDir()): { id: s
   const history: Message[] = raw.history ?? raw.messages ?? []
   const context: Message[] = raw.context ?? [...history]
   const allowedTools: string[] = raw.allowedTools ?? []
-  return { id: raw.id, history, context, allowedTools }
+  return { id: raw.id ?? id, history, context, allowedTools }
 }

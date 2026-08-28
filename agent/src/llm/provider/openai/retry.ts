@@ -16,9 +16,10 @@ export async function withRetry<T>(attempts: number, run: () => Promise<T>, sign
   throw lastError!
 }
 
-// 可被 abort 中断的 sleep：signal abort 时立即 reject AbortError，不等计时结束。
+// 可被 abort 中断的 sleep：signal 已 abort 时立即 reject，不等计时结束。
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (!signal) return new Promise((r) => setTimeout(r, ms))
+  if (signal.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'))
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve() }, ms)
     const onAbort = () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')) }

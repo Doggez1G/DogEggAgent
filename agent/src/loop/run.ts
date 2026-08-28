@@ -33,20 +33,33 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
     return next
   }
 
-  // 补全未配对的 tool_calls：如果 context 尾部有带 tool_calls 的 assistant 消息但缺少配对的 tool 结果，
-  // 补一条 tool: cancelled 消息——OpenAI API 要求 tool_calls 必须有配对的 tool 消息，否则模型报错或困惑。
+  // 补全未配对的 tool_calls：扫描 msgs 找最后一条带 tool_calls 的 assistant 消息（不要求在数组尾部），
+  // 检查其每个 tool_call_id 是否有配对的 tool 结果消息。缺的补一条 tool: cancelled 消息。
+  // OpenAI API 要求 assistant 的每个 tool_call 必须有配对的 tool 消息，否则报 400。
+  // 多工具批量调用时，tool 1 执行完、tool 2 被取消，尾部是 tool1_result（role:tool），
+  // 旧版只查尾部会漏掉——必须向后扫描找最后一条 assistant。
   const patchUnpairedToolCalls = (msgs: Message[]): void => {
-    const last = msgs[msgs.length - 1]
-    if (last?.role === 'assistant' && last.tool_calls && last.tool_calls.length > 0) {
-      // 找出已有 tool 结果的 tool_call_id。
-      const paired = new Set(msgs.filter((m) => m.role === 'tool').map((m) => m.tool_call_id))
-      // 为每个未配对的 tool_call 补一条 cancelled 消息。
-      for (const tc of last.tool_calls) {
-        if (!paired.has(tc.id)) {
-          const cancelledMsg: Message = { role: 'tool', tool_call_id: tc.id, content: 'cancelled（用户打断了操作）' }
-          msgs.push(cancelledMsg)
-          newMessages.push(cancelledMsg)
-        }
+    // 向后扫描找最后一条带 tool_calls 的 assistant 消息。
+    let lastAssistantIdx = -1
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i]!
+      if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) { lastAssistantIdx = i; break }
+    }
+    if (lastAssistantIdx < 0) return
+    const assistant = msgs[lastAssistantIdx]!
+    // 收集此 assistant 之后所有已配对的 tool_call_id。
+    const paired = new Set<string>()
+    for (let i = lastAssistantIdx + 1; i < msgs.length; i++) {
+      const m = msgs[i]!
+      if (m.role === 'tool') paired.add(m.tool_call_id)
+    }
+    // 为每个未配对的 tool_call 补 cancelled 消息。
+    const toolCalls = assistant.role === 'assistant' ? (assistant.tool_calls ?? []) : []
+    for (const tc of toolCalls) {
+      if (!paired.has(tc.id)) {
+        const cancelledMsg: Message = { role: 'tool', tool_call_id: tc.id, content: 'cancelled（用户打断了操作）' }
+        msgs.push(cancelledMsg)
+        newMessages.push(cancelledMsg)
       }
     }
   }
@@ -159,12 +172,12 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
       }
     }
   } catch (e) {
+    // 打断或错误：补全未配对的 tool_calls，返回部分结果（含已完成的 assistant/tool 消息）。
+    // 之前错误路径直接 throw 导致 newMessages 丢失——现在统一返回部分结果，agent 保存已完成的工具执行。
+    patchUnpairedToolCalls(context)
     if (e instanceof CancelledError) {
-      // 打断：补全未配对的 tool_calls，返回部分结果（含已完成的 assistant/tool 消息）。
-      patchUnpairedToolCalls(context)
-      patchUnpairedToolCalls(newMessages)
       return { context, newMessages, cancelled: true }
     }
-    throw e // 非 cancel 错误继续抛出
+    return { context, newMessages, error: (e as Error).message }
   }
 }

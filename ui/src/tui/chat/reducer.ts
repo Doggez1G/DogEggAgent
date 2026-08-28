@@ -1,10 +1,11 @@
-import type { AgentToUiMessage, Message, ToolCall } from '@dogegg/bridge'
+import type { AgentToUiMessage, Message, ToolCall, State } from '@dogegg/bridge'
 import { ICON, COLOR, type Block } from './block'
+import { palette } from '../theme'
 
 // UI 的聊天状态：已落盘的块 + 当前状态 + 进行中的流式块（未落盘的 partial）。
 export interface ChatState {
   blocks: Block[]
-  status: string
+  status: State
   partial: { kind: 'assistant' | 'thinking'; text: string } | null
 }
 
@@ -92,16 +93,18 @@ export function reducer(state: ChatState, msg: Action): ChatState {
       return msg.role === 'assistant' ? flush(state) : state
     case 'tool_start': {
       const flushed = flush(state)
-      return { ...flushed, status: 'executing', blocks: [...flushed.blocks, { icon: ICON.tool, role: '工具', color: COLOR.tool, text: `${msg.name} ${JSON.stringify(msg.input)}` }] }
+      return { ...flushed, status: 'executing', blocks: [...flushed.blocks, { icon: ICON.tool, role: '工具', color: COLOR.tool, text: `${msg.name} ${JSON.stringify(msg.input)}`, toolId: msg.id }] }
     }
     case 'tool_end': {
       // R3：拒绝/失败工具也有 tool_end（error 标记），此处统一渲染为 ✕ 或 ✓。
+      // 用 toolId 精确匹配 tool_start 的块——不靠数组尾部（notice/compaction 块可能插在中间）。
       const blocks = [...state.blocks]
-      const last = blocks[blocks.length - 1]
-      if (last && last.icon === ICON.tool) {
+      const idx = blocks.findIndex((b) => b.toolId === msg.id)
+      if (idx >= 0) {
+        const target = blocks[idx]!
         const summary = msg.error ? `✕ ${msg.error}` : `✓ 完成（${msg.output.slice(0, 120)}${msg.output.length > 120 ? '…' : ''}）`
         const fullText = msg.error ? `✕ ${msg.error}` : `✓ 完成\n${msg.output}`
-        blocks[blocks.length - 1] = { ...last, text: `${last.text}\n${summary}`, full: `${last.text}\n${fullText}` }
+        blocks[idx] = { ...target, text: `${target.text}\n${summary}`, full: `${target.text}\n${fullText}` }
       }
       return { ...state, blocks }
     }
@@ -109,10 +112,13 @@ export function reducer(state: ChatState, msg: Action): ChatState {
       return { ...state, status: msg.to }
     case 'finished':
       return { ...flush(state), status: 'finished' }
-    case 'error':
-      return { ...state, status: 'error', blocks: [...state.blocks, { icon: '🐶', role: '错误', color: 'red', text: msg.error.message }] }
+    case 'error': {
+      // flush partial——错误时把流式中的 partial 落盘，避免永久显示"流式"幽灵块 + 丢失部分文本。
+      const f = flush(state)
+      return { ...f, status: 'error', blocks: [...f.blocks, { icon: ICON.assistant, role: '错误', color: palette.red, text: msg.error.message }] }
+    }
     case 'notice':
-      return { ...state, blocks: [...state.blocks, { icon: '🥚', role: '提示', color: 'yellow', text: msg.text }] }
+      return { ...state, blocks: [...state.blocks, { icon: ICON.user, role: '提示', color: palette.yellow, text: msg.text }] }
     case 'session_ready':
       // R1：session_ready 带的是 history（完整原文），UI 据此渲染完整历史消息。
       // resume 重建块时，从 assistant.tool_calls 提取工具名+参数，与后续 tool 消息配对，
@@ -129,7 +135,7 @@ export function reducer(state: ChatState, msg: Action): ChatState {
       // 手动压缩弹 overlay（App 处理），reducer 不产生块。
       // 自动压缩插一条 dim 提示块（不打断对话流），让用户知道发生了压缩。
       if (msg.source === 'auto') {
-        return { ...state, blocks: [...state.blocks, { icon: '🐾', role: '自动压缩', color: 'gray', text: `${msg.before_tokens} → ${msg.after_tokens} tokens` }] }
+        return { ...state, blocks: [...state.blocks, { icon: ICON.tool, role: '自动压缩', color: palette.subtext, text: `${msg.before_tokens} → ${msg.after_tokens} tokens` }] }
       }
       return state
     case 'tools_list':

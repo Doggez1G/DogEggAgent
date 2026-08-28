@@ -43,4 +43,6 @@ export interface LoopResult {
   newMessages: Message[]
   /** 是否被用户取消（Ctrl+C / cancel）。true 时 context 可能含未完成的 tool_calls。 */
   cancelled?: boolean
+  /** 错误信息（maxIterations / API 失败等）。非空时 context 含已完成的 assistant/tool 消息。 */
+  error?: string
 }

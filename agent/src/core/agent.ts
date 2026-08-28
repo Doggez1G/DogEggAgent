@@ -104,9 +104,10 @@ export class Agent {
   // 压缩回调：供 loop 的 summarize 注入用。从当前 config 解析 provider/model，调 LLM 做摘要。
   // signal 接收外部 signal 让取消能中断摘要调用（非无人持有的 new AbortController）。
   private summarize = (old: Message[], signal?: AbortSignal): Promise<string> => {
+    const { provider } = resolveCurrent(this.config)
     const cur = this.current()
     return summarizeHistory(
-      { adapter: adapterFor('openai'), providerBaseURL: cur.baseURL, apiKey: cur.apiKey, model: cur.model },
+      { adapter: adapterFor(provider.protocol), providerBaseURL: cur.baseURL, apiKey: cur.apiKey, model: cur.model },
       old,
       signal,
     )
@@ -259,9 +260,10 @@ export class Agent {
     this.context.push(userMsg)
     this.emit({ type: 'message', role: 'user', id: newId() })
     const cur = this.current()
+    const { provider } = resolveCurrent(this.config)
     try {
       const result = await runLoop({
-        adapter: adapterFor('openai'),
+        adapter: adapterFor(provider.protocol),
         providerBaseURL: cur.baseURL,
         apiKey: cur.apiKey,
         model: cur.model,
@@ -283,22 +285,26 @@ export class Agent {
         trans: (input) => this.emitState(input),
         summarize: this.summarize,
       })
-      // R1：loop 返回更新后的 context + 本轮新增消息。context 已被 loop 修改（含压缩）；
-      // newMessages 是本轮产生的 assistant/tool，同步 append 到 history（history 不受压缩影响）。
-      // 打断时 loop 也返回部分结果（cancelled=true，含已完成的 assistant/tool 消息 + 补全的 tool: cancelled）。
+      // R1：loop 返回更新后的 context + 本轮新增消息（成功/取消/错误都返回部分结果）。
+      // context 已被 loop 修改（含压缩）；newMessages 同步 append 到 history。
       this.context = result.context
       this.history.push(...result.newMessages)
       if (result.cancelled) {
         this.emit({ type: 'notice', text: '已打断当前操作' })
+      } else if (result.error) {
+        this.emitState({ kind: 'error' })
+        this.emit({ type: 'error', error: { message: result.error } })
       }
     } catch (e) {
-      // 非 cancel 的错误（如 API 失败、maxIterations）——发 error 消息。
-      if (!(e instanceof CancelledError)) this.emit({ type: 'error', error: { message: (e as Error).message, name: (e as Error).name } })
+      // 兜底：loop 内部未 catch 的意外错误（理论上不应到达，loop 已 catch 全部）。
+      this.emitState({ kind: 'error' })
+      this.emit({ type: 'error', error: { message: (e as Error).message, name: (e as Error).name } })
     } finally {
       // 无论成功/失败/取消，turn 结束后状态回到 idle（成功路径 loop 停在 finished，需复位）。
       this.running = false
       this.emitState({ kind: 'reset' })
-      saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed())
+      try { saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed()) }
+      catch { this.emit({ type: 'notice', text: '会话保存失败（磁盘空间不足或权限问题）' }) }
     }
   }
 
@@ -334,13 +340,16 @@ export class Agent {
       // AbortError 是用户取消——走 cancelled 态而非 error（与 runTurn catch 一致）。
       if ((e as Error).name === 'AbortError') {
         this.emitState({ kind: 'cancel' })
+        this.emit({ type: 'notice', text: '已打断压缩' })
       } else {
+        this.emitState({ kind: 'error' })
         this.emit({ type: 'error', error: { message: '压缩失败：' + (e as Error).message, name: (e as Error).name } })
       }
     } finally {
       this.running = false
-      // cancelled/error → idle 由 reset 完成；成功时也复位（compact_done 回 idle）。
-      this.emitState({ kind: 'compact_done', next: 'idle' })
+      // 如果还在 compacting（成功路径），用 compact_done 回 idle；
+      // 如果已 cancelled/error，用 reset 回 idle（compact_done 的 VALID_FROM 不含 cancelled/error）。
+      this.emitState(this.state === 'compacting' ? { kind: 'compact_done', next: 'idle' } : { kind: 'reset' })
     }
   }
 

@@ -11,7 +11,9 @@ import { App } from './app'
 // 由 App 的键盘路由决定发 cancel（运行中）还是弹退出确认（空闲）。
 // 兜底：如果 Ctrl+C 没被 Ink 捕获到（程序卡在 Ink 之外，如网络请求卡死），
 // 全局 SIGINT handler 走"两次 Ctrl+C 退出"——第一次记时间戳，第二次在 1.5 秒内直接退出。
+// 全局 SIGINT 状态——useInput 处理了 Ctrl+C 后调 resetSigintTimer 清除兜底窗口。
 let lastSigint = 0
+export function resetSigintTimer(): void { lastSigint = 0 }
 export function renderTui(port: UiPort): void {
   process.stdout.write('\x1b[?1049h')
   const leave = () => {
