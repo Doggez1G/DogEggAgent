@@ -88,9 +88,11 @@ export function reducer(state: ChatState, msg: Action): ChatState {
       // R1：session_ready 带的是 history（完整原文），UI 据此渲染完整历史消息。
       // resume 重建块时，工具块设 full（完整结果）+ text（摘要），与实时 tool_end 逻辑一致，保证可折叠展开。
       // 注意：思考块是流式 thought_delta 产生的，不持久化进 history，resume 后无法恢复（固有限制）。
+      // 清空 partial——否则切换会话时旧会话的流式文本残留显示。
       return {
         ...state,
         status: 'idle',
+        partial: null,
         blocks: msg.messages.flatMap((m): Block[] => {
           if (m.role === 'assistant') {
             const content = (m as { content: string | null }).content
@@ -120,7 +122,7 @@ export function reducer(state: ChatState, msg: Action): ChatState {
       // 这些命令响应改为 info overlay 呈现（App 的 onMessage 拦截切换），reducer 不再产生消息块。
       return state
     case 'history_cleared':
-      return { ...state, blocks: [] }
+      return { ...state, blocks: [], partial: null }
     default:
       return state
   }

@@ -30,8 +30,9 @@ export async function compactContext(input: {
   systemPrompt: string
   tools: object[]
   windowTokens: number
-  summarize: (old: Message[]) => Promise<string>
+  summarize: (old: Message[], signal?: AbortSignal) => Promise<string>
   force?: boolean
+  signal?: AbortSignal // 传给 summarize 的取消信号（压缩期间 cancel 可中断 LLM 调用）
 }): Promise<CompactResult> {
   const before = estimateContextTokens(input.systemPrompt, input.context, input.tools)
   // context 为空直接跳过——没东西可压。
@@ -51,7 +52,7 @@ export async function compactContext(input: {
   if (toSummarize.length === 0) {
     return { compacted: false, context: input.context, before, after: before }
   }
-  const summary = await input.summarize(toSummarize)
+  const summary = await input.summarize(toSummarize, input.signal)
   const context = [{ role: 'user' as const, content: `[前文摘要]\n${summary}` }, ...toKeep]
   return { compacted: true, context, before, after: estimateContextTokens(input.systemPrompt, context, input.tools) }
 }

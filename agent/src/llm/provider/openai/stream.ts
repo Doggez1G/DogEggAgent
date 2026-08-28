@@ -30,6 +30,13 @@ export async function streamOnce(req: ChatRequest, signal: AbortSignal, emit: (e
       }
     }
   }
+  // 处理残余行：连接关闭时最后一批字节可能没有尾随换行。
+  if (buf.trim()) {
+    for (const e of parser.feed(buf.trim())) {
+      if (e.type === 'done') finalMessage = e.message
+      else emit(e)
+    }
+  }
   if (!finalMessage) throw new Error('流未产生最终消息')
   return finalMessage
 }

@@ -27,6 +27,7 @@ export function App({ port }: { port: UiPort }) {
   const [suggestCursor, setSuggestCursorState] = useState<number | null>(null) // 联想提示选中索引（null=未选中）
   const suggestCursorRef = useRef<number | null>(null) // 镜像供 handleSubmit 读取（闭包防过期）
   const setSuggestCursor = useCallback((c: number | null) => { suggestCursorRef.current = c; setSuggestCursorState(c) }, [])
+  const [infoScroll, setInfoScroll] = useState(0) // info overlay 独立滚动（不与 chat scroll 共用）
   // view/config 用 ref 镜像，避免 Ink useInput 回调闭包过期（useState 在回调里拿到的是旧值）。
   const viewRef = useRef<View>(view)
   const configRef = useRef<Config | null>(null)
@@ -83,6 +84,14 @@ export function App({ port }: { port: UiPort }) {
   useEffect(() => {
     const off = port.onMessage((msg: AgentToUiMessage) => {
       dispatch(msg)
+      // 会话切换/清空时重置 browse/expanded/scroll，避免旧会话的 index 泄漏到新会话。
+      if (msg.type === 'session_ready' || msg.type === 'history_cleared') {
+        setBrowseBoth(null)
+        expandedRef.current = new Set()
+        setExpanded(new Set())
+        setScroll(0)
+        setSuggestCursor(null)
+      }
       if (msg.type === 'permission_request') {
         setView({ kind: 'permission', id: msg.id, tool: msg.tool, input: msg.input, cursor: 0 })
       } else if (msg.type === 'session_list') {
@@ -92,14 +101,14 @@ export function App({ port }: { port: UiPort }) {
         })))
       } else if (msg.type === 'config_state') {
         updateConfig(msg.config)
-        if (configIntent.current === 'model') openModelPicker(msg.config)
-        else if (configIntent.current === 'config') openConfigTree(msg.config)
+        if (configIntent.current === 'model') { openModelPicker(msg.config); configIntent.current = null }
+        else if (configIntent.current === 'config') { openConfigTree(msg.config); configIntent.current = null }
       } else if (msg.type === 'config_updated') {
         updateConfig(msg.config)
       } else if (msg.type === 'tools_list') {
-        setView({ kind: 'info', title: '工具', lines: msg.tools.map((t) => `${t.name} — ${t.description}`) })
+        setInfoScroll(0); setView({ kind: 'info', title: '工具', lines: msg.tools.map((t) => `${t.name} — ${t.description}`) })
       } else if (msg.type === 'status_state') {
-        setView({ kind: 'info', title: '状态', lines: [
+        setInfoScroll(0); setView({ kind: 'info', title: '状态', lines: [
           `session   ${msg.sessionId}`,
           `provider  ${msg.provider}`,
           `model     ${msg.model}`,
@@ -108,20 +117,19 @@ export function App({ port }: { port: UiPort }) {
           `context   ${msg.estimatedTokens} / ${msg.windowTokens}`,
         ] })
       } else if (msg.type === 'context_state') {
-        setView({ kind: 'info', title: '上下文', lines: [
+        setInfoScroll(0); setView({ kind: 'info', title: '上下文', lines: [
           `${msg.estimatedTokens} / ${msg.windowTokens} tokens（${msg.percent}%）`,
           `压缩阈值：窗口 80% = ${Math.round(msg.windowTokens * 0.8)}`,
         ] })
       } else if (msg.type === 'system_state') {
-        setView({ kind: 'info', title: 'system prompt', lines: [`路径：${msg.path}`, '─'.repeat(40), msg.content] })
+        setInfoScroll(0); setView({ kind: 'info', title: 'system prompt', lines: [`路径：${msg.path}`, '─'.repeat(40), msg.content] })
       } else if (msg.type === 'compaction') {
         if (msg.source === 'manual') {
-          // 手动 /compact：弹 info overlay 显示压缩结果
+          setInfoScroll(0)
           setView({ kind: 'info', title: '压缩上下文', lines: [`压缩前：${msg.before_tokens} tokens`, `压缩后：${msg.after_tokens} tokens`] })
         }
-        // 自动压缩：不弹 overlay，reducer 插一条 dim 提示消息块（不打断对话流）
       } else if (msg.type === 'log_state') {
-        setView({ kind: 'info', title: '调试日志', lines: [`路径：${msg.path}`, '─'.repeat(40), msg.tail] })
+        setInfoScroll(0); setView({ kind: 'info', title: '调试日志', lines: [`路径：${msg.path}`, '─'.repeat(40), msg.tail] })
       }
     })
     // 订阅后主动取一次配置，用于顶部品牌头展示当前 provider/model。
@@ -145,6 +153,9 @@ export function App({ port }: { port: UiPort }) {
       else if (key.downArrow) setView({ ...v, cursor: (v.cursor + 1) % Math.max(1, v.items.length) })
       else if (key.return) { v.items[v.cursor]?.onSelect() }
       else if (key.escape) setView({ kind: 'none' })
+    } else if (v.kind === 'prompt') {
+      // prompt（标量输入）的 Esc：返回 config 编辑器原位（而非无法退出）。
+      if (key.escape) setView({ kind: 'config', path: v.returnPath ?? { kind: 'root' }, cursor: v.returnCursor ?? 0, preview: null })
     } else if (v.kind === 'config') {
       const cfg = configRef.current
       const entries = cfg ? buildEntries(cfg, v.path, treeCtx) : []
@@ -156,8 +167,8 @@ export function App({ port }: { port: UiPort }) {
         else setView({ kind: 'config', path: parentPath(v.path) ?? { kind: 'root' }, cursor: 0, preview: null })
       } else if (key.return) {
         if (entry?.kind === 'goto') setView({ kind: 'config', path: entry.subPath, cursor: 0, preview: null })
-        else if (entry?.kind === 'scalar') setView({ kind: 'prompt', title: `输入 ${entry.label}`, value: entry.value, onSubmit: (val) => { entry.save(val); setView({ kind: 'config', path: v.path, cursor: v.cursor, preview: null }) } })
-        else if (entry?.kind === 'prompt') setView({ kind: 'prompt', title: entry.title, value: '', onSubmit: (val) => { entry.save(val); setView({ kind: 'config', path: v.path, cursor: v.cursor, preview: null }) } })
+        else if (entry?.kind === 'scalar') setView({ kind: 'prompt', title: `输入 ${entry.label}`, value: entry.value, returnPath: v.path, returnCursor: v.cursor, onSubmit: (val) => { entry.save(val); setView({ kind: 'config', path: v.path, cursor: v.cursor, preview: null }) } })
+        else if (entry?.kind === 'prompt') setView({ kind: 'prompt', title: entry.title, value: '', returnPath: v.path, returnCursor: v.cursor, onSubmit: (val) => { entry.save(val); setView({ kind: 'config', path: v.path, cursor: v.cursor, preview: null }) } })
         else if (entry?.kind === 'bool') { entry.save(v.preview ?? entry.value); setView({ kind: 'config', path: v.path, cursor: v.cursor, preview: null }) }
         else if (entry?.kind === 'action') entry.run()
       } else if (key.escape) {
@@ -165,8 +176,8 @@ export function App({ port }: { port: UiPort }) {
         if (parent) setView({ kind: 'config', path: parent, cursor: 0, preview: null })
         else setView({ kind: 'none' })
       } else if (inputChar === 'd' && entry) {
-        if (entry.kind === 'goto' && entry.del) entry.del()
-        else if (entry.kind === 'action' && entry.del) entry.del()
+        if (entry.kind === 'goto' && entry.del) { entry.del(); setView({ kind: 'config', path: parentPath(v.path) ?? { kind: 'root' }, cursor: 0, preview: null }) }
+        else if (entry.kind === 'action' && entry.del) { entry.del(); setView({ kind: 'config', path: parentPath(v.path) ?? { kind: 'root' }, cursor: 0, preview: null }) }
       }
     } else if (v.kind === 'none') {
       // 斜杠命令联想提示：输入以 / 开头且有匹配时，↑↓ 选择、回车/Tab 补全。
@@ -207,10 +218,11 @@ export function App({ port }: { port: UiPort }) {
       else if (key.upArrow && expandable.length === 0) setScroll((s) => s + 1)
       else if (key.downArrow && expandable.length === 0) setScroll((s) => Math.max(0, s - 1))
     } else if (v.kind === 'info') {
-      // 信息面板：esc 关闭，↑/↓ 翻页（面板内容可能超屏）。
-      if (key.escape) setView({ kind: 'none' })
-      else if (key.upArrow) setScroll((s) => s + Math.max(3, Math.floor((stdout.rows || 24) / 3)))
-      else if (key.downArrow) setScroll((s) => Math.max(0, s - Math.max(3, Math.floor((stdout.rows || 24) / 3))))
+      // 信息面板：esc 关闭，↑/↓ 翻页（用独立 infoScroll，不污染 chat scroll）。
+      const page = Math.max(3, Math.floor((stdout.rows || 24) / 3))
+      if (key.escape) { setView({ kind: 'none' }) }
+      else if (key.upArrow) setInfoScroll((s) => s + page)
+      else if (key.downArrow) setInfoScroll((s) => Math.max(0, s - page))
     }
   })
 
@@ -242,6 +254,27 @@ export function App({ port }: { port: UiPort }) {
         '/log 调试日志       /quit 退出       /help 本帮助',
       ] })
     } else {
+      // /clear 和 /quit 需确认弹层（不可逆操作）。
+      if (result.msg.type === 'clear_history') {
+        suppressEnterRef.current = true
+        queueMicrotask(() => { suppressEnterRef.current = false })
+        openMenu('清空当前会话历史？此操作不可撤销。', [
+          { label: '确认清空', onSelect: () => { port.post({ type: 'clear_history' }); setView({ kind: 'none' }) } },
+          { label: '取消', onSelect: () => setView({ kind: 'none' }) },
+        ])
+        setInput('')
+        return
+      }
+      if (result.msg.type === 'quit') {
+        suppressEnterRef.current = true
+        queueMicrotask(() => { suppressEnterRef.current = false })
+        openMenu('退出 DogEggAgent？', [
+          { label: '确认退出', onSelect: () => { port.post({ type: 'quit' }); setView({ kind: 'none' }) } },
+          { label: '取消', onSelect: () => setView({ kind: 'none' }) },
+        ])
+        setInput('')
+        return
+      }
       // 命令消息：/model /config 需要 intent 标记（后端回 config_state 时据此打开对应 overlay）。
       if (result.msg.type === 'config_request') {
         suppressEnterRef.current = true
@@ -347,9 +380,12 @@ export function App({ port }: { port: UiPort }) {
         <Box flexDirection="column" borderStyle="round" borderColor="#6c7086" paddingX={1} marginY={1}>
           <Text bold color="#89b4fa">{view.title}</Text>
           <Box flexDirection="column" marginTop={0}>
-            {view.lines.map((line, i) => (
-              <Text key={i} dimColor={line.startsWith('─') || line.startsWith('路径')}>{line}</Text>
-            ))}
+            {/* 裁切可见窗口：infoScroll 为顶部隐藏行数，viewportHeight 控制可见行数 */}
+            {view.lines
+              .slice(Math.max(0, view.lines.length - infoScroll - (viewportHeight - 4)), Math.max(0, view.lines.length - infoScroll))
+              .map((line, i) => (
+                <Text key={i} dimColor={line.startsWith('─') || line.startsWith('路径')}>{line}</Text>
+              ))}
           </Box>
           <Text dimColor>↑↓ 翻页 · esc 关闭</Text>
         </Box>

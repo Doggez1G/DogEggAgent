@@ -35,6 +35,7 @@ function baseDeps(overrides: Partial<LoopDeps>): LoopDeps {
     permission: new PermissionManager({ allow: [], reject: [], ask: [] }),
     cwd: dir, shellProgram: undefined, signal: new AbortController().signal,
     emit: () => {}, requestPermission: async () => 'allow_once', checkCancelled: () => false,
+    trans: () => {},
     summarize: async () => '',
     ...overrides,
   }

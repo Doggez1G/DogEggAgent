@@ -30,8 +30,10 @@ export interface LoopDeps {
   emit: (e: AgentToUiMessage) => void
   requestPermission: (tool: string, input: unknown) => Promise<PermissionDecision>
   checkCancelled: () => boolean
+  /** 状态迁移回调（让 executeOneTool 能发 waiting_permission/executing 迁移）。 */
+  trans: (input: import('../core/state').TransitionInput) => void
   /** 压缩时调 LLM 做摘要（core 注入，避免 loop 直接依赖 llm）。 */
-  summarize: (old: Message[]) => Promise<string>
+  summarize: (old: Message[], signal?: AbortSignal) => Promise<string>
 }
 
 // loop 返回值：压缩后的 context + 本轮新增的 assistant/tool 消息。

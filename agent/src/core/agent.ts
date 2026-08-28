@@ -102,11 +102,13 @@ export class Agent {
   }
 
   // 压缩回调：供 loop 的 summarize 注入用。从当前 config 解析 provider/model，调 LLM 做摘要。
-  private summarize = (old: Message[]): Promise<string> => {
+  // signal 接收外部 signal 让取消能中断摘要调用（非无人持有的 new AbortController）。
+  private summarize = (old: Message[], signal?: AbortSignal): Promise<string> => {
     const cur = this.current()
     return summarizeHistory(
       { adapter: adapterFor('openai'), providerBaseURL: cur.baseURL, apiKey: cur.apiKey, model: cur.model },
       old,
+      signal,
     )
   }
 
@@ -133,11 +135,15 @@ export class Agent {
       }
       case 'resume_session': {
         if (this.running) { this.emit({ type: 'notice', text: '运行中，请稍候' }); return }
-        const s = loadSession(cmd.id)
-        this.history = s.history // 完整原文（压缩前）
-        this.context = s.context // 发给模型的（可能压缩过）
-        this.sessionId = s.id
-        this.emit({ type: 'session_ready', id: s.id, messages: this.history })
+        try {
+          const s = loadSession(cmd.id)
+          this.history = s.history
+          this.context = s.context
+          this.sessionId = s.id
+          this.emit({ type: 'session_ready', id: s.id, messages: this.history })
+        } catch {
+          this.emit({ type: 'notice', text: `会话 ${cmd.id} 加载失败（文件不存在或已损坏）` })
+        }
         break
       }
       case 'clear_history': {
@@ -184,7 +190,8 @@ export class Agent {
 
       // ── 纯查询（任意时刻放行）──
       case 'list_sessions':
-        this.emit({ type: 'session_list', sessions: listSessions() })
+        try { this.emit({ type: 'session_list', sessions: listSessions() }) }
+        catch { this.emit({ type: 'notice', text: '会话列表读取失败' }) }
         break
       case 'config_request':
         this.emit({ type: 'config_state', config: this.editor.getConfig() })
@@ -201,12 +208,14 @@ export class Agent {
       }
       case 'status_request': {
         if (!isConfigured(this.config)) { this.emit({ type: 'notice', text: '尚未配置 provider，请先 /config' }); break }
+        const { provider, model } = resolveCurrent(this.config)
         const cur = this.current()
-        this.emit({ type: 'status_state', sessionId: this.sessionId, provider: this.config.defaultProvider!, model: this.config.defaultModel!, cwd: this.cwd, state: this.state, estimatedTokens: this.estimateCurrentTokens(), windowTokens: cur.contextWindow })
+        this.emit({ type: 'status_state', sessionId: this.sessionId, provider: provider.name, model: model.name, cwd: this.cwd, state: this.state, estimatedTokens: this.estimateCurrentTokens(), windowTokens: cur.contextWindow })
         break
       }
       case 'system_request':
-        this.emit({ type: 'system_state', path: this.config.systemPrompt ?? '内置', content: loadSystemPrompt(this.config.systemPrompt) })
+        try { this.emit({ type: 'system_state', path: this.config.systemPrompt ?? '内置', content: loadSystemPrompt(this.config.systemPrompt) }) }
+        catch { this.emit({ type: 'notice', text: 'system prompt 加载失败（路径不存在或无法读取）' }) }
         break
       case 'log_request':
         this.emit({ type: 'log_state', path: sessionLogPath(this.sessionId) ?? '~/.dogegg/logs/<session>.log', tail: readLogTail(this.sessionId) })
@@ -248,6 +257,7 @@ export class Agent {
         emit: (e) => this.emit(e),
         requestPermission: (tool, input) => this.requestPermission(tool, input),
         checkCancelled: () => this.cancelled,
+        trans: (input) => this.emitState(input),
         summarize: this.summarize,
       })
       // R1：loop 返回更新后的 context + 本轮新增消息。context 已被 loop 修改（含压缩）；
@@ -256,17 +266,22 @@ export class Agent {
       this.history.push(...result.newMessages)
     } catch (e) {
       if (!(e instanceof CancelledError)) this.emit({ type: 'error', error: { message: (e as Error).message, name: (e as Error).name } })
-      this.emit({ type: 'state', from: this.state, to: transition(this.state, { kind: 'reset' }) })
     } finally {
+      // 无论成功/失败/取消，turn 结束后状态回到 idle（成功路径 loop 停在 finished，需复位）。
       this.running = false
+      this.emitState({ kind: 'reset' })
       saveSession(this.sessionId, this.history, this.context)
     }
   }
 
   // 手动压缩（/compact）：复用 compactContext，只改 context、不动 history，落盘。
   // 压缩期间 emit state → compacting 让 UI 可感知，完成后回 idle。
+  // 设 running=true 防止压缩期间 submit 并发写入 context（R2 阻塞）。
   // 失败时 emit error 而非让外层 .catch(() => {}) 静默吞掉。
   private async compactNow(): Promise<void> {
+    this.running = true
+    this.cancelled = false
+    this.controller = new AbortController()
     const cur = this.current()
     this.emitState({ kind: 'compact_start' })
     try {
@@ -276,7 +291,8 @@ export class Agent {
         tools: toolSchemas(),
         windowTokens: cur.contextWindow,
         summarize: this.summarize,
-        force: true, // 手动 /compact 无条件压缩（跳过 80% 阈值）；阈值仅 loop 自动触发用。
+        force: true,
+        signal: this.controller.signal,
       })
       if (result.compacted) {
         this.context = result.context
@@ -289,6 +305,7 @@ export class Agent {
     } catch (e) {
       this.emit({ type: 'error', error: { message: '压缩失败：' + (e as Error).message, name: (e as Error).name } })
     } finally {
+      this.running = false
       this.emitState({ kind: 'compact_done', next: 'idle' })
     }
   }
@@ -301,7 +318,10 @@ export class Agent {
       return
     }
     this.config = this.editor.getConfig()
+    // 重建 PermissionManager 时保留运行时 allow_always 授权（配置编辑不该丢失会话授权）。
+    const savedAllowed = this.permission['sessionAllowed'] as ReadonlySet<string> | undefined
     this.permission = new PermissionManager(this.config.permission)
+    if (savedAllowed) for (const t of savedAllowed) this.permission.apply(t, 'allow_always')
     saveConfig(this.config)
     this.emit({ type: 'config_updated', config: this.config })
   }

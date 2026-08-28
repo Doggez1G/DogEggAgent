@@ -4,9 +4,11 @@ import type { ProviderAdapter } from '../../llm/types'
 // 用同一 adapter 做一次「离线」总结，把最旧的 Context 消息压成一段中文摘要。
 // 「离线」指不进 agent loop、不发 stream 事件——只是单次 chat 调用拿一个文本结果。
 // 摘要是压缩后的替代，不含 tool_calls，故 tools 传空、maxOutput 控制长度。
+// signal 接收外部 signal 让取消能中断摘要调用（非 new AbortController 无人持有）。
 export async function summarizeHistory(
   deps: { adapter: ProviderAdapter; providerBaseURL: string; apiKey: string; model: string },
   old: Message[],
+  signal?: AbortSignal,
 ): Promise<string> {
   const assistant = await deps.adapter.chat(
     {
@@ -19,7 +21,7 @@ export async function summarizeHistory(
       maxOutput: 1000,
       maxRetries: 1,
     },
-    new AbortController().signal,
+    signal ?? new AbortController().signal,
     () => {},
   )
   return typeof assistant.content === 'string' ? assistant.content : ''

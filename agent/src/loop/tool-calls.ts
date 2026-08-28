@@ -14,6 +14,7 @@ interface ToolStep {
 
 // 实际执行工具并产出 tool 消息（ask 放行后与 auto 分支共用此逻辑——消除旧代码两分支的逐行重复）。
 // emit tool_start → execute → truncate → emit tool_end（带 error 标记）→ 返回 tool 消息。
+// 工具 execute 可能抛异常（非返回 {error}），用 try/catch 兜底——保证 tool_start 总有配对的 tool_end。
 async function runAndEmit(
   call: { id: string; function: { name: string } },
   tool: Tool,
@@ -22,7 +23,14 @@ async function runAndEmit(
   emit: (e: AgentToUiMessage) => void,
 ): Promise<Message> {
   emit({ type: 'tool_start', id: call.id, name: tool.name, input: args })
-  const result = await tool.execute(args, ctx)
+  let result
+  try {
+    result = await tool.execute(args, ctx)
+  } catch (e) {
+    const errMsg = String(e)
+    emit({ type: 'tool_end', id: call.id, name: tool.name, output: errMsg, error: errMsg })
+    return { role: 'tool', tool_call_id: call.id, content: errMsg }
+  }
   const content = 'content' in result ? truncate(result.content) : `ERROR: ${result.error}`
   emit({ type: 'tool_end', id: call.id, name: tool.name, output: content, error: 'error' in result ? result.error : undefined })
   return { role: 'tool', tool_call_id: call.id, content }
@@ -45,6 +53,7 @@ export async function executeOneTool(
     signal: AbortSignal
     emit: (e: AgentToUiMessage) => void
     requestPermission: (tool: string, input: unknown) => Promise<PermissionDecision>
+    trans: (input: TransitionInput) => void // 状态迁移回调（让 executeOneTool 能发 waiting_permission/executing）
   },
   isLast: boolean,
   reasoning: boolean,
@@ -85,6 +94,7 @@ export async function executeOneTool(
 
   // ask 桶：需用户审批，挂起等待决议。用户 reject 同样发 tool_end。
   if (verdict === 'ask') {
+    deps.trans({ kind: 'tool_needs_permission' })
     const decision = await deps.requestPermission(tool.name, args)
     deps.permission.apply(tool.name, decision)
     if (decision === 'reject') {
@@ -92,11 +102,13 @@ export async function executeOneTool(
       return { toolMessage: { role: 'tool', tool_call_id: call.id, content: deniedMessage }, transitionInput: rejectOrDone() }
     }
     // allow_once / allow_always：执行工具
+    deps.trans({ kind: 'allow' })
     const message = await runAndEmit(call, tool, args, toolCtx, deps.emit)
     return { toolMessage: message, transitionInput: backOrDone() }
   }
 
   // allow 桶：自动执行
+  deps.trans({ kind: 'tool_auto' })
   const message = await runAndEmit(call, tool, args, toolCtx, deps.emit)
   return { toolMessage: message, transitionInput: backOrDone() }
 }

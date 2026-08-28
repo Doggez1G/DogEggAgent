@@ -8,6 +8,9 @@ import { CancelledError } from '../shared/errors'
 import { newId } from '../shared/id'
 import type { LoopDeps, LoopResult } from './types'
 
+// 用 toolSchemas()（wrapped OpenAI 格式）而非 raw tool.parameters，使估算与实际请求一致。
+const toolParams = toolSchemas()
+
 // 核心 Agent Loop：问模型 → 有 tool_calls 就串行执行 → 结果回填 → 再问，直到无 tool_calls 或触发停止。
 // 状态完全由 state.ts 的 transition() 纯函数驱动——这是 9 态状态机的落地处。
 //
@@ -19,7 +22,6 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
   const newMessages: Message[] = []
   let state: State = 'idle'
   let iterations = 0
-  const toolParams = deps.tools.map((t) => t.parameters)
 
   // 状态迁移的唯一出口：先经 transition() 算下一态，再 emit（让 UI 据此同步）。
   const trans = (input: TransitionInput): State => {
@@ -43,23 +45,28 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
 
     // 上下文窗口管理：逼近上限时压缩 context（只改 context，不动 history）。
     // 压缩期间 emit state → compacting 让 UI 可感知，完成后回到 thinking/responding（继续本轮请求）。
+    // 压缩失败时降级——跳过压缩继续用未压缩 context 请求模型，不 abort 整个 turn。
     const used = estimateContextTokens(deps.systemPrompt, context, toolParams)
     if (used > deps.windowTokens * 0.8) {
       state = trans({ kind: 'compact_start' })
-      const result = await compactContext({
-        context,
-        systemPrompt: deps.systemPrompt,
-        tools: toolParams,
-        windowTokens: deps.windowTokens,
-        summarize: deps.summarize,
-      })
-      state = trans({ kind: 'compact_done', next: deps.reasoning ? 'thinking' : 'responding' })
-      if (result.compacted) {
-        // 压缩改变了 context 数组内容——用新数组替换。newMessages 不受影响（它们是本轮新增的）。
-        context.length = 0
-        context.push(...result.context)
-        deps.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after, source: 'auto' })
+      try {
+        const result = await compactContext({
+          context,
+          systemPrompt: deps.systemPrompt,
+          tools: toolParams,
+          windowTokens: deps.windowTokens,
+          summarize: deps.summarize,
+          signal: deps.signal,
+        })
+        if (result.compacted) {
+          context.length = 0
+          context.push(...result.context)
+          deps.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after, source: 'auto' })
+        }
+      } catch {
+        // 压缩失败（如 LLM 调用出错）——降级继续，模型仍可用未压缩 context 回答。
       }
+      state = trans({ kind: 'compact_done', next: deps.reasoning ? 'thinking' : 'responding' })
     }
 
     // 用外部传入的 signal（由 Agent 持有，cancel 时 abort），使取消能真正中断在飞的 fetch 与工具。
@@ -123,7 +130,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
         throw new CancelledError()
       }
 
-      const step = await executeOneTool(call, deps, isLast, deps.reasoning)
+      const step = await executeOneTool(call, { ...deps, trans: (input) => { state = trans(input) } }, isLast, deps.reasoning)
       context.push(step.toolMessage)
       newMessages.push(step.toolMessage)
       state = trans(step.transitionInput)

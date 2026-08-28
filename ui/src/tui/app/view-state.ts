@@ -6,6 +6,6 @@ export type View =
   | { kind: 'none' }
   | { kind: 'permission'; id: string; tool: string; input: unknown; cursor: number }
   | { kind: 'menu'; title: string; items: { label: string; onSelect: () => void }[]; cursor: number }
-  | { kind: 'prompt'; title: string; value: string; onSubmit: (v: string) => void }
+  | { kind: 'prompt'; title: string; value: string; onSubmit: (v: string) => void; returnPath?: ConfigPath; returnCursor?: number }
   | { kind: 'config'; path: ConfigPath; cursor: number; preview: boolean | null }
   | { kind: 'info'; title: string; lines: string[] } // /context /tools /status /system /log /help 的只读面板
