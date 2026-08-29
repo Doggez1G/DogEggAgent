@@ -95,7 +95,7 @@ export function App({ port }: AppProps) {
   const isRunning = chat.status !== 'idle' && chat.status !== 'finished' && chat.status !== 'cancelled' && chat.status !== 'error'
 
   return (
-    <div className={styles.app}>
+    <div className={styles.app} data-layout={layout}>
       {layout !== 'zen' && (
         <Sidebar
           panel={panel}
