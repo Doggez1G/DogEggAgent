@@ -1,2 +1,3 @@
 // @dogegg/ui 包出口：纯 re-export，不含实现逻辑（见 §1 约束 3）。
 export { App, renderTui, type View } from './tui'
+export * from './shared'

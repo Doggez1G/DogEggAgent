@@ -37,7 +37,7 @@ export type CommandResult =
   | { kind: 'user'; text: string }
 
 // 解析输入框文本 → 命令消息。★ 可单测。
-// /model 和 /config 都先请求 config（后端回 config_state），由 App 根据 intent 决定打开哪个 overlay。
+// /model 和 /config 都先请求 config（后端回 config_state），由 App 根据 intent 决定打开哪个 overlay/面板。
 export function parseCommand(text: string): CommandResult {
   const trimmed = text.trim()
   if (!trimmed) return { kind: 'user', text: '' }

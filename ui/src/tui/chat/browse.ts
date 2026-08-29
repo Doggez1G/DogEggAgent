@@ -1,5 +1,5 @@
-import { ICON } from './block'
-import type { Block } from './block'
+import { isExpandable } from '../../shared/block'
+import type { Block } from '../../shared/block'
 
 // 块浏览：在可折叠块（思考/工具）间移动焦点、展开/折叠。
 // 焦点用 index 表示；expanded 是一个 Set<number>。
@@ -9,7 +9,7 @@ import type { Block } from './block'
 export function expandableIndices(blocks: Block[]): number[] {
   return blocks
     .map((b, i) => ({ b, i }))
-    .filter(({ b }) => (b.icon === ICON.thinking || b.icon === ICON.tool) && b.full !== undefined)
+    .filter(({ b }) => isExpandable(b))
     .map(({ i }) => i)
 }
 

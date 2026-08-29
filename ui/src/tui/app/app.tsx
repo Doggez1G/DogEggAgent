@@ -4,9 +4,10 @@ import TextInput from 'ink-text-input'
 import type { AgentToUiMessage, UiToAgentMessage, PermissionDecision, Config, UiPort } from '@dogegg/bridge'
 import { TopBar, MessageBlock, StatusBar, ListPicker } from '../components'
 import { palette } from '../theme'
+import type { BlockKind } from '../../shared/block'
 import { renderMarkdown } from '../markdown'
 import { resetSigintTimer } from './entry'
-import { reducer, ICON, buildDisplayBlocks, sliceViewport, expandableIndices, moveBrowse, toggleExpanded, type ChatState } from '../chat'
+import { reducer, buildDisplayBlocks, sliceViewport, expandableIndices, moveBrowse, toggleExpanded, type ChatState } from '../chat'
 import { parseCommand, matchCommands } from '../input'
 import { buildEntries, entryLabel, parentPath, type ConfigPath, type TreeCtx } from '../overlays/config'
 import { type View } from './view-state'
@@ -387,12 +388,12 @@ export function App({ port }: { port: UiPort }) {
   // 联想匹配提取一次（渲染里多处用，避免重复调用）。
   // useMemo 缓存 renderedBlocks——chat.blocks 不变时不重复解析 markdown（流式时只 partial 变）。
   const suggestMatches = view.kind === 'none' ? matchCommands(input) : []
-  const isMd = (icon: string) => icon === ICON.assistant || icon === ICON.thinking
+  const isMd = (kind: BlockKind) => kind === 'assistant' || kind === 'thinking'
   const renderedBlocks = useMemo(() =>
     chat.blocks.map((b) => ({
       ...b,
-      text: isMd(b.icon) ? renderMarkdown(b.text) : b.text,
-      full: b.full !== undefined ? (isMd(b.icon) ? renderMarkdown(b.full) : b.full) : undefined,
+      text: isMd(b.kind) ? renderMarkdown(b.text) : b.text,
+      full: b.full !== undefined ? (isMd(b.kind) ? renderMarkdown(b.full) : b.full) : undefined,
     })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [chat.blocks],
@@ -417,10 +418,10 @@ export function App({ port }: { port: UiPort }) {
           </Box>
         ) : (
           visibleBlocks.map((b) => (
-            <MessageBlock key={b.index} icon={b.icon} role={b.role} color={b.color} focused={browse === b.index}>
+            <MessageBlock key={b.index} kind={b.kind} color={b.color} focused={browse === b.index}>
               {b.isCollapsed ? (
                 // 折叠状态：思考块和工具块各自显示折叠提示（选中时提示可展开）
-                <Text dimColor>{b.icon === ICON.thinking
+                <Text dimColor>{b.kind === 'thinking'
                   ? (browse === b.index ? '（思考已折叠 · 回车展开）' : '（思考已折叠）')
                   : (browse === b.index ? '（结果已折叠 · 回车展开）' : '（结果已折叠）')}</Text>
               ) : (
@@ -431,9 +432,8 @@ export function App({ port }: { port: UiPort }) {
         )}
         {chat.partial ? (
           <MessageBlock
-            icon={chat.partial.kind === 'thinking' ? ICON.thinking : ICON.assistant}
-            role={chat.partial.kind === 'thinking' ? '思考（流式）' : '助手（流式）'}
-            color={chat.partial.kind === 'thinking' ? '#f9e2af' : '#cdd6f4'}
+            kind={chat.partial.kind === 'thinking' ? 'thinking' : 'assistant'}
+            color={chat.partial.kind === 'thinking' ? 'yellow' : 'text'}
           >
             <Text dimColor={chat.partial.kind === 'thinking'}>{chat.partial.kind === 'thinking' ? chat.partial.text : renderMarkdown(chat.partial.text)}</Text>
           </MessageBlock>

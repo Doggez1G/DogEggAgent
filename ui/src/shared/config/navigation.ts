@@ -1,5 +1,3 @@
-import type { Config } from '@dogegg/bridge'
-
 // 配置树编辑器的导航路径：表示「当前钻取到哪一层」。
 export type ConfigPath =
   | { kind: 'root' }

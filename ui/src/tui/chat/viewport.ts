@@ -1,5 +1,5 @@
-import type { Block } from './block'
-import { ICON } from './block'
+import type { Block } from '../../shared/block'
+import { isExpandable } from '../../shared/block'
 
 // 粗略估算一个消息块占用的终端行数（角色头 1 + 正文换行 + 上下边框 2），用于消息视口的自动滚动裁切。
 export function estimateBlockLines(text: string, width: number): number {
@@ -26,9 +26,8 @@ export function buildDisplayBlocks(
   termWidth: number,
 ): DisplayBlock[] {
   return blocks.map((b, i) => {
-    // 只有有 full 内容的块才可折叠（tool_end 后的完整结果、thinking 的完整推理）。
-    // 用 ICON 常量而非字面量 emoji，避免 ICON 变更后此处失配。
-    const expandable = (b.icon === ICON.thinking || b.icon === ICON.tool) && b.full !== undefined
+    // isExpandable 检查 kind + full——语义判断，不依赖具体图标值。
+    const expandable = isExpandable(b)
     const isExpanded = expanded.has(i)
     const shownText = !expandable
       ? b.text
