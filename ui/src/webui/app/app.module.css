@@ -1,0 +1,204 @@
+.app {
+  display: grid;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background: var(--color-bg);
+}
+
+.mainArea {
+  grid-area: main;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.inputArea {
+  grid-area: input;
+  display: flex;
+  flex-direction: column;
+}
+
+.placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-subtext);
+  font-size: 14px;
+}
+
+/* ── 模态层 ── */
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  max-width: 560px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+}
+
+.modalTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 12px;
+}
+
+.modalMessage {
+  font-size: 14px;
+  color: var(--color-subtext);
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+.modalActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.btnPrimary {
+  padding: 8px 16px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+  color: var(--color-bg);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: opacity 120ms ease;
+}
+
+.btnPrimary:hover {
+  opacity: 0.9;
+}
+
+.btnSecondary {
+  padding: 8px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: all 120ms ease;
+}
+
+.btnSecondary:hover {
+  background: var(--color-surface-elevated);
+}
+
+.btnDanger {
+  padding: 8px 16px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-danger);
+  color: var(--color-bg);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: opacity 120ms ease;
+}
+
+.btnDanger:hover {
+  opacity: 0.9;
+}
+
+.diffPreview {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  margin-bottom: 16px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+  color: var(--color-text);
+}
+
+/* ── 帮助弹窗 ── */
+.helpGrid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 16px;
+  margin-bottom: 8px;
+}
+
+.helpCmd {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--color-accent);
+  font-weight: 500;
+}
+
+.helpDesc {
+  font-size: 13px;
+  color: var(--color-subtext);
+}
+
+/* ── 目录浏览器 ── */
+.fsList {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 12px;
+}
+
+.fsItem {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 80ms ease;
+}
+
+.fsItem:hover {
+  background: var(--color-surface-elevated);
+}
+
+.fsInput {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  outline: none;
+}
+
+.fsInput:focus {
+  border-color: var(--color-accent);
+}

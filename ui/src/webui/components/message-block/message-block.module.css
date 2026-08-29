@@ -1,0 +1,65 @@
+.block {
+  display: flex;
+  gap: 10px;
+  padding: 8px 0;
+}
+
+.bar {
+  width: 3px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  min-height: 28px;
+}
+
+.pulseBar {
+  /* 脉冲动画由 animations.css 的 .pulse-bar 提供 */
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.toggleBtn {
+  border: none;
+  background: transparent;
+  color: var(--color-subtext);
+  cursor: pointer;
+  font-size: 14px;
+  font-family: var(--font-mono);
+  padding: 0 4px;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+}
+
+.toggleBtn:hover {
+  color: var(--color-text);
+  background: var(--color-surface-elevated);
+}
+
+.body {
+  overflow-x: auto;
+}
+
+.text {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text);
+}

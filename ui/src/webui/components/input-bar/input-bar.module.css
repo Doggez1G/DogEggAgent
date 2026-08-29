@@ -1,0 +1,121 @@
+.inputBar {
+  grid-area: input;
+  padding: 8px 16px 12px;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+}
+
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: 8px;
+  background: var(--color-surface-elevated);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+}
+
+.suggestItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.suggestItem:hover {
+  background: var(--color-surface);
+}
+
+.suggestActive {
+  background: var(--color-surface);
+  color: var(--color-accent);
+}
+
+.suggestCmd {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.suggestActive .suggestCmd {
+  color: var(--color-accent);
+}
+
+.suggestDesc {
+  color: var(--color-subtext);
+  font-size: 12px;
+}
+
+.inputRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  transition: border-color 200ms ease;
+}
+
+.inputRow:focus-within {
+  border-color: var(--color-accent);
+}
+
+.textInput {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  max-height: 200px;
+  min-height: 22px;
+}
+
+.textInput::placeholder {
+  color: var(--color-subtext);
+}
+
+.sendBtn, .stopBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 120ms ease;
+}
+
+.sendBtn {
+  background: var(--color-accent);
+  color: var(--color-bg);
+}
+
+.sendBtn:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: scale(1.05);
+}
+
+.sendBtn:disabled {
+  background: var(--color-surface-elevated);
+  color: var(--color-subtext);
+  cursor: not-allowed;
+}
+
+.stopBtn {
+  background: var(--color-danger);
+  color: var(--color-bg);
+}
+
+.stopBtn:hover {
+  opacity: 0.9;
+}

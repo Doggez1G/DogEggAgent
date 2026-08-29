@@ -1,0 +1,9 @@
+/* Zen 布局：无侧栏，全宽聊天。侧栏通过按钮呼出为浮动抽屉。 */
+[data-layout='zen'] {
+  grid-template-columns: 1fr;
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas:
+    'topbar'
+    'main'
+    'input';
+}

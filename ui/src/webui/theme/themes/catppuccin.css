@@ -1,0 +1,31 @@
+/* Catppuccin Dark — 暗色底、低饱和、偏方正圆角。与 TUI 调色板一致。 */
+[data-theme='catppuccin'] {
+  --color-bg: #1E1E2E;
+  --color-surface: #313244;
+  --color-surface-elevated: #45475A;
+  --color-text: #CDD6F4;
+  --color-subtext: #A6ADC8;
+  --color-accent: #89B4FA;
+  --color-success: #A6E3A1;
+  --color-warning: #F9E2AF;
+  --color-danger: #F38BA8;
+  --color-border: #45475A;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+
+  --color-token-accent: var(--color-accent);
+  --color-token-text: var(--color-text);
+  --color-token-cyan: #94E2D5;
+  --color-token-yellow: var(--color-warning);
+  --color-token-red: var(--color-danger);
+  --color-token-subtext: var(--color-subtext);
+}

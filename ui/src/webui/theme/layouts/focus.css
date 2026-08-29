@@ -1,0 +1,9 @@
+/* Focus 布局：窄侧栏 + 全宽聊天。默认布局。 */
+[data-layout='focus'] {
+  grid-template-columns: 240px 1fr;
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas:
+    'sidebar topbar'
+    'sidebar main'
+    'sidebar input';
+}

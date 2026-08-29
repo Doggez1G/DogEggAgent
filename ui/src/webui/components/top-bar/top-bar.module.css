@@ -1,0 +1,53 @@
+.topBar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  grid-area: topbar;
+  min-height: 40px;
+}
+
+.modelInfo {
+  flex: 0 0 auto;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-subtext);
+  font-family: var(--font-mono);
+}
+
+.cwdInfo {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-align: right;
+}
+
+.cwdText {
+  font-size: 12px;
+  color: var(--color-subtext);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.runningIndicator {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  padding-left: 8px;
+}
+
+.pulseDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  display: inline-block;
+}

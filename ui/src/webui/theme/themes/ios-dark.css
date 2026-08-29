@@ -1,0 +1,31 @@
+/* iOS Dark — 深黑底、圆润、OLED 友好。 */
+[data-theme='ios-dark'] {
+  --color-bg: #000000;
+  --color-surface: #1C1C1E;
+  --color-surface-elevated: #2C2C2E;
+  --color-text: #FFFFFF;
+  --color-subtext: #8E8E93;
+  --color-accent: #0A84FF;
+  --color-success: #30D158;
+  --color-warning: #FFD60A;
+  --color-danger: #FF453A;
+  --color-border: #38383A;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.7);
+
+  --color-token-accent: var(--color-accent);
+  --color-token-text: var(--color-text);
+  --color-token-cyan: #40C8E0;
+  --color-token-yellow: var(--color-warning);
+  --color-token-red: var(--color-danger);
+  --color-token-subtext: var(--color-subtext);
+}

@@ -2,7 +2,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
 
-// 架构测试：扫描三包源码，把「依赖方向」「模块边界（index 纯 re-export）」从约定升级为可执行断言。
+// 架构测试：扫描四包源码，把「依赖方向」「模块边界（index 纯 re-export）」从约定升级为可执行断言。
 // 放 bridge 是刻意的——桥是边界的所有者，由它守门。
 // 体量红线已移除（S2）：「不堆功能进单文件」作为实现准则由 review 把关，不做机械行数断言。
 
@@ -26,9 +26,9 @@ function importsOf(f: string): string[] {
   return out
 }
 
-const pkgDir = { agent: 'agent/src', ui: 'ui/src', bridge: 'bridge/src' } as const
+const pkgDir = { agent: 'agent/src', ui: 'ui/src', bridge: 'bridge/src', server: 'server/src' } as const
 const scan = (d: string) => walk(d).map((p) => ({ p, imps: importsOf(p) }))
-const files = { agent: scan(pkgDir.agent), ui: scan(pkgDir.ui), bridge: scan(pkgDir.bridge) }
+const files = { agent: scan(pkgDir.agent), ui: scan(pkgDir.ui), bridge: scan(pkgDir.bridge), server: scan(pkgDir.server) }
 
 describe('architecture: 依赖方向', () => {
   it('agent 与 ui 互不依赖（不 import 对方的包名）', () => {
@@ -38,6 +38,20 @@ describe('architecture: 依赖方向', () => {
   it('bridge 不依赖任何兄弟包（契约不反向依赖）', () => {
     expect(files.bridge.flatMap((f) => f.imps)).not.toContain('@dogegg/agent')
     expect(files.bridge.flatMap((f) => f.imps)).not.toContain('@dogegg/ui')
+    expect(files.bridge.flatMap((f) => f.imps)).not.toContain('@dogegg/server')
+  })
+  it('server 不依赖 ui（前端是静态文件被 serve，不是代码被 import）', () => {
+    expect(existsSync(pkgDir.server)).toBe(true)
+    expect(files.server.flatMap((f) => f.imps)).not.toContain('@dogegg/ui')
+  })
+  it('webui 不依赖 agent 或 server（前端只依赖 bridge + shared）', () => {
+    const webuiFiles = walk('ui/src/webui')
+    expect(webuiFiles.flatMap((f) => importsOf(f))).not.toContain('@dogegg/agent')
+    expect(webuiFiles.flatMap((f) => importsOf(f))).not.toContain('@dogegg/server')
+  })
+  it('shared 不依赖 agent 或 ui 的 tui/webui 子路径', () => {
+    const sharedFiles = walk('ui/src/shared')
+    expect(sharedFiles.flatMap((f) => importsOf(f))).not.toContain('@dogegg/agent')
   })
 })
 

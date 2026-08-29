@@ -1,0 +1,36 @@
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mark {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-accent);
+}
+
+.egg {
+  position: relative;
+  z-index: 1;
+}
+
+.paw {
+  position: absolute;
+  top: 10%;
+  right: 5%;
+  z-index: 2;
+}
+
+.wordmark {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text);
+  letter-spacing: -0.02em;
+}
+
+.highlight {
+  color: var(--color-accent);
+}

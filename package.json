@@ -3,11 +3,19 @@
   "version": "0.1.0",
   "type": "module",
   "private": true,
-  "workspaces": ["agent", "ui", "bridge", "server"],
+  "workspaces": [
+    "agent",
+    "ui",
+    "bridge",
+    "server"
+  ],
   "scripts": {
     "dev": "npm run build && npm run start",
+    "dev:web": "concurrently \"vite\" \"cross-env VITE_DEV=1 PORT=3001 tsx main-web.ts\"",
     "build": "node build.mjs",
+    "build:web": "vite build && node build-web.mjs",
     "start": "node dist/index.js",
+    "start:web": "node dist/server.js",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p agent && tsc --noEmit -p ui && tsc --noEmit -p bridge && tsc --noEmit -p server",
     "test": "vitest",
     "test:run": "vitest run"
@@ -18,16 +26,23 @@
   "dependencies": {
     "ink": "^7.1.1",
     "ink-text-input": "^6.0.0",
+    "lucide-react": "^0.460.0",
     "marked": "^15.0.12",
     "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^26.3.0",
     "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^4.7.0",
+    "concurrently": "^9.2.4",
+    "cross-env": "^10.1.0",
     "esbuild": "^0.28.2",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2",
+    "vite": "^7.3.6",
     "vitest": "^3.0.0"
   }
 }

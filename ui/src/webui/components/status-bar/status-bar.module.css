@@ -1,0 +1,47 @@
+.statusBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 16px;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  font-size: 11px;
+  color: var(--color-subtext);
+  min-height: 24px;
+}
+
+.statusLabel {
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tokenInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tokenBar {
+  width: 80px;
+  height: 4px;
+  background: var(--color-surface-elevated);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.tokenFill {
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: 2px;
+  transition: width 300ms ease;
+}
+
+.tokenFill[data-overload='true'] {
+  background: var(--color-danger);
+}
+
+.tokenText {
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
