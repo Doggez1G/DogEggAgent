@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useReducer, useState } from 'react'
 import type { AgentToUiMessage, Config, UiPort } from '@dogegg/bridge'
-import { Sidebar, TopBar, ChatView, InputBar, StatusBar } from '../components'
+import { Sidebar, TopBar, ChatView, InputBar, StatusBar, Settings, Sessions } from '../components'
 import { reducer, type ChatState } from '../../shared/reducer'
 import type { Panel, SettingsTab, ThemeName, LayoutName, Modal } from './view-state'
 import { COMMAND_TO_NAV } from './view-state'
@@ -25,6 +25,12 @@ export function App({ port }: AppProps) {
   const [config, setConfig] = useState<Config | null>(null)
   const [cwd, setCwd] = useState('')
   const [statusBar, setStatusBar] = useState<{ provider?: string; model?: string; tokens?: number; windowTokens?: number }>({})
+  // 设置面板各标签页的数据（由后端消息响应填充）。
+  const [toolsList, setToolsList] = useState<{ name: string; description: string }[]>([])
+  const [contextState, setContextState] = useState<{ estimatedTokens: number; windowTokens: number; percent: number } | null>(null)
+  const [systemState, setSystemState] = useState<{ path: string; content: string } | null>(null)
+  const [logState, setLogState] = useState<{ path: string; tail: string } | null>(null)
+  const [permissionsList, setPermissionsList] = useState<string[]>([])
 
   // 应用 theme + layout 到 <html> 的 data 属性。
   useEffect(() => {
@@ -68,6 +74,16 @@ export function App({ port }: AppProps) {
       } else if (msg.type === 'status_state') {
         setCwd(msg.cwd)
         setStatusBar({ provider: msg.provider, model: msg.model, tokens: msg.estimatedTokens, windowTokens: msg.windowTokens })
+      } else if (msg.type === 'tools_list') {
+        setToolsList(msg.tools)
+      } else if (msg.type === 'context_state') {
+        setContextState({ estimatedTokens: msg.estimatedTokens, windowTokens: msg.windowTokens, percent: msg.percent })
+      } else if (msg.type === 'system_state') {
+        setSystemState({ path: msg.path, content: msg.content })
+      } else if (msg.type === 'log_state') {
+        setLogState({ path: msg.path, tail: msg.tail })
+      } else if (msg.type === 'permissions_list') {
+        setPermissionsList(msg.tools)
       }
     })
     // 订阅后主动取一次配置。
@@ -99,13 +115,19 @@ export function App({ port }: AppProps) {
         {panel === 'chat' ? (
           <ChatView chat={chat} isRunning={isRunning} />
         ) : panel === 'sessions' ? (
-          <div className={styles.placeholder + ' panel-enter'}>
-            <p>Sessions panel — coming in P4</p>
-          </div>
+          <Sessions port={port} />
         ) : (
-          <div className={styles.placeholder + ' panel-enter'}>
-            <p>Settings: {settingsTab} — coming in P4</p>
-          </div>
+          <Settings
+            tab={settingsTab}
+            config={config}
+            port={port}
+            toolsList={toolsList}
+            contextState={contextState}
+            systemState={systemState}
+            logState={logState}
+            permissionsList={permissionsList}
+            onTabChange={setSettingsTab}
+          />
         )}
       </div>
       <div className={styles.inputArea}>
