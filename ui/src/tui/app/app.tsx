@@ -331,10 +331,11 @@ export function App({ port }: { port: UiPort }) {
         '/new 新建会话      /config 编辑配置',
         '/session 切换会话   /model 快速切模型',
         '/clear 清空历史     /compact 手动压缩',
-        '/context 查看占用   /tools 列出工具',
-        '/system 系统提示词  /status 状态一览',
-        '/log 调试日志       /permissions 会话权限',
-        '/quit 退出          /help 本帮助',
+        '/cd 切换工作目录    /context 查看占用',
+        '/tools 列出工具     /system 系统提示词',
+        '/status 状态一览    /log 调试日志',
+        '/permissions 会话权限  /quit 退出',
+        '/help 本帮助',
       ] })
     } else {
       // /clear 和 /quit 需确认弹层（不可逆操作）。

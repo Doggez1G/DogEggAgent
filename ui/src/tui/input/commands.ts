@@ -2,6 +2,7 @@ import type { UiToAgentMessage } from '@dogegg/bridge'
 
 // 全部斜杠命令（按字母序），带简短描述供联想提示展示。
 export const COMMANDS: { cmd: string; desc: string }[] = [
+  { cmd: '/cd', desc: '切换工作目录' },
   { cmd: '/clear', desc: '清空历史' },
   { cmd: '/compact', desc: '手动压缩上下文' },
   { cmd: '/config', desc: '编辑配置' },
@@ -50,6 +51,12 @@ export function parseCommand(text: string): CommandResult {
     case '/config': return { kind: 'message', msg: { type: 'config_request' } } // intent 由 App 设为 'config'
     case '/clear': return { kind: 'message', msg: { type: 'clear_history' } }
     case '/compact': return { kind: 'message', msg: { type: 'compact_request' } }
+    case '/cd': {
+      // /cd <path>——参数为路径（支持空格路径：取 /cd 之后的全部文本）。
+      const path = trimmed.slice('/cd'.length).trim()
+      if (!path) return { kind: 'help' }
+      return { kind: 'message', msg: { type: 'set_cwd', path } }
+    }
     case '/context': return { kind: 'message', msg: { type: 'context_request' } }
     case '/tools': return { kind: 'message', msg: { type: 'tools_request' } }
     case '/system': return { kind: 'message', msg: { type: 'system_request' } }

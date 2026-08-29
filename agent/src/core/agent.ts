@@ -3,6 +3,8 @@ import type { UiToAgentMessage } from '@dogegg/bridge'
 import type { AgentToUiMessage } from '@dogegg/bridge'
 import type { Message, State, Config } from '@dogegg/bridge'
 import { isConfigured } from '@dogegg/bridge'
+import { statSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { transition, type TransitionInput } from './state'
 import { PendingPermissions } from './pending'
 import { ConfigEditor } from '../config/editor'
@@ -90,6 +92,13 @@ export class Agent {
 
   private estimateCurrentTokens(): number {
     return estimateContextTokens(loadSystemPrompt(this.config.systemPrompt), this.context, toolSchemas())
+  }
+
+  // 统一的 status_state 发射——status_request 与 set_cwd 共用，避免字段重复。
+  private emitStatusState(): void {
+    const { provider, model } = resolveCurrent(this.config)
+    const cur = this.current()
+    this.emit({ type: 'status_state', sessionId: this.sessionId, provider: provider.name, model: model.name, cwd: this.cwd, state: this.state, estimatedTokens: this.estimateCurrentTokens(), windowTokens: cur.contextWindow })
   }
 
   // 向 UI 提出权限请求，返回一个在收到 permission_decision 时才决议的 Promise。
@@ -215,11 +224,8 @@ export class Agent {
       }
       case 'status_request': {
         if (!isConfigured(this.config)) { this.emit({ type: 'notice', text: '尚未配置 provider，请先 /config' }); break }
-        try {
-          const { provider, model } = resolveCurrent(this.config)
-          const cur = this.current()
-          this.emit({ type: 'status_state', sessionId: this.sessionId, provider: provider.name, model: model.name, cwd: this.cwd, state: this.state, estimatedTokens: this.estimateCurrentTokens(), windowTokens: cur.contextWindow })
-        } catch { this.emit({ type: 'notice', text: '状态读取失败' }) }
+        try { this.emitStatusState() }
+        catch { this.emit({ type: 'notice', text: '状态读取失败' }) }
         break
       }
       case 'system_request':
@@ -242,6 +248,25 @@ export class Agent {
         this.permission.revoke(cmd.tool)
         const allowed = this.permission.listAllowed()
         this.emit({ type: 'permissions_list', tools: allowed })
+        break
+      }
+      case 'set_cwd': {
+        // 运行时切换工作目录——运行中阻塞（避免 in-flight 工具写到错误目录）。
+        if (this.running) { this.emit({ type: 'notice', text: '运行中，请稍候' }); return }
+        try {
+          const resolved = resolve(cmd.path)
+          const stat = statSync(resolved)
+          if (!stat.isDirectory()) {
+            this.emit({ type: 'notice', text: `${cmd.path} 不是目录` })
+            break
+          }
+          this.cwd = resolved
+          this.emit({ type: 'notice', text: `工作目录已切换到 ${resolved}` })
+          // 复用 status_state 通知 UI 更新 cwd 显示（不需要 provider 配置——cwd 独立于 config）。
+          if (isConfigured(this.config)) { this.emitStatusState() }
+        } catch {
+          this.emit({ type: 'notice', text: `路径不存在：${cmd.path}` })
+        }
         break
       }
 

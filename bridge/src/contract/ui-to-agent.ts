@@ -19,6 +19,7 @@ export type UiToAgentMessage =
   | { type: 'log_request' }
   | { type: 'permissions_request' } // /permissions：查询当前会话的 allow_always 授权
   | { type: 'permission_revoke'; tool: string } // 撤销某工具的 allow_always 授权
+  | { type: 'set_cwd'; path: string } // 运行时切换工作目录（/cd 命令 / WebUI 目录选择器共用）
   | { type: 'clear_history' }
   | { type: 'compact_request' }
   | { type: 'quit' }
