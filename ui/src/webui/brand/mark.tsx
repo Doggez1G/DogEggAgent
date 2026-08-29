@@ -18,8 +18,7 @@ export function Wordmark() {
   return (
     <span className={styles.wordmark} style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
       <span>Dog</span>
-      <span className={styles.highlight}>g</span>
-      <span className={styles.highlight}>g</span>
+      <span className={styles.highlight}>gg</span>
       <span>E</span>
       <span className={styles.highlight}>gg</span>
     </span>

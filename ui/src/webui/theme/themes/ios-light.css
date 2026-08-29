@@ -4,7 +4,7 @@
   --color-surface: #FFFFFF;
   --color-surface-elevated: #FFFFFF;
   --color-text: #1C1C1E;
-  --color-subtext: #8E8E93;
+  --color-subtext: #6E6E73;
   --color-accent: #007AFF;
   --color-success: #34C759;
   --color-warning: #FFCC00;
@@ -25,7 +25,7 @@
   --color-token-accent: var(--color-accent);
   --color-token-text: var(--color-text);
   --color-token-cyan: #32ADE6;
-  --color-token-yellow: var(--color-warning);
+  --color-token-yellow: #FF9500;
   --color-token-red: var(--color-danger);
   --color-token-subtext: var(--color-subtext);
 }
