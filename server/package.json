@@ -1,0 +1,10 @@
+{
+  "name": "@dogegg/server",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@dogegg/bridge": "*",
+    "@dogegg/agent": "*"
+  }
+}

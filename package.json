@@ -3,12 +3,12 @@
   "version": "0.1.0",
   "type": "module",
   "private": true,
-  "workspaces": ["agent", "ui", "bridge"],
+  "workspaces": ["agent", "ui", "bridge", "server"],
   "scripts": {
     "dev": "npm run build && npm run start",
     "build": "node build.mjs",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p agent && tsc --noEmit -p ui && tsc --noEmit -p bridge",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p agent && tsc --noEmit -p ui && tsc --noEmit -p bridge && tsc --noEmit -p server",
     "test": "vitest",
     "test:run": "vitest run"
   },
