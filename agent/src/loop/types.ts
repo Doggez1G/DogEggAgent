@@ -38,9 +38,12 @@ export interface LoopDeps {
 
 // loop 返回值：压缩后的 context + 本轮新增的 assistant/tool 消息。
 // newMessages 供 core 同步 append 到 history（R1：history 单调增长、永不被压缩影响）。
+// thinking 供 core 持久化到 session（resume 后恢复思考块显示），不进 history/context。
 export interface LoopResult {
   context: Message[]
   newMessages: Message[]
+  /** 本轮的思考内容（assistant 推理文本），按顺序排列，不进 history/context。 */
+  thinking: { text: string }[]
   /** 是否被用户取消（Ctrl+C / cancel）。true 时 context 可能含未完成的 tool_calls。 */
   cancelled?: boolean
   /** 错误信息（maxIterations / API 失败等）。非空时 context 含已完成的 assistant/tool 消息。 */

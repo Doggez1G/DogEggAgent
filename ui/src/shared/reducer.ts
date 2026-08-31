@@ -40,17 +40,28 @@ function flush(state: ChatState): ChatState {
 // 遍历消息：assistant 带 tool_calls 时暂存（按 tool_call_id 索引）；tool 消息用 tool_call_id
 // 找到对应的 tool_call，组成完整工具块（工具名+参数+结果摘要/全文）。
 // assistant 的正文（content）单独成块；纯 tool_calls 的 assistant（content 为 null）不产生块。
-function rebuildBlocksFromHistory(messages: Message[]): Block[] {
+// thinking 数组按顺序与 assistant 回复对应——在每条有 content 的 assistant 前插入思考块。
+function rebuildBlocksFromHistory(messages: Message[], thinking: { text: string }[] = []): Block[] {
   const pendingCalls = new Map<string, ToolCall>()
   const blocks: Block[] = []
+  let thinkingIdx = 0
   for (const m of messages) {
     if (m.role === 'user') {
       blocks.push({ kind: 'user', color: 'accent', text: m.content })
     } else if (m.role === 'assistant') {
       // 暂存 tool_calls 供后续 tool 消息配对。
       if (m.tool_calls) for (const tc of m.tool_calls) pendingCalls.set(tc.id, tc)
-      // 有正文的 assistant 单独成块；纯 tool_calls（content 为 null）不产生块（避免空块）。
+      // 有正文的 assistant：先插入对应的 thinking 块（如果有），再插入 assistant 块。
       if (m.content) {
+        // 消费一条 thinking（按顺序对应）——思考块在 assistant 回复之前显示。
+        if (thinkingIdx < thinking.length) {
+          const t = thinking[thinkingIdx]!
+          if (t.text) {
+            const summary = t.text.split('\n').slice(0, 3).join('\n') + (t.text.split('\n').length > 3 ? '\n…（展开查看完整思考）' : '')
+            blocks.push({ kind: 'thinking', color: 'yellow', text: summary, full: t.text })
+          }
+          thinkingIdx++
+        }
         blocks.push({ kind: 'assistant', color: 'text', text: m.content })
       }
     } else if (m.role === 'tool') {
@@ -145,16 +156,16 @@ export function reducer(state: ChatState, msg: Action): ChatState {
     case 'notice':
       return { ...state, blocks: [...state.blocks, { kind: 'notice', color: 'subtext', text: msg.text }] }
     case 'session_ready':
-      // session_ready 带的是 history（完整原文），UI 据此渲染完整历史消息。
+      // session_ready 带的是 history（完整原文）+ thinking（推理内容），UI 据此渲染完整历史消息。
       // resume 重建块时，从 assistant.tool_calls 提取工具名+参数，与后续 tool 消息配对，
       // 组成完整工具块（工具名+参数+结果），与实时 tool_start+tool_end 逻辑一致，保证可折叠展开。
-      // 注意：思考块是流式 thought_delta 产生的，不持久化进 history，resume 后无法恢复（固有限制）。
+      // thinking 数组按顺序插入对应的 assistant 块之前（思考 → 回复），恢复折叠/展开能力。
       // 清空 partial——否则切换会话时旧会话的流式文本残留显示。
       return {
         ...state,
         status: 'idle',
         partial: null,
-        blocks: rebuildBlocksFromHistory(msg.messages),
+        blocks: rebuildBlocksFromHistory(msg.messages, msg.thinking),
       }
     case 'compaction':
       // 手动压缩弹 overlay/面板（App 处理），reducer 不产生块。

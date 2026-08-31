@@ -14,6 +14,7 @@ interface PendingToolCall {
 // - [DONE] 时逐 tool call 发 tool_call_end（组装完整 id/name/arguments），再发 done 组装成一条 assistant 消息
 export function createOpenAiStreamParser() {
   let content = ''
+  let reasoning = ''
   const calls = new Map<number, PendingToolCall>()
 
   // [DONE] 时组装最终 assistant 消息：content（可能为 null）+ tool_calls（按 index 排序）。
@@ -33,7 +34,7 @@ export function createOpenAiStreamParser() {
         for (const [idx, c] of [...calls.entries()].sort((a, b) => a[0] - b[0])) {
           events.push({ type: 'tool_call_end', index: idx, id: c.id, name: c.name, arguments: c.args })
         }
-        events.push({ type: 'done', message: buildMessage() })
+        events.push({ type: 'done', message: buildMessage(), ...(reasoning ? { reasoning } : {}) })
         return events
       }
       let json: SseChunk
@@ -49,8 +50,10 @@ export function createOpenAiStreamParser() {
         events.push({ type: 'text_delta', text: delta.content })
       }
       // reasoning 字段：reasoning_content（OpenAI 标准）优先，回退 reasoning（部分兼容端点）。
+      // 累积 reasoning 文本——done 事件携带完整 reasoning 供持久化（resume 后恢复思考块）。
       const r = delta.reasoning_content ?? delta.reasoning
       if (typeof r === 'string' && r) {
+        reasoning += r
         events.push({ type: 'thought_delta', text: r })
       }
       for (const tc of Array.isArray(delta.tool_calls) ? delta.tool_calls : []) {

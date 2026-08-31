@@ -7,7 +7,7 @@ export type LlmStreamEvent =
   | { type: 'tool_call_start'; index: number; id: string; name: string }
   | { type: 'tool_call_delta'; index: number; argsJsonDelta: string }
   | { type: 'tool_call_end'; index: number; id: string; name: string; arguments: string }
-  | { type: 'done'; message: Message }
+  | { type: 'done'; message: Message; reasoning?: string }
   | { type: 'error'; error: Error }
 
 export interface ChatRequest {
@@ -21,6 +21,12 @@ export interface ChatRequest {
   maxRetries: number
 }
 
+export interface ChatResult {
+  message: Message
+  /** 推理模型的思考内容（reasoning），供持久化用——不进 history/context。 */
+  reasoning?: string
+}
+
 export interface ProviderAdapter {
-  chat(req: ChatRequest, signal: AbortSignal, emit: (e: LlmStreamEvent) => void): Promise<Message>
+  chat(req: ChatRequest, signal: AbortSignal, emit: (e: LlmStreamEvent) => void): Promise<ChatResult>
 }

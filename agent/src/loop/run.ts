@@ -64,6 +64,9 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
     }
   }
 
+  // 思考内容收集——每个 assistant 回复的 reasoning，不进 history/context，单独持久化。
+  const thinking: { text: string }[] = []
+
   try {
     // 每次「重新请求模型」进入 thinking（推理）或 responding（普通）——首次提交亦由此进入。
     state = trans({ kind: 'submit', reasoning: deps.reasoning })
@@ -105,9 +108,9 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
       }
 
       // 用外部传入的 signal（由 Agent 持有，cancel 时 abort），使取消能真正中断在飞的 fetch 与工具。
-      let assistant: Message
+      let result
       try {
-        assistant = await deps.adapter.chat(
+        result = await deps.adapter.chat(
           {
             baseURL: deps.providerBaseURL,
             apiKey: deps.apiKey,
@@ -139,6 +142,10 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
         throw e
       }
 
+      const assistant = result.message
+      // 捕获推理内容——不进 context/history，单独收集供持久化。
+      if (result.reasoning) thinking.push({ text: result.reasoning })
+
       if (assistant.role !== 'assistant') throw new Error('模型未返回 assistant 消息')
       // 推理模型只返回 tool_calls 而无 text_delta 时，此处补上 thinking → responding 的收尾。
       if (state === 'thinking') state = trans({ kind: 'thought_done' })
@@ -150,7 +157,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
       if (calls.length === 0) {
         state = trans({ kind: 'final_answer' })
         deps.emit({ type: 'finished' })
-        return { context, newMessages }
+        return { context, newMessages, thinking }
       }
 
       state = trans({ kind: 'tool_calls' })
@@ -176,8 +183,8 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
     // 之前错误路径直接 throw 导致 newMessages 丢失——现在统一返回部分结果，agent 保存已完成的工具执行。
     patchUnpairedToolCalls(context)
     if (e instanceof CancelledError) {
-      return { context, newMessages, cancelled: true }
+      return { context, newMessages, thinking, cancelled: true }
     }
-    return { context, newMessages, error: (e as Error).message }
+    return { context, newMessages, thinking, error: (e as Error).message }
   }
 }

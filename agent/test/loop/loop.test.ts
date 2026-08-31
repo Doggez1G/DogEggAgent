@@ -12,16 +12,18 @@ const dir = mkdtempSync(join(tmpdir(), 'dogegg-loop-'))
 writeFileSync(join(dir, 'a.txt'), 'hi')
 
 // 伪 adapter：脚本返回事件序列，含 done（最终 message）；其余事件转发给 emit。
+// 返回 ChatResult { message, reasoning? }（与真实 adapter 一致）。
 function fakeAdapter(script: (messages: unknown[]) => LlmStreamEvent[]): unknown {
   return {
     async chat(_req: unknown, _signal: unknown, emit: (e: LlmStreamEvent) => void) {
       const events = script([])
       let message: unknown = null
+      let reasoning: string | undefined
       for (const e of events) {
-        if (e.type === 'done') message = (e as { message: unknown }).message
+        if (e.type === 'done') { message = (e as { message: unknown }).message; reasoning = (e as { reasoning?: string }).reasoning }
         else emit(e)
       }
-      return message
+      return { message, reasoning }
     },
   }
 }
@@ -76,7 +78,7 @@ describe('runLoop', () => {
 
   it('把初始 context（含 user 消息）传给模型', async () => {
     let received: { role: string; content: string | null }[] = []
-    const adapter = { async chat(req: { messages: { role: string; content: string | null }[] }) { received = req.messages; return { role: 'assistant', content: 'ok' } } }
+    const adapter = { async chat(req: { messages: { role: string; content: string | null }[] }) { received = req.messages; return { message: { role: 'assistant', content: 'ok' } } } }
 
     const result = await runLoop(baseDeps({
       adapter: adapter as unknown as LoopDeps['adapter'],

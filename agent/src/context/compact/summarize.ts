@@ -24,5 +24,5 @@ export async function summarizeHistory(
     signal ?? new AbortController().signal,
     () => {},
   )
-  return typeof assistant.content === 'string' ? assistant.content : ''
+  return typeof assistant.message.content === 'string' ? assistant.message.content : ''
 }

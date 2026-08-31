@@ -28,6 +28,7 @@ import { CancelledError } from '../shared/errors'
 export class Agent {
   private history: Message[] = []
   private context: Message[] = []
+  private thinking: { text: string }[] = []
   private sessionId = newId()
   private pending = new PendingPermissions()
   private cancelled = false
@@ -147,8 +148,11 @@ export class Agent {
         }
         this.history = []
         this.context = []
+        this.thinking = []
         this.sessionId = newId()
         this.permission.reset() // 会话隔离：allow_always 只对当前会话生效
+        // 立即保存空会话——让 list_sessions 能返回新会话（侧栏即时显示）。
+        try { saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed(), defaultSessionsDir(), this.cwd, this.thinking) } catch { /* 磁盘错误忽略 */ }
         this.emit({ type: 'session_ready', id: this.sessionId, messages: this.history })
         break
       }
@@ -158,13 +162,14 @@ export class Agent {
           const s = loadSession(cmd.id)
           this.history = s.history
           this.context = s.context
+          this.thinking = s.thinking
           this.sessionId = s.id
           // 恢复该会话的工作目录（项目→会话切换恢复目录）。
           if (s.cwd) { this.cwd = s.cwd }
           // 恢复该会话的 allow_always 授权（resume 不清空，保留之前设置的授权）。
           this.permission.reset()
           for (const t of s.allowedTools) this.permission.apply(t, 'allow_always')
-          this.emit({ type: 'session_ready', id: s.id, messages: this.history })
+          this.emit({ type: 'session_ready', id: s.id, messages: this.history, ...(this.thinking.length ? { thinking: this.thinking } : {}) })
         } catch {
           this.emit({ type: 'notice', text: `会话 ${cmd.id} 加载失败（文件不存在或已损坏）` })
         }
@@ -335,10 +340,12 @@ export class Agent {
         trans: (input) => this.emitState(input),
         summarize: this.summarize,
       })
-      // R1：loop 返回更新后的 context + 本轮新增消息（成功/取消/错误都返回部分结果）。
+      // R1：loop 返回更新后的 context + 本轮新增消息 + thinking（成功/取消/错误都返回部分结果）。
       // context 已被 loop 修改（含压缩）；newMessages 同步 append 到 history。
+      // thinking 累积到 this.thinking（resume 时恢复，不进 history/context）。
       this.context = result.context
       this.history.push(...result.newMessages)
+      this.thinking.push(...result.thinking)
       if (result.cancelled) {
         this.emit({ type: 'notice', text: '已打断当前操作' })
       } else if (result.error) {
@@ -353,7 +360,7 @@ export class Agent {
       // 无论成功/失败/取消，turn 结束后状态回到 idle（成功路径 loop 停在 finished，需复位）。
       this.running = false
       this.emitState({ kind: 'reset' })
-      try { saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed(), defaultSessionsDir(), this.cwd) }
+      try { saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed(), defaultSessionsDir(), this.cwd, this.thinking) }
       catch { this.emit({ type: 'notice', text: '会话保存失败（磁盘空间不足或权限问题）' }) }
     }
   }
@@ -380,7 +387,7 @@ export class Agent {
       })
       if (result.compacted) {
         this.context = result.context
-        saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed(), defaultSessionsDir(), this.cwd)
+        saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed(), defaultSessionsDir(), this.cwd, this.thinking)
         this.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after, source: 'manual' })
       } else {
         // context 为空——没有消息可压。
