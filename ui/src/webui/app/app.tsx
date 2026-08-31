@@ -45,9 +45,13 @@ export function App({ port }: AppProps) {
   const [toolCalls, setToolCalls] = useState<{ id: string; name: string; status: 'running' | 'done' | 'error' | 'rejected'; output?: string; decision?: 'allow_once' | 'allow_always' | 'reject'; configPerm: string; seq: number }[]>([])
   const [filesTouched, setFilesTouched] = useState<FileTouched[]>([])
   const [pendingPermission, setPendingPermission] = useState<{ id: string; tool: string; input: unknown } | null>(null)
+  const [highlightSection, setHighlightSection] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const toolSeqRef = useRef(0)
+  // 追踪最新 config——onMessage 闭包不能直接读 config state（不在 effect deps 中）。
+  const configRef = useRef<Config | null>(null)
+  useEffect(() => { configRef.current = config }, [config])
   // 记录 permission_decision 的 toolName→decision 映射，供 tool_start 时关联决策标签。
   // permission_request.id 与 tool_start.id 不同（后端分别生成），无法按 id 匹配，改用 toolName。
   const permissionDecisions = useRef<Map<string, 'allow_once' | 'allow_always' | 'reject'>>(new Map())
@@ -57,6 +61,14 @@ export function App({ port }: AppProps) {
     setToast(msg)
     if (toastTimer.current) clearTimeout(toastTimer.current)
     toastTimer.current = setTimeout(() => setToast(null), 3000)
+  }, [])
+
+  // 高亮右侧面板某个 section——展开面板 + 设置高亮 key，3 秒后消失。
+  const highlightInfoSection = useCallback((section: string) => {
+    setInfoCollapsed(false)
+    setHighlightSection(section)
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setHighlightSection(null), 3000)
   }, [])
 
   const modalRef = useRef(modal)
@@ -132,27 +144,25 @@ export function App({ port }: AppProps) {
         setSessions((prev) => prev.filter((s) => s.id !== msg.id))
       } else if (msg.type === 'tools_list') {
         setToolsList(msg.tools)
-        setInfoCollapsed(false)
+        highlightInfoSection('tools')
       } else if (msg.type === 'context_state') {
         setContextState({ estimatedTokens: msg.estimatedTokens, windowTokens: msg.windowTokens, percent: msg.percent })
-        // /context 命令的反馈——展开面板显示 context 信息。
-        if (chat.status === 'idle') setInfoCollapsed(false)
+        if (chat.status === 'idle') highlightInfoSection('context')
       } else if (msg.type === 'system_state') {
         setSystemState({ path: msg.path, content: msg.content })
-        setInfoCollapsed(false)
+        highlightInfoSection('system')
       } else if (msg.type === 'log_state') {
         setLogState({ path: msg.path, tail: msg.tail })
-        setInfoCollapsed(false)
+        highlightInfoSection('log')
       } else if (msg.type === 'permissions_list') {
         setPermissionsList(msg.tools)
-        // /permissions 命令的反馈——展开面板显示 session permissions。
-        setInfoCollapsed(false)
+        highlightInfoSection('permissions')
       } else if (msg.type === 'tool_start') {
         const seq = ++toolSeqRef.current
         // 按 toolName 查找 decision——permission_request.id 与 tool_start.id 不同。
         const decision = permissionDecisions.current.get(msg.name)
         // 记录执行时的配置权限快照——不随后续设置变化。
-        const configPerm = getToolConfigPerm(msg.name, config)
+        const configPerm = getToolConfigPerm(msg.name, configRef.current)
         setToolCalls((prev) => [...prev, { id: msg.id, name: msg.name, status: 'running', seq, decision, configPerm }])
         // 用完后清除 decision（避免下一个同名工具继承上次决策）。
         if (decision) permissionDecisions.current.delete(msg.name)
@@ -187,7 +197,7 @@ export function App({ port }: AppProps) {
           }
           // 孤儿 tool_end（被拒绝/未知工具）——创建新条目。
           const seq = ++toolSeqRef.current
-          const configPerm = getToolConfigPerm(msg.name, config)
+          const configPerm = getToolConfigPerm(msg.name, configRef.current)
           return [...prev, { id: msg.id, name: msg.name, status: 'rejected', output: msg.output, decision: 'reject', configPerm, seq }]
         })
       } else if (msg.type === 'history_cleared') {
@@ -271,6 +281,7 @@ export function App({ port }: AppProps) {
         filesTouched={filesTouched}
         permissionsList={permissionsList}
         config={config}
+        highlightSection={highlightSection}
         collapsed={infoCollapsed}
         onToggleCollapse={() => setInfoCollapsed(!infoCollapsed)}
         port={port}
@@ -293,9 +304,11 @@ export function App({ port }: AppProps) {
           onNewSession={() => port.post({ type: 'new_session' })}
           onCompact={() => port.post({ type: 'compact_request' })}
           onAddProject={() => setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })}
-          onCommandFeedback={(cmd, arg) => {
+          onCommandFeedback={(cmd) => {
             if (cmd === '/cd') setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'set_cwd', path }); setModal({ kind: 'none' }) } })
-            else if (cmd === '/session') setSidebarCollapsed(false) // 突出侧栏
+            else if (cmd === '/session') { setSidebarCollapsed(false); highlightInfoSection('session-list') }
+            else if (cmd === '/status') highlightInfoSection('status')
+            else if (cmd === '/context') highlightInfoSection('context')
           }}
         />
       </div>

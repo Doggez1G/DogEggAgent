@@ -20,6 +20,7 @@ interface InfoPanelProps {
   filesTouched: { path: string; action: 'edit' | 'write'; toolName: string; time: number }[]
   permissionsList: string[]
   config: Config | null
+  highlightSection: string | null
   collapsed: boolean
   onToggleCollapse: () => void
   port: UiPort
@@ -98,7 +99,7 @@ export function InfoPanel(props: InfoPanelProps) {
       </header>
 
       <div className={styles.scrollArea}>
-        <InfoCard title="Status & Model" icon={Activity}>
+        <InfoCard title="Status & Model" icon={Activity} highlight={props.highlightSection === 'status'}>
           <div className={styles.statusRow}>
             <div className={styles.statusPill} data-status={status}>
               <span className={styles.statusIndicatorDot} data-status={status} />
@@ -111,7 +112,7 @@ export function InfoPanel(props: InfoPanelProps) {
           </div>
         </InfoCard>
 
-        <InfoCard title="Context" icon={Gauge}>
+        <InfoCard title="Context" icon={Gauge} highlight={props.highlightSection === 'context'}>
           {tokens !== undefined && windowTokens !== undefined ? (
             <>
               <div className={styles.contextBar}>
@@ -127,7 +128,7 @@ export function InfoPanel(props: InfoPanelProps) {
           ) : <p className={styles.emptyText}>Not available</p>}
         </InfoCard>
 
-        <InfoCard title="Tool Calls" icon={Wrench}>
+        <InfoCard title="Tool Calls" icon={Wrench} highlight={props.highlightSection === 'toolcalls'}>
           {props.toolCalls.length === 0 ? (
             <p className={styles.emptyText}>No tool calls yet</p>
           ) : (
@@ -153,7 +154,7 @@ export function InfoPanel(props: InfoPanelProps) {
           )}
         </InfoCard>
 
-        <InfoCard title="Files Touched" icon={FileEdit}>
+        <InfoCard title="Files Touched" icon={FileEdit} highlight={props.highlightSection === 'files'}>
           {files.length === 0 ? (
             <p className={styles.emptyText}>No files touched</p>
           ) : (
@@ -171,7 +172,7 @@ export function InfoPanel(props: InfoPanelProps) {
           )}
         </InfoCard>
 
-        <InfoCard title="Available Tools" icon={Wrench}>
+        <InfoCard title="Available Tools" icon={Wrench} highlight={props.highlightSection === 'tools'}>
           {props.toolsList.length === 0 ? (
             <p className={styles.emptyText}>Loading...</p>
           ) : (
@@ -190,7 +191,7 @@ export function InfoPanel(props: InfoPanelProps) {
         </InfoCard>
 
         {/* Session Permissions — allow_always 授权列表，可撤销 */}
-        <InfoCard title="Session Permissions" icon={ShieldCheck} defaultOpen={false}>
+        <InfoCard title="Session Permissions" icon={ShieldCheck} defaultOpen={false} highlight={props.highlightSection === 'permissions'}>
           {props.permissionsList.length === 0 ? (
             <p className={styles.emptyText}>No always-allowed tools this session</p>
           ) : (
@@ -211,7 +212,7 @@ export function InfoPanel(props: InfoPanelProps) {
           )}
         </InfoCard>
 
-        <InfoCard title="System Prompt" icon={Terminal} defaultOpen={false}>
+        <InfoCard title="System Prompt" icon={Terminal} defaultOpen={false} highlight={props.highlightSection === 'system'}>
           {props.systemState ? (
             <div className={styles.miniContent}>
               <span className={styles.miniPath}>{props.systemState.path}</span>
@@ -220,7 +221,7 @@ export function InfoPanel(props: InfoPanelProps) {
           ) : <p className={styles.emptyText}>Loading...</p>}
         </InfoCard>
 
-        <InfoCard title="Log Tail" icon={ScrollText} defaultOpen={false}>
+        <InfoCard title="Log Tail" icon={ScrollText} defaultOpen={false} highlight={props.highlightSection === 'log'}>
           {props.logState ? (
             <pre className={styles.miniPre}>{props.logState.tail.slice(0, 500)}</pre>
           ) : <p className={styles.emptyText}>Loading...</p>}
@@ -231,12 +232,14 @@ export function InfoPanel(props: InfoPanelProps) {
 }
 
 // ── 卡片式可折叠 section ──
-function InfoCard({ title, icon: Icon, defaultOpen = true, children }: {
-  title: string; icon: typeof Activity; defaultOpen?: boolean; children: React.ReactNode
+function InfoCard({ title, icon: Icon, defaultOpen = true, highlight = false, children }: {
+  title: string; icon: typeof Activity; defaultOpen?: boolean; highlight?: boolean; children: React.ReactNode
 }) {
   const [open, setOpen] = useState(defaultOpen)
+  // 高亮时自动展开。
+  useEffect(() => { if (highlight) setOpen(true) }, [highlight])
   return (
-    <div className={`${styles.infoCard} ${open ? '' : styles.collapsedCard}`}>
+    <div className={`${styles.infoCard} ${open ? '' : styles.collapsedCard} ${highlight ? styles.infoCardHighlight : ''}`}>
       <button className={styles.infoCardHeader} onClick={() => setOpen(!open)}>
         <ChevronDown size={12} strokeWidth={2} className={styles.infoChevron} />
         <Icon size={13} strokeWidth={1.5} className={styles.infoCardIcon} />

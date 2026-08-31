@@ -53,6 +53,8 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
       // /cd 无参数 → 已在 help 分支处理（打开文件选择器）。
       // /session → 突出侧栏。
       if (result.msg.type === 'list_sessions') { onCommandFeedback?.('/session') }
+      if (result.msg.type === 'status_request') { onCommandFeedback?.('/status') }
+      if (result.msg.type === 'context_request') { onCommandFeedback?.('/context') }
       const nav = COMMAND_TO_MODAL[cmd]
       if (nav) { onCommandNav(cmd) }
       port.post(result.msg)
@@ -60,7 +62,6 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
     setInput('')
     setSuggest(null)
   }, [input, matches, port, onCommandNav, onClearHistory, onQuit, onUserSubmit, onCommandFeedback, setSuggest])
-
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (matches.length > 0) {
       if (e.key === 'ArrowUp') {
