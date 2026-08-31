@@ -57,12 +57,20 @@ _Avoid_: websocket, real-time connection
 ### 交互概念
 
 **单会话模式 (Single Session)**:
-同一时刻只有一个活跃会话。可 /new、/session、resume 切换，但切换前需等完或打断。TUI 与 WebUI v1 一致。
+同一时刻只有一个活跃会话。可 /new、/session、resume 切换，但切换前需等完或打断（running 守卫保护）。TUI 与 WebUI 一致。多会话并行需要多 Agent 实例（未实现）。
 _Avoid_: single agent, mono-session
 
 **Cwd 切换 (Set Cwd)**:
-运行时变更 Agent 工作目录。`UiToAgentMessage` 的 `set_cwd` 消息触发，Agent 内传播到所有工具执行器。TUI 的 `/cd` 命令与 WebUI 的目录选择 UI 共用同一消息。
+运行时变更 Agent 工作目录。`UiToAgentMessage` 的 `set_cwd` 消息触发。会话文件持久化 cwd，resume 时恢复。new_session 可选传 cwd（WebUI 项目树添加会话用）。TUI 的 `/cd` 命令共用同一消息。
 _Avoid_: change directory, chdir
+
+**项目/会话树 (Project/Session Tree)**:
+WebUI 侧栏按 cwd 分组会话为项目。每个项目可折叠/展开，有添加会话和删除按钮。session_list 返回 cwd? 字段供前端分组。
+_Avoid_: workspace, folder tree
+
+**思考内容持久化 (Thinking Persistence)**:
+推理模型的 reasoning 内容存入 session JSON 的 thinking 字段（独立于 history/context），resume 后恢复思考块显示。parser 累积 reasoning → loop 返回 thinking 数组 → agent 持久化 → session_ready 携带 → reducer 重建思考块。
+_Avoid_: reasoning persistence, thought storage
 
 ### 前端交互域
 

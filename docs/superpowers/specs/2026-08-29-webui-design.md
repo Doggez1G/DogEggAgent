@@ -1,21 +1,32 @@
 # DogEggAgent WebUI 设计与实现 Spec
 
-> 日期：2026-08-29
-> 状态：待审批
-> 关联 ADR：0001 (SSE+POST)、0002 (SSE channel 归 server)、0003 (Block 语义化重构)、0004 (set_cwd 运行时)、0005 (单会话模式)
+> 日期：2026-08-29（最后更新：2026-08-31）
+> 状态：已实施
+> 关联 ADR：0001 (SSE+POST)、0002 (SSE channel 归 server)、0003 (Block 语义化重构)、0004 (set_cwd 运行时)、0005 (单会话模式)、0006 (会话 cwd 持久化)、0007 (思考内容持久化)
 > 关联文档：`docs/superpowers/specs/2026-08-26-dog-egg-agent-design.md`（原始设计）、`docs/superpowers/specs/2026-08-27-modular-refactor-design.md`（模块化重构设计）
 
 ## 1. 背景与目标
 
-DogEggAgent 当前只有 TUI（Ink v7）前端。本 spec 设计 WebUI（浏览器前端），使项目具备 Web 交互能力，为后续套 Electron 成为桌面产品铺路。
+DogEggAgent 当前有 TUI（Ink v7）+ WebUI（React DOM + Vite）双前端。WebUI 通过 SSE+POST 与后端 Agent 通信，为后续套 Electron 成为桌面产品铺路。
 
-**核心约束**：agent 和 bridge 契约一行不改（set_cwd 除外），WebUI 的全部工作量 = 一个新通道实现 + 一个 HTTP server + 一个 React DOM 前端 + shared 逻辑抽取。
+**核心约束**：bridge 契约向后兼容扩展（新增字段可选，旧 TUI 不受影响），WebUI 改动集中在 ui/src/webui/ + server 包。
 
 **设计原则**：
 - 代码设计方便后续维护、美观、正确
-- 高级感、减少 AI 味道、零 emoji 图标
-- 布局与主题正交（可独立切换）
-- 功能与 TUI 完全对等
+- 高级感、减少 AI 味道、Lucide SVG 图标（零 emoji）
+- 单一布局（侧栏 + 聊天 + 右侧信息面板），侧栏可收起
+- 功能与 TUI 完全对等（除 /quit）
+
+## 1.1 实施后变更记录
+
+- **单一布局**（非三布局）：删除 focus/workspace/zen 三布局系统，改为单一 grid（260px + 1fr + 280px）。侧栏可收起为 48px 图标条。右侧信息面板可收起为 32px。
+- **项目/会话树侧栏**：按 cwd 分组会话为项目，每个项目可折叠/展开，有添加会话和删除按钮。底部 Add Project 打开目录选择器。
+- **设置改为 modal**：不再切换 panel，/config 等命令打开 scrim + 大弹窗。General 标签页用 Select 下拉框 + EditableInput，Models 标签页用 Toggle 开关。
+- **右侧信息面板**：状态指示器 + 模型信息 + Token 进度条 + 工具调用列表（带 spinner）。
+- **思考内容持久化**（ADR-0007）：reasoning 内容存入 session JSON 的 thinking 字段，resume 后恢复思考块。parser 累积 reasoning → loop 返回 thinking → agent 持久化 → session_ready 携带 → reducer 重建思考块。
+- **会话删除**（ADR-0006）：deleteSession + delete_session 消息 + session_deleted 回传。侧栏会话项和项目级删除按钮（确认弹窗）。
+- **会话 cwd 持久化**（ADR-0006）：session 存 cwd，resume 恢复 this.cwd。new_session 可选传 cwd。session_list 带 cwd?。
+- **创建会话即时刷新**：new_session 立即保存空会话到磁盘，list_sessions 返回新会话，侧栏即时显示。
 
 ## 2. 架构总览
 
