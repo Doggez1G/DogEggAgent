@@ -12,7 +12,7 @@ interface InfoPanelProps {
   status: string
   tokens: number | undefined
   windowTokens: number | undefined
-  toolCalls: { id: string; name: string; status: 'running' | 'done' | 'error' | 'rejected'; output?: string; decision?: 'allow_once' | 'allow_always' | 'reject'; seq: number }[]
+  toolCalls: { id: string; name: string; status: 'running' | 'done' | 'error' | 'rejected'; output?: string; decision?: 'allow_once' | 'allow_always' | 'reject'; configPerm: string; seq: number }[]
   toolsList: { name: string; description: string }[]
   contextState: { estimatedTokens: number; windowTokens: number; percent: number } | null
   systemState: { path: string; content: string } | null
@@ -133,10 +133,8 @@ export function InfoPanel(props: InfoPanelProps) {
           ) : (
             <div className={styles.toolList}>
               {[...props.toolCalls].reverse().map((tc) => {
-                const configPerm = getToolPermission(tc.name, cfg)
-                // 实际权限：config allow → 'allow'（默认放行）；config reject → 'reject'；
-                // config ask + 有 decision → decision；config ask + 无 decision → 'ask'。
-                const actualPerm = configPerm === 'allow' ? 'allow' : configPerm === 'reject' ? 'reject' : (tc.decision === 'allow_once' ? 'once' : tc.decision === 'allow_always' ? 'always' : tc.decision === 'reject' ? 'rejected' : 'ask')
+                // 使用执行时记录的 configPerm 快照 + decision——不随后续设置变化。
+                const actualPerm = tc.configPerm === 'allow' ? 'allow' : tc.configPerm === 'reject' ? 'reject' : (tc.decision === 'allow_once' ? 'once' : tc.decision === 'allow_always' ? 'always' : tc.decision === 'reject' ? 'rejected' : 'ask')
                 return (
                   <div key={tc.id} className={styles.toolCallItem}>
                     <span className={styles.toolCallSeq}>{tc.seq}</span>

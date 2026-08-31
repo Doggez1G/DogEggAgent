@@ -18,6 +18,14 @@ interface AppProps {
 const initialState: ChatState = { blocks: [], status: 'idle', partial: null }
 marked.setOptions({ breaks: true, gfm: true })
 
+// 获取工具的配置权限（快照）——从 config.permission 的 allow/reject/ask 桶判断。
+function getToolConfigPerm(toolName: string, config: Config | null): string {
+  if (!config) return 'ask'
+  if (config.permission.reject.includes(toolName)) return 'reject'
+  if (config.permission.allow.includes(toolName)) return 'allow'
+  return 'ask'
+}
+
 export function App({ port }: AppProps) {
   const [chat, dispatch] = useReducer(reducer, initialState)
   const [modal, setModal] = useState<Modal>({ kind: 'none' })
@@ -34,7 +42,7 @@ export function App({ port }: AppProps) {
   const [systemState, setSystemState] = useState<{ path: string; content: string } | null>(null)
   const [logState, setLogState] = useState<{ path: string; tail: string } | null>(null)
   const [permissionsList, setPermissionsList] = useState<string[]>([])
-  const [toolCalls, setToolCalls] = useState<{ id: string; name: string; status: 'running' | 'done' | 'error' | 'rejected'; output?: string; decision?: 'allow_once' | 'allow_always' | 'reject'; seq: number }[]>([])
+  const [toolCalls, setToolCalls] = useState<{ id: string; name: string; status: 'running' | 'done' | 'error' | 'rejected'; output?: string; decision?: 'allow_once' | 'allow_always' | 'reject'; configPerm: string; seq: number }[]>([])
   const [filesTouched, setFilesTouched] = useState<FileTouched[]>([])
   const [pendingPermission, setPendingPermission] = useState<{ id: string; tool: string; input: unknown } | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -127,6 +135,8 @@ export function App({ port }: AppProps) {
         showToast(`${msg.tools.length} tools available`)
       } else if (msg.type === 'context_state') {
         setContextState({ estimatedTokens: msg.estimatedTokens, windowTokens: msg.windowTokens, percent: msg.percent })
+        // /context 命令的反馈——展开面板显示 context 信息。
+        if (chat.status === 'idle') { setInfoCollapsed(false); showToast(`Context: ${msg.estimatedTokens.toLocaleString()} / ${msg.windowTokens.toLocaleString()} tokens (${msg.percent}%)`) }
       } else if (msg.type === 'system_state') {
         setSystemState({ path: msg.path, content: msg.content })
         setInfoCollapsed(false)
@@ -137,10 +147,15 @@ export function App({ port }: AppProps) {
         showToast('Log loaded')
       } else if (msg.type === 'permissions_list') {
         setPermissionsList(msg.tools)
+        // /permissions 命令的反馈——展开面板显示 session permissions。
+        setInfoCollapsed(false)
+        showToast(msg.tools.length > 0 ? `${msg.tools.length} tools always-allowed this session` : 'No always-allowed tools this session')
       } else if (msg.type === 'tool_start') {
         const seq = ++toolSeqRef.current
         const decision = permissionDecisions.current.get(msg.id)
-        setToolCalls((prev) => [...prev, { id: msg.id, name: msg.name, status: 'running', seq, decision }])
+        // 记录执行时的配置权限快照——不随后续设置变化。
+        const configPerm = getToolConfigPerm(msg.name, config)
+        setToolCalls((prev) => [...prev, { id: msg.id, name: msg.name, status: 'running', seq, decision, configPerm }])
         // Files Touched：从 tool_start input 提取文件路径。
         if ((msg.name === 'edit_file' || msg.name === 'write_file') && msg.input) {
           const inp = msg.input as Record<string, unknown>
@@ -172,7 +187,8 @@ export function App({ port }: AppProps) {
           }
           // 孤儿 tool_end（被拒绝/未知工具）——创建新条目。
           const seq = ++toolSeqRef.current
-          return [...prev, { id: msg.id, name: msg.name, status: 'rejected', output: msg.output, decision: 'reject', seq }]
+          const configPerm = getToolConfigPerm(msg.name, config)
+          return [...prev, { id: msg.id, name: msg.name, status: 'rejected', output: msg.output, decision: 'reject', configPerm, seq }]
         })
       } else if (msg.type === 'history_cleared') {
         setFilesTouched([])
@@ -227,7 +243,38 @@ export function App({ port }: AppProps) {
         onResumeSession={(id) => port.post({ type: 'resume_session', id })}
         onDeleteSession={handleDeleteSession}
         onDeleteProject={handleDeleteProject}
-        onAddProject={() => setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })}
+        onAddProject={() => {
+          // 使用原生目录选择对话框 + 后端路径解析。
+          const input = document.createElement('input')
+          input.type = 'file'
+          input.setAttribute('webkitdirectory', '')
+          input.onchange = async () => {
+            const files = input.files
+            if (!files || files.length === 0) return
+            // webkitRelativePath 第一段是选中的目录名。
+            const dirName = files[0]!.webkitRelativePath.split('/')[0] ?? ''
+            if (!dirName) return
+            // 后端搜索完整路径。
+            try {
+              const resp = await fetch('/api/resolve-path', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: dirName }),
+              })
+              const data = await resp.json()
+              const paths: string[] = data.paths ?? []
+              if (paths.length >= 1) {
+                port.post({ type: 'new_session', cwd: paths[0] })
+              } else {
+                // 未找到——回退到目录浏览器。
+                setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })
+              }
+            } catch {
+              setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })
+            }
+          }
+          input.click()
+        }}
         onOpenSettings={() => setModal({ kind: 'settings' })}
         onThemeChange={setTheme}
       />
@@ -278,7 +325,31 @@ export function App({ port }: AppProps) {
           onUserSubmit={(text) => dispatch({ type: 'local_user', text })}
           onNewSession={() => port.post({ type: 'new_session' })}
           onCompact={() => { port.post({ type: 'compact_request' }); showToast('Compacting context...') }}
-          onAddProject={() => setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })}
+          onAddProject={() => {
+            const input = document.createElement('input')
+            input.type = 'file'
+            input.setAttribute('webkitdirectory', '')
+            input.onchange = async () => {
+              const files = input.files
+              if (!files || files.length === 0) return
+              const dirName = files[0]!.webkitRelativePath.split('/')[0] ?? ''
+              if (!dirName) return
+              try {
+                const resp = await fetch('/api/resolve-path', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: dirName }) })
+                const data = await resp.json()
+                const paths: string[] = data.paths ?? []
+                if (paths.length >= 1) port.post({ type: 'new_session', cwd: paths[0] })
+                else setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })
+              } catch {
+                setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })
+              }
+            }
+            input.click()
+          }}
+          onCommandFeedback={(cmd, arg) => {
+            if (cmd === '/cd') showToast(`Working directory changed to ${arg}`)
+            else if (cmd === '/session') setModal({ kind: 'command-palette' })
+          }}
         />
       </div>
 

@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { join, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execSync } from 'node:child_process'
+import { homedir } from 'node:os'
 import { listDirs, resolveFsPath } from '../fs'
 
 // MIME 类型映射——静态文件 serve 时设置正确的 Content-Type。
@@ -69,6 +70,50 @@ async function shellsHandler(req: IncomingMessage, res: ServerResponse): Promise
   return true
 }
 
+// resolve-path handler：POST /api/resolve-path → 在常见位置搜索目录或文件名，返回完整路径。
+// body: { name: "myproject", isFile?: true } → response: { paths: ["/home/user/myproject", ...] }
+async function resolvePathHandler(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+  if (req.method !== 'POST') {
+    res.writeHead(405); res.end('Method Not Allowed'); return true
+  }
+  const body = await new Promise<string>((resolve) => {
+    let data = ''
+    req.on('data', (chunk) => { data += chunk })
+    req.on('end', () => resolve(data))
+  })
+  let parsed: { name?: string; isFile?: boolean }
+  try { parsed = JSON.parse(body) } catch { res.writeHead(400); res.end('Invalid JSON'); return true }
+  const name = parsed.name
+  if (!name) { res.writeHead(400); res.end('Missing name'); return true }
+  const isFile = parsed.isFile === true
+
+  const home = homedir()
+  const searchDirs = [
+    home,
+    join(home, 'Desktop'),
+    join(home, 'Documents'),
+    join(home, 'Projects'),
+    join(home, 'projects'),
+    join(home, '.dogegg'),
+    process.cwd(),
+    join(process.cwd(), '..'),
+  ]
+  const found: string[] = []
+  const { stat } = await import('node:fs/promises')
+  for (const dir of searchDirs) {
+    const candidate = join(dir, name)
+    try {
+      const s = await stat(candidate)
+      const matches = isFile ? s.isFile() : s.isDirectory()
+      if (matches && !found.includes(candidate)) found.push(candidate)
+    } catch { /* not found in this location */ }
+  }
+
+  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' })
+  res.end(JSON.stringify({ paths: found }))
+  return true
+}
+
 // 创建路由表——api 路径到 handler 的映射。
 export function createRoutes(opts: {
   sseHandler: (req: IncomingMessage, res: ServerResponse) => void
@@ -89,6 +134,8 @@ export function createRoutes(opts: {
   routes.set('/api/fs', fsHandler)
   // Shell 检测：GET /api/shells
   routes.set('/api/shells', shellsHandler)
+  // 路径解析：POST /api/resolve-path
+  routes.set('/api/resolve-path', resolvePathHandler)
   return routes
 }
 

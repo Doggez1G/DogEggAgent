@@ -152,6 +152,28 @@
   border-color: var(--color-accent);
 }
 
+/* ── Input row (input + clear button) ── */
+.inputRow {
+  display: flex;
+}
+.inputRow .input {
+  flex: 1;
+}
+.inputClearBtn {
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--color-border);
+  border-left: none;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  background: var(--color-surface-elevated);
+  color: var(--color-danger);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  transition: background-color var(--t-fast) ease;
+}
+.inputClearBtn:hover { background: var(--color-danger-soft); }
+
 .mono {
   font-family: var(--font-mono);
 }

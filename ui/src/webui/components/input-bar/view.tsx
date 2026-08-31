@@ -16,9 +16,10 @@ interface InputBarProps {
   onNewSession?: () => void
   onCompact?: () => void
   onAddProject?: () => void
+  onCommandFeedback?: (cmd: string, arg?: string) => void
 }
 
-export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit, onUserSubmit, onNewSession, onCompact, onAddProject }: InputBarProps) {
+export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit, onUserSubmit, onNewSession, onCompact, onAddProject, onCommandFeedback }: InputBarProps) {
   const [input, setInput] = useState('')
   const [suggestIdx, setSuggestIdx] = useState<number | null>(null)
   const [quickMenuOpen, setQuickMenuOpen] = useState(false)
@@ -42,13 +43,17 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
       const cmd = input.trim().split(/\s+/)[0] ?? ''
       if (result.msg.type === 'clear_history') { onClearHistory(); setInput(''); setSuggest(null); return }
       if (result.msg.type === 'quit') { onQuit(); setInput(''); setSuggest(null); return }
+      // /cd 命令——toast 反馈。
+      if (result.msg.type === 'set_cwd') { onCommandFeedback?.('/cd', result.msg.path) }
+      // /session 命令——打开命令面板。
+      if (result.msg.type === 'list_sessions') { onCommandFeedback?.('/session') }
       const nav = COMMAND_TO_MODAL[cmd]
       if (nav) { onCommandNav(cmd) }
       port.post(result.msg)
     }
     setInput('')
     setSuggest(null)
-  }, [input, matches, port, onCommandNav, onClearHistory, onQuit, onUserSubmit, setSuggest])
+  }, [input, matches, port, onCommandNav, onClearHistory, onQuit, onUserSubmit, onCommandFeedback, setSuggest])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (matches.length > 0) {

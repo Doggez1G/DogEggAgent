@@ -18,10 +18,11 @@ export type Modal =
   | { kind: 'help' }
 
 // 斜杠命令 → modal 导航映射。
+// 只有打开 modal 的命令在这里——信息类命令（/context /status /tools /system /log /permissions）
+// 不打开 modal，而是在 App 的 onMessage 中展开右侧面板 + toast。
 export const COMMAND_TO_MODAL: Record<string, { modal: Exclude<Modal, { kind: 'none' }> }> = {
   '/config': { modal: { kind: 'settings' } },
   '/model': { modal: { kind: 'settings' } },
-  '/permissions': { modal: { kind: 'settings' } },
   '/help': { modal: { kind: 'help' } },
 }
 

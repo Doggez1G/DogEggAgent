@@ -61,13 +61,35 @@ function GeneralSection({ config, port }: { config: Config; port: UiPort }) {
   // System prompt 文件选择器——使用原生文件对话框。
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) {
-      // File 对象的 path 在浏览器中不可用，用 name 作为 fallback。
-      // 但在 Electron 或特定环境下 webkitRelativePath 可用。
-      const path = (file as unknown as { path?: string }).path ?? file.name
-      port.post({ type: 'config_set', path: 'systemPrompt', value: path })
+    if (!file) { e.target.value = ''; return }
+    // 浏览器安全限制：无法直接获取完整路径。
+    // 尝试 file.path（Electron 环境），否则通过后端 API 解析。
+    const filePath = (file as unknown as { path?: string }).path
+    if (filePath) {
+      port.post({ type: 'config_set', path: 'systemPrompt', value: filePath })
+    } else {
+      // 通过后端在常见位置搜索同名文件。
+      try {
+        const resp = await fetch('/api/resolve-path', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: file.name, isFile: true }),
+        })
+        const data = await resp.json()
+        const paths: string[] = data.paths ?? []
+        if (paths.length >= 1) {
+          port.post({ type: 'config_set', path: 'systemPrompt', value: paths[0] })
+        } else {
+          // 未找到——让用户手动输入。
+          const manual = window.prompt('File path not found automatically. Please enter the full path:', file.name)
+          if (manual) port.post({ type: 'config_set', path: 'systemPrompt', value: manual })
+        }
+      } catch {
+        const manual = window.prompt('Enter the full path to the system prompt file:', file.name)
+        if (manual) port.post({ type: 'config_set', path: 'systemPrompt', value: manual })
+      }
     }
     e.target.value = '' // reset for re-selection
   }
@@ -141,9 +163,9 @@ function ProviderCard({ provider, pIdx, port }: { provider: Config['providers'][
       </div>
       {expanded && (
         <div className={styles.providerBody}>
-          <TextField label="Name" value={provider.name} mono onChange={(v) => port.post({ type: 'config_set', path: `${base}.name`, value: v })} />
-          <TextField label="Base URL" value={provider.baseURL} mono onChange={(v) => port.post({ type: 'config_set', path: `${base}.baseURL`, value: v })} />
-          <TextField label="API Key" value={provider.apiKey} mono password onChange={(v) => port.post({ type: 'config_set', path: `${base}.apiKey`, value: v })} />
+          <TextField label="Name" value={provider.name} mono clearable onChange={(v) => port.post({ type: 'config_set', path: `${base}.name`, value: v })} />
+          <TextField label="Base URL" value={provider.baseURL} mono clearable onChange={(v) => port.post({ type: 'config_set', path: `${base}.baseURL`, value: v })} />
+          <TextField label="API Key" value={provider.apiKey} mono password clearable onChange={(v) => port.post({ type: 'config_set', path: `${base}.apiKey`, value: v })} />
 
           <div className={styles.modelsLabel}>Models</div>
           {provider.models.map((model, mIdx) => (
@@ -278,20 +300,27 @@ function SelectField({ label, desc, value, options, onChange }: { label: string;
   )
 }
 
-function TextField({ label, value, mono, password, onChange }: { label: string; value: string; mono?: boolean; password?: boolean; onChange: (v: string) => void }) {
+function TextField({ label, value, mono, password, clearable, onChange }: { label: string; value: string; mono?: boolean; password?: boolean; clearable?: boolean; onChange: (v: string) => void }) {
   const [draft, setDraft] = useState(value)
   useEffect(() => { setDraft(value) }, [value])
   return (
     <div className={styles.field}>
       <span className={styles.fieldLabel}>{label}</span>
-      <input
-        className={`${styles.input} ${mono ? styles.mono : ''}`}
-        type={password ? 'password' : 'text'}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => { if (draft !== value) onChange(draft) }}
-        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-      />
+      <div className={styles.inputRow}>
+        <input
+          className={`${styles.input} ${mono ? styles.mono : ''}`}
+          type={password ? 'password' : 'text'}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => { if (draft !== value) onChange(draft) }}
+          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+        />
+        {clearable && value && (
+          <button className={styles.inputClearBtn} onClick={() => { setDraft(''); onChange('') }} title="Clear">
+            <X size={12} strokeWidth={2} />
+          </button>
+        )}
+      </div>
     </div>
   )
 }
