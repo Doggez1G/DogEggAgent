@@ -34,11 +34,12 @@ export function App({ port }: AppProps) {
   const [systemState, setSystemState] = useState<{ path: string; content: string } | null>(null)
   const [logState, setLogState] = useState<{ path: string; tail: string } | null>(null)
   const [permissionsList, setPermissionsList] = useState<string[]>([])
-  const [toolCalls, setToolCalls] = useState<{ id: string; name: string; status: 'running' | 'done' | 'error'; output?: string }[]>([])
+  const [toolCalls, setToolCalls] = useState<{ id: string; name: string; status: 'running' | 'done' | 'error' | 'rejected'; output?: string; decision?: 'allow_once' | 'allow_always' | 'reject'; seq: number }[]>([])
   const [filesTouched, setFilesTouched] = useState<FileTouched[]>([])
   const [pendingPermission, setPendingPermission] = useState<{ id: string; tool: string; input: unknown } | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const toolSeqRef = useRef(0)
 
   // 显示 toast 提示——3 秒后自动消失。
   const showToast = useCallback((msg: string) => {
@@ -101,17 +102,20 @@ export function App({ port }: AppProps) {
       } else if (msg.type === 'session_ready') {
         setSessionId(msg.id)
         setFilesTouched([])
+        toolSeqRef.current = 0
         // 清除旧会话的右侧面板数据——新会话的数据需要重新请求。
         setContextState(null)
         setSystemState(null)
         setLogState(null)
         setToolCalls([])
+        setPermissionsList([])
         // 请求新会话的实时状态 + 右侧面板数据（不依赖 InfoPanel 的 effect timing）。
         port.post({ type: 'status_request' })
         port.post({ type: 'context_request' })
         port.post({ type: 'system_request' })
         port.post({ type: 'log_request' })
         port.post({ type: 'tools_request' })
+        port.post({ type: 'permissions_request' })
         refreshSessions()
       } else if (msg.type === 'session_deleted') {
         setSessions((prev) => prev.filter((s) => s.id !== msg.id))
@@ -126,7 +130,8 @@ export function App({ port }: AppProps) {
       } else if (msg.type === 'permissions_list') {
         setPermissionsList(msg.tools)
       } else if (msg.type === 'tool_start') {
-        setToolCalls((prev) => [...prev, { id: msg.id, name: msg.name, status: 'running' }])
+        const seq = ++toolSeqRef.current
+        setToolCalls((prev) => [...prev, { id: msg.id, name: msg.name, status: 'running', seq }])
         // Files Touched：从 tool_start input 提取文件路径。
         if ((msg.name === 'edit_file' || msg.name === 'write_file') && msg.input) {
           const inp = msg.input as Record<string, unknown>
@@ -141,9 +146,25 @@ export function App({ port }: AppProps) {
           }
         }
       } else if (msg.type === 'tool_end') {
-        setToolCalls((prev) => prev.map((tc) =>
-          tc.id === msg.id ? { ...tc, status: msg.error ? 'error' : 'done', output: msg.output } : tc
-        ))
+        // 检测是否是被拒绝的工具——error === 'denied' 表示拒绝（无前置 tool_start）。
+        const isRejected = msg.error === 'denied'
+        setToolCalls((prev) => {
+          const idx = prev.findIndex((tc) => tc.id === msg.id)
+          if (idx >= 0) {
+            // 正常路径：有 tool_start，更新状态。
+            const updated = [...prev]
+            updated[idx] = {
+              ...updated[idx]!,
+              status: isRejected ? 'rejected' : (msg.error ? 'error' : 'done'),
+              output: msg.output,
+              decision: isRejected ? 'reject' : undefined,
+            }
+            return updated
+          }
+          // 孤儿 tool_end（被拒绝/未知工具）——创建新条目。
+          const seq = ++toolSeqRef.current
+          return [...prev, { id: msg.id, name: msg.name, status: 'rejected', output: msg.output, decision: 'reject', seq }]
+        })
       } else if (msg.type === 'history_cleared') {
         setFilesTouched([])
         setToolCalls([])
@@ -239,6 +260,7 @@ export function App({ port }: AppProps) {
         logState={logState}
         filesTouched={filesTouched}
         permissionsList={permissionsList}
+        config={config}
         collapsed={infoCollapsed}
         onToggleCollapse={() => setInfoCollapsed(!infoCollapsed)}
         port={port}

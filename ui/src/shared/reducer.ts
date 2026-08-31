@@ -173,12 +173,11 @@ export function reducer(state: ChatState, msg: Action): ChatState {
         blocks: rebuildBlocksFromHistory(msg.messages, msg.thinking),
       }
     case 'compaction':
-      // 手动压缩弹 overlay/面板（App 处理），reducer 不产生块。
-      // 自动压缩插一条 dim 提示块（不打断对话流），让用户知道发生了压缩。
+      // 压缩（手动或自动）都在对话面板插入一条提示块。
       if (msg.source === 'auto') {
-        return { ...state, blocks: [...state.blocks, { kind: 'auto_compact', color: 'subtext', text: `${msg.before_tokens} → ${msg.after_tokens} tokens` }] }
+        return { ...state, blocks: [...state.blocks, { kind: 'auto_compact', color: 'subtext', text: `Context auto-compacted: ${msg.before_tokens} → ${msg.after_tokens} tokens` }] }
       }
-      return state
+      return { ...state, blocks: [...state.blocks, { kind: 'auto_compact', color: 'subtext', text: `Context compacted: ${msg.before_tokens} → ${msg.after_tokens} tokens` }] }
     case 'tools_list':
     case 'status_state':
     case 'context_state':
@@ -187,7 +186,8 @@ export function reducer(state: ChatState, msg: Action): ChatState {
       // 这些命令响应改为 info overlay/面板呈现（App 的 onMessage 拦截切换），reducer 不再产生消息块。
       return state
     case 'history_cleared':
-      return { ...state, blocks: [], partial: null }
+      // 清空历史——先 flush partial，然后在对话面板插入一条提示，再清空。
+      return { ...flush(state), blocks: [{ kind: 'notice', color: 'subtext', text: 'History cleared' }], partial: null }
     default:
       return state
   }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { Cpu, Gauge, Activity, Wrench, ChevronRight, ChevronLeft, ChevronDown, Terminal, ScrollText, FileEdit, FilePlus } from 'lucide-react'
-import type { UiPort } from '@dogegg/bridge'
+import { Cpu, Gauge, Activity, Wrench, ChevronRight, ChevronLeft, ChevronDown, Terminal, ScrollText, FileEdit, FilePlus, ShieldCheck, X } from 'lucide-react'
+import type { Config, UiPort } from '@dogegg/bridge'
 import { Badge } from '../primitives'
 import styles from './info-panel.module.css'
 
@@ -12,13 +12,14 @@ interface InfoPanelProps {
   status: string
   tokens: number | undefined
   windowTokens: number | undefined
-  toolCalls: { id: string; name: string; status: 'running' | 'done' | 'error'; output?: string }[]
+  toolCalls: { id: string; name: string; status: 'running' | 'done' | 'error' | 'rejected'; output?: string; decision?: 'allow_once' | 'allow_always' | 'reject'; seq: number }[]
   toolsList: { name: string; description: string }[]
   contextState: { estimatedTokens: number; windowTokens: number; percent: number } | null
   systemState: { path: string; content: string } | null
   logState: { path: string; tail: string } | null
   filesTouched: { path: string; action: 'edit' | 'write'; toolName: string; time: number }[]
   permissionsList: string[]
+  config: Config | null
   collapsed: boolean
   onToggleCollapse: () => void
   port: UiPort
@@ -33,10 +34,12 @@ const STATUS_LABELS: Record<string, string> = {
 
 const basename = (p: string): string => p.split(/[/\\]/).pop() ?? p
 
-// 获取工具的权限标签——permissionsList 是 allow_always 授权列表。
-// 未在 allow 列表中的工具默认是 ask（需要确认），除非在 config permission 中设为 reject。
-function getToolPermission(toolName: string, allowAlways: string[]): string | null {
-  if (allowAlways.includes(toolName)) return 'allow'
+// 获取工具的权限标签——从 config.permission 的 allow/reject/ask 桶判断。
+// 不受 session allow_always 影响——只有设置中的配置才显示。
+function getToolPermission(toolName: string, config: Config | null): string {
+  if (!config) return 'ask'
+  if (config.permission.reject.includes(toolName)) return 'reject'
+  if (config.permission.allow.includes(toolName)) return 'allow'
   return 'ask'
 }
 
@@ -83,6 +86,7 @@ export function InfoPanel(props: InfoPanelProps) {
   const percent = tokens && windowTokens ? Math.round((tokens / windowTokens) * 100) : (props.contextState?.percent ?? 0)
   const overload = percent > 80
   const files = [...props.filesTouched].sort((a, b) => b.time - a.time)
+  const cfg = props.config
 
   return (
     <aside className={styles.infoPanel}>
@@ -128,17 +132,20 @@ export function InfoPanel(props: InfoPanelProps) {
             <p className={styles.emptyText}>No tool calls yet</p>
           ) : (
             <div className={styles.toolList}>
-              {props.toolCalls.slice(-8).reverse().map((tc) => {
-                const perm = getToolPermission(tc.name, props.permissionsList)
+              {[...props.toolCalls].reverse().map((tc) => {
+                const perm = getToolPermission(tc.name, cfg)
                 return (
                   <div key={tc.id} className={styles.toolCallItem}>
+                    <span className={styles.toolCallSeq}>{tc.seq}</span>
                     <span className={`${styles.toolCallIcon} ${styles[`toolCall_${tc.status}`]}`}>
                       {tc.status === 'running' && <span className="spin" style={{ display: 'inline-block' }}>↻</span>}
                       {tc.status === 'done' && '✓'}
                       {tc.status === 'error' && '✕'}
+                      {tc.status === 'rejected' && '⊘'}
                     </span>
                     <span className={styles.toolCallName}>{tc.name}</span>
-                    {perm && <span className={styles.toolPerm} data-perm={perm}>{perm}</span>}
+                    {tc.decision && <span className={styles.toolDecision} data-decision={tc.decision}>{tc.decision === 'allow_once' ? 'once' : tc.decision === 'allow_always' ? 'always' : 'rejected'}</span>}
+                    <span className={styles.toolPerm} data-perm={perm}>{perm}</span>
                   </div>
                 )
               })}
@@ -170,14 +177,36 @@ export function InfoPanel(props: InfoPanelProps) {
           ) : (
             <div className={styles.miniList}>
               {props.toolsList.map((t) => {
-                const perm = getToolPermission(t.name, props.permissionsList)
+                const perm = getToolPermission(t.name, cfg)
                 return (
                   <div key={t.name} className={styles.miniItem}>
                     <code className={styles.miniName}>{t.name}</code>
-                    {perm && <span className={styles.toolPerm} data-perm={perm}>{perm}</span>}
+                    <span className={styles.toolPerm} data-perm={perm}>{perm}</span>
                   </div>
                 )
               })}
+            </div>
+          )}
+        </InfoCard>
+
+        {/* Session Permissions — allow_always 授权列表，可撤销 */}
+        <InfoCard title="Session Permissions" icon={ShieldCheck} defaultOpen={false}>
+          {props.permissionsList.length === 0 ? (
+            <p className={styles.emptyText}>No always-allowed tools this session</p>
+          ) : (
+            <div className={styles.toolList}>
+              {props.permissionsList.map((tool) => (
+                <div key={tool} className={styles.fileItem}>
+                  <code className={styles.miniName}>{tool}</code>
+                  <button
+                    className={styles.permRevokeBtn}
+                    onClick={() => props.port.post({ type: 'permission_revoke', tool })}
+                    aria-label={`Revoke ${tool}`}
+                  >
+                    <X size={10} strokeWidth={2} />
+                  </button>
+                </div>
+              ))}
             </div>
           )}
         </InfoCard>

@@ -205,7 +205,31 @@
 .toolCall_done { color: var(--color-success); }
 .toolCall_error { color: var(--color-danger); }
 .toolCall_running { color: var(--color-accent); }
+.toolCall_rejected { color: var(--color-warning); }
 .toolCallName { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--color-text); flex: 1; }
+
+/* 序号 */
+.toolCallSeq {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-muted, var(--color-subtext));
+  width: 18px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* 执行时决策标签 */
+.toolDecision {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.toolDecision[data-decision='allow_once'] { background: var(--color-accent-soft); color: var(--color-accent); }
+.toolDecision[data-decision='allow_always'] { background: var(--color-success-soft); color: var(--color-success); }
+.toolDecision[data-decision='reject'] { background: var(--color-danger-soft); color: var(--color-danger); }
 
 /* 工具权限标签 */
 .toolPerm {
@@ -219,6 +243,23 @@
 .toolPerm[data-perm='allow'] { background: var(--color-success-soft); color: var(--color-success); }
 .toolPerm[data-perm='ask'] { background: var(--color-warning-soft); color: var(--color-warning); }
 .toolPerm[data-perm='reject'] { background: var(--color-danger-soft); color: var(--color-danger); }
+
+/* 撤销权限按钮 */
+.permRevokeBtn {
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-muted, var(--color-subtext));
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color var(--t-fast) ease;
+}
+.permRevokeBtn:hover { color: var(--color-danger); }
 
 /* ── Files Touched ── */
 .fileItem {
