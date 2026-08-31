@@ -17,7 +17,7 @@
 /* focus ring——accent 色 3px 光晕 */
 .inputContainer:focus-within {
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
 }
 
 .textarea {

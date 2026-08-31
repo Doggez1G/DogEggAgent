@@ -11,7 +11,7 @@
   --color-success: #22C55E;
   --color-warning: #FBBF24;
   --color-danger: #EF4444;
-  --color-border: #475569;
+${insertBlock}
 
   --radius-sm: 4px;
   --radius-md: 6px;

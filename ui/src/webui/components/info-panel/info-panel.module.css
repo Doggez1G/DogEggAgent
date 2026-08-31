@@ -114,17 +114,17 @@
   align-items: center;
   gap: var(--sp-1);
   padding: 2px var(--sp-2);
-  border-radius: var(--radius-full, 9999px);
+  border-radius: var(--radius-full, var(--radius-full));
   font-size: var(--fs-xs);
   font-weight: 500;
 }
-.statusPill[data-status='idle'] { background: rgba(161, 161, 170, 0.12); color: var(--color-subtext); }
-.statusPill[data-status='thinking'], .statusPill[data-status='responding'] { background: rgba(99, 102, 241, 0.12); color: var(--color-accent); }
-.statusPill[data-status='executing'], .statusPill[data-status='tool_calling'] { background: rgba(34, 197, 94, 0.12); color: var(--color-success); }
-.statusPill[data-status='error'] { background: rgba(239, 68, 68, 0.12); color: var(--color-danger); }
-.statusPill[data-status='compacting'] { background: rgba(251, 191, 36, 0.12); color: var(--color-warning); }
-.statusPill[data-status='finished'] { background: rgba(34, 197, 94, 0.12); color: var(--color-success); }
-.statusPill[data-status='cancelled'], .statusPill[data-status='waiting_permission'] { background: rgba(251, 191, 36, 0.12); color: var(--color-warning); }
+.statusPill[data-status='idle'] { background: var(--color-subtext-soft); color: var(--color-subtext); }
+.statusPill[data-status='thinking'], .statusPill[data-status='responding'] { background: var(--color-accent-soft); color: var(--color-accent); }
+.statusPill[data-status='executing'], .statusPill[data-status='tool_calling'] { background: var(--color-success-soft); color: var(--color-success); }
+.statusPill[data-status='error'] { background: var(--color-danger-soft); color: var(--color-danger); }
+.statusPill[data-status='compacting'] { background: var(--color-warning-soft); color: var(--color-warning); }
+.statusPill[data-status='finished'] { background: var(--color-success-soft); color: var(--color-success); }
+.statusPill[data-status='cancelled'], .statusPill[data-status='waiting_permission'] { background: var(--color-warning-soft); color: var(--color-warning); }
 
 .statusIndicatorDot {
   width: 6px;
@@ -188,7 +188,7 @@
   align-items: center;
   gap: var(--sp-2);
   padding: 3px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 .toolCallItem:last-child { border-bottom: none; }
 .toolCallIcon {

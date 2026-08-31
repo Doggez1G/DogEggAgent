@@ -51,7 +51,7 @@
   width: 28px;
   height: 28px;
   border-radius: var(--radius-md);
-  background: rgba(99, 102, 241, 0.12);
+  background: var(--color-accent-soft);
   color: var(--color-accent);
   display: flex;
   align-items: center;
@@ -82,8 +82,8 @@
 
 /* ── Streaming thinking ── */
 .streamingThinking {
-  background: rgba(251, 191, 36, 0.08);
-  border: 1px solid rgba(251, 191, 36, 0.15);
+  background: var(--color-warning-soft-bg);
+  border: 1px solid var(--color-warning-soft-border);
   border-left: 3px solid var(--color-warning);
   border-radius: var(--radius-md);
   margin-bottom: var(--sp-3);

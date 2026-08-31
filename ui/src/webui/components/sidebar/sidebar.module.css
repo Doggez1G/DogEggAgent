@@ -129,7 +129,7 @@
   color: var(--color-subtext);
   background: var(--color-surface-elevated);
   padding: 1px 6px;
-  border-radius: 9999px;
+  border-radius: var(--radius-full);
   flex-shrink: 0;
 }
 .projectAdd, .projectDel {
@@ -171,7 +171,7 @@
 }
 .sessionItem:hover { background: var(--color-surface-elevated); }
 .sessionActive {
-  background: rgba(99, 102, 241, 0.10);
+  background: var(--color-accent-soft);
 }
 /* 活跃会话左侧 accent 竖线 */
 .sessionActive::before {
