@@ -11,11 +11,21 @@
   --color-success: #16A34A;
   --color-warning: #D97706;
   --color-danger: #DC2626;
-${insertBlock}
+  --color-border: #E5E5E5;
+
+  /* soft 色——低透明度版本，亮色主题用更低透明度 */
+  --color-accent-soft: rgba(99, 102, 241, 0.10);
+  --color-success-soft: rgba(22, 163, 74, 0.10);
+  --color-warning-soft: rgba(217, 119, 6, 0.12);
+  --color-danger-soft: rgba(220, 38, 38, 0.10);
+  --color-subtext-soft: rgba(113, 113, 122, 0.10);
+  --color-warning-soft-bg: rgba(217, 119, 6, 0.06);
+  --color-warning-soft-border: rgba(217, 119, 6, 0.20);
 
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
+  --radius-full: 9999px;
 
   --sp-1: 4px;
   --sp-2: 8px;

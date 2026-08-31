@@ -51,10 +51,14 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
       if (result.msg.type === 'quit') { onQuit(); setInput(''); setSuggest(null); return }
       // /cd 有参数 → 直接发 set_cwd 消息。
       // /cd 无参数 → 已在 help 分支处理（打开文件选择器）。
-      // /session → 突出侧栏。
+      // 纯呈现类命令 → 通过 onCommandFeedback 突出显示对应面板 section。
       if (result.msg.type === 'list_sessions') { onCommandFeedback?.('/session') }
       if (result.msg.type === 'status_request') { onCommandFeedback?.('/status') }
       if (result.msg.type === 'context_request') { onCommandFeedback?.('/context') }
+      if (result.msg.type === 'tools_request') { onCommandFeedback?.('/tools') }
+      if (result.msg.type === 'system_request') { onCommandFeedback?.('/system') }
+      if (result.msg.type === 'log_request') { onCommandFeedback?.('/log') }
+      if (result.msg.type === 'permissions_request') { onCommandFeedback?.('/permissions') }
       const nav = COMMAND_TO_MODAL[cmd]
       if (nav) { onCommandNav(cmd) }
       port.post(result.msg)

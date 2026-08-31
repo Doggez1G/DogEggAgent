@@ -144,19 +144,14 @@ export function App({ port }: AppProps) {
         setSessions((prev) => prev.filter((s) => s.id !== msg.id))
       } else if (msg.type === 'tools_list') {
         setToolsList(msg.tools)
-        highlightInfoSection('tools')
       } else if (msg.type === 'context_state') {
         setContextState({ estimatedTokens: msg.estimatedTokens, windowTokens: msg.windowTokens, percent: msg.percent })
-        if (chat.status === 'idle') highlightInfoSection('context')
       } else if (msg.type === 'system_state') {
         setSystemState({ path: msg.path, content: msg.content })
-        highlightInfoSection('system')
       } else if (msg.type === 'log_state') {
         setLogState({ path: msg.path, tail: msg.tail })
-        highlightInfoSection('log')
       } else if (msg.type === 'permissions_list') {
         setPermissionsList(msg.tools)
-        highlightInfoSection('permissions')
       } else if (msg.type === 'tool_start') {
         const seq = ++toolSeqRef.current
         // 按 toolName 查找 decision——permission_request.id 与 tool_start.id 不同。
@@ -166,6 +161,8 @@ export function App({ port }: AppProps) {
         setToolCalls((prev) => [...prev, { id: msg.id, name: msg.name, status: 'running', seq, decision, configPerm }])
         // 用完后清除 decision（避免下一个同名工具继承上次决策）。
         if (decision) permissionDecisions.current.delete(msg.name)
+        // allow_always 决策后刷新 Session Permissions 列表——tool_start 到达时 permission.apply 已执行。
+        if (decision === 'allow_always') port.post({ type: 'permissions_request' })
         // Files Touched：从 tool_start input 提取文件路径。
         if ((msg.name === 'edit_file' || msg.name === 'write_file') && msg.input) {
           const inp = msg.input as Record<string, unknown>
@@ -186,12 +183,14 @@ export function App({ port }: AppProps) {
           const idx = prev.findIndex((tc) => tc.id === msg.id)
           if (idx >= 0) {
             // 正常路径：有 tool_start，更新状态。
+            // 保留 tool_start 时记录的 decision——仅在拒绝时覆盖为 'reject'。
+            const existing = prev[idx]!
             const updated = [...prev]
             updated[idx] = {
-              ...updated[idx]!,
+              ...existing,
               status: isRejected ? 'rejected' : (msg.error ? 'error' : 'done'),
               output: msg.output,
-              decision: isRejected ? 'reject' : undefined,
+              decision: isRejected ? 'reject' : existing.decision,
             }
             return updated
           }
@@ -209,9 +208,10 @@ export function App({ port }: AppProps) {
       } else if (msg.type === 'notice') {
         // notice 由 reducer 处理为对话面板中的 notice 块，不需要 toast。
       } else if (msg.type === 'finished' || msg.type === 'error') {
-        // 对话结束后刷新会话列表 + context 状态。
+        // 对话结束后刷新会话列表 + context + log 状态。
         refreshSessions()
         port.post({ type: 'context_request' })
+        port.post({ type: 'log_request' })
       }
     })
     port.post({ type: 'config_request' })
@@ -306,9 +306,13 @@ export function App({ port }: AppProps) {
           onAddProject={() => setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })}
           onCommandFeedback={(cmd) => {
             if (cmd === '/cd') setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'set_cwd', path }); setModal({ kind: 'none' }) } })
-            else if (cmd === '/session') { setSidebarCollapsed(false); highlightInfoSection('session-list') }
+            else if (cmd === '/session') { setSidebarCollapsed(false) }
             else if (cmd === '/status') highlightInfoSection('status')
             else if (cmd === '/context') highlightInfoSection('context')
+            else if (cmd === '/tools') highlightInfoSection('tools')
+            else if (cmd === '/system') highlightInfoSection('system')
+            else if (cmd === '/log') highlightInfoSection('log')
+            else if (cmd === '/permissions') highlightInfoSection('permissions')
           }}
         />
       </div>
