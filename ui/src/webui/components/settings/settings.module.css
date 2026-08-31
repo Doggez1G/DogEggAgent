@@ -1,18 +1,76 @@
 .settings {
   display: flex;
+  flex-direction: column;
   height: 100%;
   overflow: hidden;
   grid-area: main;
 }
 
+/* ── 面板头 ── */
+.panelHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  flex-shrink: 0;
+}
+
+.backBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: all 120ms ease;
+  flex-shrink: 0;
+}
+
+.backBtn:hover {
+  background: var(--color-surface-elevated);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.panelTitle {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.panelTitleText {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.panelSubtitle {
+  font-size: 12px;
+  color: var(--color-subtext);
+}
+
+/* ── 主体布局 ── */
+.settingsBody {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── 二级导航 ── */
 .tabNav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   padding: 12px 8px;
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
-  min-width: 160px;
+  width: 180px;
   flex-shrink: 0;
 }
 
@@ -30,6 +88,7 @@
   border-radius: var(--radius-sm);
   text-align: left;
   min-height: 34px;
+  transition: all 120ms ease;
 }
 
 .tabBtn:hover {
@@ -40,14 +99,47 @@
 .tabActive {
   background: var(--color-surface-elevated);
   color: var(--color-accent);
+  font-weight: 500;
 }
 
+.tabChevron {
+  margin-left: auto;
+  color: var(--color-accent);
+}
+
+/* ── 内容区 ── */
 .tabContent {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
 }
 
+.tabHeader {
+  padding: 20px 24px 12px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.tabTitle {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.tabDesc {
+  font-size: 13px;
+  color: var(--color-subtext);
+  margin: 4px 0 0;
+}
+
+.tabInner {
+  padding: 20px 24px;
+  flex: 1;
+}
+
+/* ── 通用 ── */
 .empty {
   color: var(--color-subtext);
   font-size: 13px;
@@ -57,254 +149,429 @@
 .hint {
   color: var(--color-subtext);
   font-size: 12px;
-  margin-bottom: 12px;
-  font-family: var(--font-mono);
+  margin-top: 12px;
 }
 
-/* ── 字段列表 ── */
-.fieldList {
+/* ── 表单（General）── */
+.formList {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-width: 600px;
+  gap: 16px;
+  max-width: 560px;
 }
 
-.fieldRow {
+.formField {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 12px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  flex-direction: column;
+  gap: 6px;
 }
 
-.fieldLabel {
+.formLabel {
   font-size: 13px;
   font-weight: 500;
   color: var(--color-text);
-  flex-shrink: 0;
 }
 
-.fieldValue {
-  font-size: 13px;
-  color: var(--color-subtext);
+.formValue {
+  display: block;
+  text-align: left;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
   font-family: var(--font-mono);
-  background: transparent;
-  border: none;
+  font-size: 13px;
   cursor: pointer;
-  text-align: right;
+  transition: all 120ms ease;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 300px;
 }
 
-.fieldValue:hover {
+.formValue:hover {
+  border-color: var(--color-accent);
   color: var(--color-accent);
 }
 
-.fieldEdit {
+.formEditRow {
   display: flex;
   gap: 4px;
   align-items: center;
 }
 
-.fieldInput {
-  padding: 4px 8px;
-  border: 1px solid var(--color-border);
+.formInput {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--color-accent);
   border-radius: var(--radius-sm);
-  background: var(--color-bg);
+  background: var(--color-surface);
   color: var(--color-text);
   font-family: var(--font-mono);
   font-size: 13px;
   outline: none;
-  min-width: 120px;
 }
 
-.fieldInput:focus {
-  border-color: var(--color-accent);
-}
-
-/* ── 按钮 ── */
-.btnPrimary {
-  padding: 4px 12px;
+.iconBtnSave {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
   border: none;
   border-radius: var(--radius-sm);
-  background: var(--color-accent);
+  background: var(--color-success);
   color: var(--color-bg);
-  font-size: 12px;
-  font-weight: 500;
   cursor: pointer;
-  font-family: var(--font-sans);
+  flex-shrink: 0;
 }
 
-.btnPrimary:hover {
-  opacity: 0.9;
-}
-
-.btnSecondary {
-  padding: 4px 12px;
+.iconBtnCancel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--color-text);
-  font-size: 12px;
-  font-weight: 500;
+  color: var(--color-subtext);
   cursor: pointer;
-  font-family: var(--font-sans);
+  flex-shrink: 0;
+  font-size: 16px;
 }
 
-.btnSecondary:hover {
+.iconBtnCancel:hover {
   background: var(--color-surface-elevated);
+  color: var(--color-text);
 }
 
-.btnDanger {
-  padding: 4px 12px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: var(--color-danger);
-  color: var(--color-bg);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  font-family: var(--font-sans);
-}
-
-.btnDanger:hover {
-  opacity: 0.9;
-}
-
-/* ── 树编辑器 ── */
+/* ── 树编辑器（Models）── */
 .treeEditor {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-width: 600px;
+  gap: 12px;
+  max-width: 640px;
 }
 
-.treeBreadcrumb {
+.breadcrumb {
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-.crumbBtn {
-  padding: 4px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text);
+  gap: 4px;
+  flex-wrap: wrap;
   font-size: 12px;
-  cursor: pointer;
 }
 
-.crumbBtn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.crumbPath {
+.crumbItem {
+  border: none;
+  background: transparent;
+  color: var(--color-subtext);
   font-family: var(--font-mono);
   font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+}
+
+.crumbItem:hover {
+  color: var(--color-text);
+  background: var(--color-surface-elevated);
+}
+
+.crumbActive {
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 2px 4px;
+}
+
+.crumbSep {
   color: var(--color-subtext);
 }
 
 .treeList {
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 
-.treeItem {
+.treeRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 10px 14px;
   cursor: pointer;
-  font-size: 13px;
+  border-bottom: 1px solid var(--color-border);
   transition: background-color 80ms ease;
 }
 
-.treeItem:hover {
-  background: var(--color-surface-elevated);
+.treeRow:last-child {
+  border-bottom: none;
 }
 
-.treeActive {
+.treeRow:hover {
   background: var(--color-surface-elevated);
-  color: var(--color-accent);
 }
 
 .treeLabel {
   flex: 1;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.treeActionsInline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .treeArrow {
   color: var(--color-subtext);
 }
 
-.treeActions {
-  display: flex;
-  gap: 4px;
-}
-
-/* ── 工具列表 ── */
-.toolRow {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 8px 12px;
+.boolBadge {
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-}
-
-.toolName {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--color-accent);
-  font-weight: 500;
-}
-
-.toolDesc {
-  font-size: 12px;
   color: var(--color-subtext);
 }
 
-/* ── 代码块 ── */
-.codeBlock {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.5;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+.boolBadge[data-on='true'] {
+  background: var(--color-success);
+  color: var(--color-bg);
+  border-color: var(--color-success);
+}
+
+.treeDelBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
   border-radius: var(--radius-sm);
-  padding: 12px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 400px;
-  overflow-y: auto;
+  background: transparent;
+  color: var(--color-subtext);
+  cursor: pointer;
+}
+
+.treeDelBtn:hover {
+  color: var(--color-danger);
+  background: var(--color-surface);
+}
+
+.treeAddHint {
+  font-size: 12px;
+  color: var(--color-subtext);
+  padding: 8px 12px;
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--color-border);
+}
+
+/* ── 卡片列表（Permissions / Tools）── */
+.cardList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 560px;
+}
+
+.emptyCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.emptyIcon {
+  color: var(--color-subtext);
+  opacity: 0.5;
+}
+
+.emptyTitle {
+  font-size: 15px;
+  font-weight: 500;
   color: var(--color-text);
 }
 
-/* ── 上下文进度条 ── */
-.contextBar {
+.emptyDesc {
+  font-size: 13px;
+  color: var(--color-subtext);
+  max-width: 360px;
+  line-height: 1.5;
+}
+
+.permCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  transition: border-color 120ms ease;
+}
+
+.permCard:hover {
+  border-color: var(--color-accent);
+}
+
+.permInfo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.permIcon {
+  color: var(--color-accent);
+}
+
+.permName {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.revokeBtn {
+  padding: 4px 12px;
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-danger);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: all 120ms ease;
+}
+
+.revokeBtn:hover {
+  background: var(--color-danger);
+  color: var(--color-bg);
+}
+
+.toolCard {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.toolCardName {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.toolCardDesc {
+  font-size: 12px;
+  color: var(--color-subtext);
+  line-height: 1.4;
+}
+
+/* ── 上下文面板 ── */
+.contextPanel {
+  max-width: 560px;
+}
+
+.contextStatRow {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 16px;
+}
+
+.contextStat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.contextStatValue {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.contextStatValue[data-overload='true'] {
+  color: var(--color-danger);
+}
+
+.contextStatLabel {
+  font-size: 11px;
+  color: var(--color-subtext);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.contextBarLarge {
   width: 100%;
-  height: 8px;
+  height: 10px;
   background: var(--color-surface-elevated);
   border-radius: var(--radius-sm);
   overflow: hidden;
-  margin: 8px 0;
 }
 
-.contextFill {
+.contextFillLarge {
   height: 100%;
   background: var(--color-accent);
   border-radius: var(--radius-sm);
   transition: width 300ms ease;
 }
 
-.contextFill[data-overload='true'] {
+.contextFillLarge[data-overload='true'] {
   background: var(--color-danger);
+}
+
+/* ── 代码面板（System / Logs）── */
+.codePanel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 720px;
+}
+
+.codePath {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-subtext);
+  font-size: 12px;
+}
+
+.codePath code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.codeBlock {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 500px;
+  overflow-y: auto;
+  color: var(--color-text);
 }

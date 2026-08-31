@@ -1,7 +1,7 @@
 .topBar {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 8px;
   padding: 8px 16px;
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
@@ -9,21 +9,61 @@
   min-height: 40px;
 }
 
-.modelInfo {
-  flex: 0 0 auto;
+/* 运行指示器 */
+.runningIndicator {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  padding-right: 8px;
+  border-right: 1px solid var(--color-border);
+  margin-right: 4px;
 }
 
-.label {
-  font-size: 13px;
-  font-weight: 500;
+.pulseDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  display: inline-block;
+}
+
+/* 模型信息 chip */
+.modelChip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  background: var(--color-surface-elevated);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.modelIcon {
   color: var(--color-subtext);
+}
+
+.modelText {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text);
   font-family: var(--font-mono);
 }
 
-.cwdInfo {
-  flex: 1 1 auto;
+/* 工作目录 chip */
+.cwdChip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  max-width: 300px;
   overflow: hidden;
-  text-align: right;
+}
+
+.cwdIcon {
+  color: var(--color-subtext);
+  flex-shrink: 0;
 }
 
 .cwdText {
@@ -33,21 +73,4 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  display: inline-block;
-  max-width: 100%;
-}
-
-.runningIndicator {
-  display: flex;
-  gap: 3px;
-  align-items: center;
-  padding-left: 8px;
-}
-
-.pulseDot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--color-accent);
-  display: inline-block;
 }

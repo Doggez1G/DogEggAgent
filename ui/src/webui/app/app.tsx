@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { marked } from 'marked'
+import { ArrowLeft, ChevronRight, FolderClosed, FolderUp, ArrowUp, X } from 'lucide-react'
 import type { AgentToUiMessage, Config, UiPort } from '@dogegg/bridge'
 import { Sidebar, TopBar, ChatView, InputBar, StatusBar, Settings, Sessions } from '../components'
 import { reducer, type ChatState } from '../../shared/reducer'
@@ -144,7 +145,7 @@ export function App({ port }: AppProps) {
         {panel === 'chat' ? (
           <ChatView chat={{ ...chat, blocks: renderBlocks as unknown as Block[], partial: chat.partial ? { ...chat.partial, html: partialHtml } : null } as unknown as ChatState} isRunning={isRunning} />
         ) : panel === 'sessions' ? (
-          <Sessions port={port} />
+          <Sessions port={port} onBack={() => setPanel('chat')} />
         ) : (
           <Settings
             tab={settingsTab}
@@ -156,6 +157,7 @@ export function App({ port }: AppProps) {
             logState={logState}
             permissionsList={permissionsList}
             onTabChange={setSettingsTab}
+            onBack={() => setPanel('chat')}
           />
         )}
       </div>
@@ -273,29 +275,78 @@ function FsBrowserModal(props: { onConfirm: (path: string) => void; onClose: () 
   const [dirs, setDirs] = useState<string[]>([])
   const [parent, setParent] = useState<string | null>(null)
   const [manualPath, setManualPath] = useState('')
+  const [history, setHistory] = useState<string[]>([])
 
   useEffect(() => {
     fetch('/api/fs').then((r) => r.json()).then((d) => { setCurrent(d.current); setDirs(d.dirs); setParent(d.parent); setManualPath(d.current) })
   }, [])
 
   const browse = (path: string) => {
+    setHistory((h) => [...h, current])
     fetch(`/api/fs?path=${encodeURIComponent(path)}`).then((r) => r.json()).then((d) => { setCurrent(d.current); setDirs(d.dirs); setParent(d.parent); setManualPath(d.current) })
   }
+
+  const goBack = () => {
+    if (history.length === 0) return
+    const prev = history[history.length - 1]!
+    setHistory((h) => h.slice(0, -1))
+    fetch(`/api/fs?path=${encodeURIComponent(prev)}`).then((r) => r.json()).then((d) => { setCurrent(d.current); setDirs(d.dirs); setParent(d.parent); setManualPath(d.current) })
+  }
+
+  // 面包屑路径段
+  const breadcrumbs = current ? current.split(/[/\\]/).filter(Boolean) : []
 
   return (
     <div className={styles.scrim} onClick={props.onClose}>
       <div className={styles.modal + ' modal-enter'} onClick={(e) => e.stopPropagation()}>
-        <h2 className={styles.modalTitle}>Select Working Directory</h2>
-        <p className={styles.modalMessage}>{current}</p>
-        <div className={styles.fsList}>
-          {parent && <button className={styles.fsItem} onClick={() => browse(parent)}>..</button>}
-          {dirs.map((d) => (
-            <button key={d} className={styles.fsItem} onClick={() => browse(current + '/' + d)}>{d}</button>
+        <div className={styles.fsModalHeader}>
+          <h2 className={styles.modalTitle}>Select Working Directory</h2>
+          <button className={styles.modalClose} onClick={props.onClose} aria-label="Close">
+            <X size={16} strokeWidth={2} />
+          </button>
+        </div>
+
+        {/* 面包屑导航 */}
+        <div className={styles.fsBreadcrumb}>
+          {history.length > 0 && (
+            <button className={styles.fsBackBtn} onClick={goBack} aria-label="Go back">
+              <ArrowLeft size={14} strokeWidth={1.5} />
+            </button>
+          )}
+          {parent && (
+            <button className={styles.fsCrumbUp} onClick={() => browse(parent)} title="Go up">
+              <FolderUp size={14} strokeWidth={1.5} />
+            </button>
+          )}
+          {breadcrumbs.map((seg, i) => (
+            <React.Fragment key={i}>
+              {i > 0 && <ChevronRight size={10} strokeWidth={1.5} className={styles.fsCrumbSep} />}
+              <span className={i === breadcrumbs.length - 1 ? styles.fsCrumbActive : styles.fsCrumbItem}>{seg}</span>
+            </React.Fragment>
           ))}
         </div>
-        <input className={styles.fsInput} value={manualPath} onChange={(e) => setManualPath(e.target.value)} placeholder="/path/to/project" />
+
+        {/* 目录列表 */}
+        <div className={styles.fsList}>
+          {dirs.length === 0 ? (
+            <p className={styles.fsEmpty}>No subdirectories</p>
+          ) : (
+            dirs.map((d) => (
+              <button key={d} className={styles.fsItem} onClick={() => browse(current + '/' + d)}>
+                <FolderClosed size={15} strokeWidth={1.5} className={styles.fsItemIcon} />
+                <span>{d}</span>
+              </button>
+            ))
+          )}
+        </div>
+
+        {/* 手动输入 */}
+        <div className={styles.fsManualRow}>
+          <input className={styles.fsInput} value={manualPath} onChange={(e) => setManualPath(e.target.value)} placeholder="/path/to/project" onKeyDown={(e) => { if (e.key === 'Enter') props.onConfirm(manualPath) }} />
+        </div>
+
         <div className={styles.modalActions}>
-          <button className={styles.btnPrimary} onClick={() => props.onConfirm(manualPath)}>Select</button>
+          <button className={styles.btnPrimary} onClick={() => props.onConfirm(manualPath)}>Select Directory</button>
           <button className={styles.btnSecondary} onClick={props.onClose}>Cancel</button>
         </div>
       </div>

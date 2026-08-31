@@ -1,11 +1,10 @@
 import React from 'react'
-import { MessageSquare, FolderOpen, History, Settings, Plus, Square, Columns3, Maximize } from 'lucide-react'
+import { MessageSquare, FolderOpen, History, Settings, Plus, Square, Columns3, Maximize, Palette } from 'lucide-react'
 import { Brand } from '../../brand'
 import type { Panel, LayoutName, ThemeName } from '../../app/view-state'
 import styles from './sidebar.module.css'
 
-// 侧栏：持久导航。聊天/文件/会话/设置 四项 + 新建会话 + 布局切换 + 主题切换。
-// 点击切换 panel（持久），与斜杠命令发送相同的 UiToAgentMessage。
+// 侧栏：持久导航。聊天/会话/设置 三项 + 目录切换 + 新建 + 布局切换 + 主题切换。
 interface SidebarProps {
   panel: Panel
   cwd: string
@@ -25,16 +24,16 @@ const NAV_ITEMS: { panel: Panel; icon: typeof MessageSquare; label: string }[] =
   { panel: 'settings', icon: Settings, label: 'Settings' },
 ]
 
-const LAYOUTS: { layout: LayoutName; icon: typeof Square }[] = [
-  { layout: 'focus', icon: Square },
-  { layout: 'workspace', icon: Columns3 },
-  { layout: 'zen', icon: Maximize },
+const LAYOUTS: { layout: LayoutName; icon: typeof Square; label: string }[] = [
+  { layout: 'focus', icon: Square, label: 'Focus' },
+  { layout: 'workspace', icon: Columns3, label: 'Workspace' },
+  { layout: 'zen', icon: Maximize, label: 'Zen' },
 ]
 
-const THEMES: { theme: ThemeName; label: string }[] = [
-  { theme: 'catppuccin', label: 'Catppuccin' },
-  { theme: 'ios-light', label: 'iOS Light' },
-  { theme: 'ios-dark', label: 'iOS Dark' },
+const THEMES: { theme: ThemeName; label: string; color: string }[] = [
+  { theme: 'catppuccin', label: 'Catppuccin', color: '#89B4FA' },
+  { theme: 'ios-light', label: 'iOS Light', color: '#007AFF' },
+  { theme: 'ios-dark', label: 'iOS Dark', color: '#0A84FF' },
 ]
 
 export function Sidebar(props: SidebarProps) {
@@ -57,7 +56,7 @@ export function Sidebar(props: SidebarProps) {
           </button>
         ))}
 
-        {/* 文件/目录——打开 fs-browser 模态 */}
+        {/* 目录切换——打开 fs-browser 模态 */}
         <button
           className={`${styles.navItem} sidebar-item`}
           onClick={props.onCdClick}
@@ -67,9 +66,8 @@ export function Sidebar(props: SidebarProps) {
           <FolderOpen size={18} strokeWidth={1.5} />
           <span className={styles.cwdLabel}>{props.cwd.split(/[/\\]/).pop() || props.cwd}</span>
         </button>
-      </nav>
 
-      <div className={styles.actions}>
+        {/* 新建会话 */}
         <button
           className={`${styles.newBtn} sidebar-item`}
           onClick={props.onNewSession}
@@ -77,33 +75,50 @@ export function Sidebar(props: SidebarProps) {
           aria-label="New session"
         >
           <Plus size={16} strokeWidth={1.5} />
-          <span>New</span>
+          <span>New Session</span>
         </button>
-      </div>
+      </nav>
 
+      {/* 底部：布局 + 主题切换 */}
       <div className={styles.switchers}>
-        <div className={styles.layoutGroup}>
-          {LAYOUTS.map(({ layout, icon: Icon }) => (
-            <button
-              key={layout}
-              className={`${styles.layoutBtn} ${props.layout === layout ? styles.activeLayout : ''} sidebar-item`}
-              onClick={() => props.onLayoutChange(layout)}
-              aria-label={`Layout: ${layout}`}
-            >
-              <Icon size={14} strokeWidth={1.5} />
-            </button>
-          ))}
+        {/* 布局切换：三个图标按钮 */}
+        <div className={styles.switcherGroup}>
+          <span className={styles.switcherLabel}>Layout</span>
+          <div className={styles.btnGroup}>
+            {LAYOUTS.map(({ layout, icon: Icon, label }) => (
+              <button
+                key={layout}
+                className={`${styles.layoutBtn} ${props.layout === layout ? styles.activeSwitch : ''} sidebar-item`}
+                onClick={() => props.onLayoutChange(layout)}
+                title={label}
+                aria-label={`Layout: ${label}`}
+              >
+                <Icon size={14} strokeWidth={1.5} />
+              </button>
+            ))}
+          </div>
         </div>
-        <select
-          className={styles.themeSelect}
-          value={props.theme}
-          onChange={(e) => props.onThemeChange(e.target.value as ThemeName)}
-          aria-label="Theme"
-        >
-          {THEMES.map((t) => (
-            <option key={t.theme} value={t.theme}>{t.label}</option>
-          ))}
-        </select>
+
+        {/* 主题切换：三个色块按钮 */}
+        <div className={styles.switcherGroup}>
+          <span className={styles.switcherLabel}>
+            <Palette size={11} strokeWidth={1.5} />
+            Theme
+          </span>
+          <div className={styles.btnGroup}>
+            {THEMES.map((t) => (
+              <button
+                key={t.theme}
+                className={`${styles.themeBtn} ${props.theme === t.theme ? styles.activeSwitch : ''} sidebar-item`}
+                onClick={() => props.onThemeChange(t.theme)}
+                title={t.label}
+                aria-label={`Theme: ${t.label}`}
+              >
+                <span className={styles.themeSwatch} style={{ background: t.color }} />
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </aside>
   )

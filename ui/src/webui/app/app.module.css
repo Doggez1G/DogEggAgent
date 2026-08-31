@@ -77,6 +77,36 @@
   margin-bottom: 12px;
 }
 
+.modalClose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-subtext);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.modalClose:hover {
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+}
+
+.fsModalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.fsModalHeader .modalTitle {
+  margin-bottom: 0;
+}
+
 .modalMessage {
   font-size: 14px;
   color: var(--color-subtext);
@@ -219,4 +249,104 @@
 
 .fsInput:focus {
   border-color: var(--color-accent);
+}
+
+/* ── 目录浏览器面包屑 ── */
+.fsBreadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+
+.fsBackBtn, .fsCrumbUp {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-subtext);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.fsBackBtn:hover, .fsCrumbUp:hover {
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+}
+
+.fsCrumbItem {
+  color: var(--color-subtext);
+  font-family: var(--font-mono);
+  padding: 2px 4px;
+}
+
+.fsCrumbActive {
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-weight: 500;
+  padding: 2px 4px;
+}
+
+.fsCrumbSep {
+  color: var(--color-subtext);
+}
+
+/* ── 目录列表 ── */
+.fsList {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 12px;
+}
+
+.fsItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 80ms ease;
+}
+
+.fsItem:last-child {
+  border-bottom: none;
+}
+
+.fsItem:hover {
+  background: var(--color-surface-elevated);
+}
+
+.fsItemIcon {
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.fsEmpty {
+  padding: 24px;
+  text-align: center;
+  color: var(--color-subtext);
+  font-size: 13px;
+}
+
+.fsManualRow {
+  margin-bottom: 12px;
 }
