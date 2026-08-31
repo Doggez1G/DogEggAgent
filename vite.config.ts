@@ -30,6 +30,14 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:3001',
         changeOrigin: true,
+        // SSE 需要关闭代理缓冲，让 chunked 流式响应实时透传。
+        ws: false,
+        configure: (proxy) => {
+          // SSE 长连接不设超时（默认代理超时会断开流式响应）。
+          proxy.on('proxyReq', (proxyReq) => {
+            proxyReq.setHeader('Connection', 'keep-alive')
+          })
+        },
       },
     },
   },

@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "dev": "npm run build && npm run start",
-    "dev:web": "concurrently \"vite\" \"cross-env VITE_DEV=1 PORT=3001 tsx main-web.ts\"",
+    "dev:web": "concurrently -n server,web -c yellow,cyan \"cross-env VITE_DEV=1 PORT=3001 tsx main-web.ts\" \"vite\"",
     "build": "node build.mjs",
     "build:web": "vite build && node build-web.mjs",
     "start": "node dist/index.js",
