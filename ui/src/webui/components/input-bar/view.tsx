@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react'
 import { ArrowUp, Square } from 'lucide-react'
 import { matchCommands, parseCommand } from '../../../shared/commands'
-import { COMMAND_TO_NAV } from '../../app/view-state'
+import { COMMAND_TO_MODAL } from '../../app/view-state'
 import type { UiPort } from '@dogegg/bridge'
 import styles from './input-bar.module.css'
 
@@ -42,12 +42,9 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
       // /clear 和 /quit 需确认弹窗
       if (result.msg.type === 'clear_history') { onClearHistory(); setInput(''); setSuggest(null); return }
       if (result.msg.type === 'quit') { onQuit(); setInput(''); setSuggest(null); return }
-      // 导航类命令：发消息 + 切面板
-      const nav = COMMAND_TO_NAV[cmd]
-      if (nav) {
-        if (nav.panel) onCommandNav(cmd)
-        else if (nav.modal) onCommandNav(cmd)
-      }
+      // 导航类命令：发消息 + 打开对应 modal
+      const nav = COMMAND_TO_MODAL[cmd]
+      if (nav) { onCommandNav(cmd) }
       port.post(result.msg)
     }
     // result.kind === 'help' 在 parseCommand 里已处理（返回 help），此处不到达

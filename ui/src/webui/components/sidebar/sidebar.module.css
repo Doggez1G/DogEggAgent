@@ -9,33 +9,32 @@
   transition: width 200ms ease;
 }
 
-/* 展开态 */
 .sidebar {
-  width: 240px;
-  padding: 8px 8px;
+  width: 260px;
+  padding: 8px;
 }
 
-/* 收起态 */
 .collapsed {
-  width: 56px;
+  width: 48px;
   padding: 8px 4px;
+  align-items: center;
 }
 
-/* ── 顶部：品牌 + 收起按钮 ── */
+/* ── 顶部 ── */
 .topBar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 4px 12px;
+  padding: 4px 4px 8px;
   flex-shrink: 0;
 }
 
 .collapsed .topBar {
   justify-content: center;
-  padding: 4px 0 12px;
+  padding: 4px 0 8px;
 }
 
-.collapseBtn {
+.iconBtn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -50,142 +49,273 @@
   flex-shrink: 0;
 }
 
-.collapseBtn:hover {
+.iconBtn:hover {
   background: var(--color-surface-elevated);
   color: var(--color-text);
 }
 
-/* ── 导航 ── */
+.collapsedAdd {
+  margin-bottom: 8px;
+}
+
+/* ── 导航/项目树 ── */
 .nav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   flex: 1;
   overflow-y: auto;
 }
 
-.navItem {
+.emptyProjects {
+  padding: 20px 8px;
+  text-align: center;
+  color: var(--color-subtext);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.emptyProjects p {
+  margin: 0;
+}
+
+/* ── 项目 ── */
+.project {
+  display: flex;
+  flex-direction: column;
+}
+
+.projectHeader {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 12px;
+  gap: 4px;
+  padding: 5px 4px;
+  border-radius: var(--radius-sm);
+  transition: background-color 80ms ease;
+}
+
+.projectHeader:hover {
+  background: var(--color-surface-elevated);
+}
+
+.projectToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
   border: none;
   background: transparent;
   color: var(--color-subtext);
-  font-size: 14px;
-  font-family: var(--font-sans);
   cursor: pointer;
-  border-radius: var(--radius-sm);
-  text-align: left;
-  min-height: 38px;
-  transition: all 120ms ease;
-}
-
-.navItem:hover {
-  background: var(--color-surface-elevated);
-  color: var(--color-text);
-}
-
-.navIcon {
   flex-shrink: 0;
 }
 
-.navLabel {
-  white-space: nowrap;
-  overflow: hidden;
+.projectIcon {
+  color: var(--color-accent);
+  flex-shrink: 0;
 }
 
-.cwdLabel {
+.projectName {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 140px;
 }
 
-.active {
-  background: var(--color-surface-elevated);
-  color: var(--color-accent);
-  position: relative;
-}
-
-.active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 20%;
-  bottom: 20%;
-  width: 2px;
-  background: var(--color-accent);
-  border-radius: 2px;
-}
-
-/* 收起态导航项：居中图标，隐藏文字 */
-.collapsed .navItem {
-  justify-content: center;
-  padding: 9px 0;
-}
-
-.collapsed .newBtn {
-  justify-content: center;
-  padding: 9px 0;
-}
-
-/* 新建会话按钮 */
-.newBtn {
+.projectAdd, .projectDel {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 9px 12px;
-  margin-top: 4px;
-  border: 1px dashed var(--color-border);
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-subtext);
-  font-size: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.projectHeader:hover .projectAdd,
+.projectHeader:hover .projectDel {
+  opacity: 1;
+}
+
+.projectAdd:hover {
+  background: var(--color-accent);
+  color: var(--color-bg);
+}
+
+.projectAdd:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.projectDel:hover {
+  background: var(--color-danger);
+  color: var(--color-bg);
+}
+
+/* ── 会话列表 ── */
+.sessionList {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-left: 20px;
+}
+
+.sessionItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background-color 80ms ease;
+}
+
+.sessionItem:hover {
+  background: var(--color-surface-elevated);
+}
+
+.sessionActive {
+  background: var(--color-surface-elevated);
+}
+
+.sessionActive .sessionPreview {
+  color: var(--color-accent);
+  font-weight: 500;
+}
+
+.sessionIcon {
+  color: var(--color-subtext);
+  flex-shrink: 0;
+}
+
+.sessionActive .sessionIcon {
+  color: var(--color-accent);
+}
+
+.sessionPreview {
+  flex: 1;
+  font-size: 12px;
+  color: var(--color-subtext);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sessionDel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-subtext);
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.sessionItem:hover .sessionDel {
+  opacity: 1;
+}
+
+.sessionDel:hover {
+  background: var(--color-danger);
+  color: var(--color-bg);
+}
+
+.noSessions {
+  font-size: 11px;
+  color: var(--color-subtext);
+  padding: 4px 8px;
+  opacity: 0.6;
+}
+
+/* ── 添加项目按钮 ── */
+.addProjectBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  margin-top: 4px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-subtext);
+  font-size: 12px;
   font-family: var(--font-sans);
   cursor: pointer;
-  border-radius: var(--radius-sm);
   transition: all 120ms ease;
 }
 
-.newBtn:hover:not(:disabled) {
+.addProjectBtn:hover {
   background: var(--color-surface-elevated);
   border-color: var(--color-accent);
   border-style: solid;
   color: var(--color-accent);
 }
 
-.newBtn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-/* ── 底部：主题切换 ── */
+/* ── 底部 ── */
 .bottom {
-  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   padding-top: 8px;
   border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.collapsed .bottom {
+  align-items: center;
+  gap: 8px;
+}
+
+.settingsBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-subtext);
+  font-size: 12px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.settingsBtn:hover {
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
 }
 
 .themeRow {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-}
-
-.themeLabel {
-  color: var(--color-subtext);
-  flex-shrink: 0;
+  gap: 4px;
+  padding: 0 4px;
 }
 
 .themeBtn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: 50%;
   background: transparent;
   cursor: pointer;
   transition: all 120ms ease;
@@ -206,24 +336,4 @@
   border: 2px solid var(--color-text);
   width: 14px;
   height: 14px;
-}
-
-/* 收起态：主题按钮居中 */
-.themeToggleCollapsed {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  margin: 0 auto;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-subtext);
-  cursor: pointer;
-}
-
-.themeToggleCollapsed:hover {
-  background: var(--color-surface-elevated);
-  color: var(--color-text);
 }

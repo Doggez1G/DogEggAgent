@@ -1,2 +1,2 @@
 export { App } from './app'
-export type { Panel, SettingsTab, ThemeName, Modal } from './view-state'
+export type { SettingsTab, ThemeName, Modal, SessionItem } from './view-state'

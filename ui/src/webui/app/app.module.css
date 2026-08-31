@@ -1,22 +1,31 @@
-/* 单一布局：侧栏（可收起）+ 顶栏 + 主面板 + 输入区。 */
+/* 单一布局：侧栏 + 顶栏 + 聊天 + 信息面板 + 输入区。 */
 .app {
   display: grid;
   height: 100vh;
   width: 100vw;
   overflow: hidden;
   background: var(--color-bg);
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: 260px 1fr 280px;
   grid-template-rows: auto 1fr auto;
   grid-template-areas:
-    'sidebar topbar'
-    'sidebar main'
-    'sidebar input';
+    'sidebar topbar info'
+    'sidebar main  info'
+    'sidebar input info';
   transition: grid-template-columns 200ms ease;
 }
 
-/* 侧栏收起态：列宽缩小为图标条宽度。 */
-.app[data-collapsed='true'] {
-  grid-template-columns: 56px 1fr;
+/* 侧栏收起 */
+.app[data-sidebar-collapsed='true'] {
+  grid-template-columns: 48px 1fr 280px;
+}
+
+/* 信息面板收起 */
+.app[data-info-collapsed='true'] {
+  grid-template-columns: 260px 1fr 32px;
+}
+
+.app[data-sidebar-collapsed='true'][data-info-collapsed='true'] {
+  grid-template-columns: 48px 1fr 32px;
 }
 
 .mainArea {
@@ -58,6 +67,26 @@
   box-shadow: var(--shadow-lg);
 }
 
+/* 设置弹窗：比普通 modal 更大 */
+.settingsModal {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  max-width: 900px;
+  width: 90%;
+  max-height: 85vh;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+}
+
+.settingsModalBody {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+}
+
 .modalTitle {
   font-size: 16px;
   font-weight: 600;
@@ -89,6 +118,12 @@
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.fsModalHeader .modalTitle {
+  margin-bottom: 0;
 }
 
 .modalMessage {
@@ -171,7 +206,6 @@
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 4px 16px;
-  margin-bottom: 8px;
 }
 
 .helpCmd {
@@ -219,22 +253,9 @@
   color: var(--color-text);
 }
 
-.fsCrumbItem {
-  color: var(--color-subtext);
-  font-family: var(--font-mono);
-  padding: 2px 4px;
-}
-
-.fsCrumbActive {
-  color: var(--color-accent);
-  font-family: var(--font-mono);
-  font-weight: 500;
-  padding: 2px 4px;
-}
-
-.fsCrumbSep {
-  color: var(--color-subtext);
-}
+.fsCrumbItem { color: var(--color-subtext); font-family: var(--font-mono); padding: 2px 4px; }
+.fsCrumbActive { color: var(--color-accent); font-family: var(--font-mono); font-weight: 500; padding: 2px 4px; }
+.fsCrumbSep { color: var(--color-subtext); }
 
 .fsList {
   max-height: 300px;
@@ -263,19 +284,8 @@
 
 .fsItem:last-child { border-bottom: none; }
 .fsItem:hover { background: var(--color-surface-elevated); }
-
-.fsItemIcon {
-  color: var(--color-accent);
-  flex-shrink: 0;
-}
-
-.fsEmpty {
-  padding: 24px;
-  text-align: center;
-  color: var(--color-subtext);
-  font-size: 13px;
-}
-
+.fsItemIcon { color: var(--color-accent); flex-shrink: 0; }
+.fsEmpty { padding: 24px; text-align: center; color: var(--color-subtext); font-size: 13px; }
 .fsManualRow { margin-bottom: 12px; }
 
 .fsInput {

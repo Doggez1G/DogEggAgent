@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { SlidersHorizontal, Cpu, ShieldCheck, Wrench, Gauge, Terminal, ScrollText, ArrowLeft, ChevronRight, Plus, Trash2, Check } from 'lucide-react'
 import type { Config, UiPort } from '@dogegg/bridge'
 import { buildEntries, parentPath, entryLabel, type ConfigPath, type Entry, type TreeCtx } from '../../../shared/config'
-import type { SettingsTab, Panel } from '../../app/view-state'
+import type { SettingsTab } from '../../app/view-state'
 import styles from './settings.module.css'
 
 // 设置面板：面板头（标题 + 返回按钮）+ 二级导航（7 个标签页）+ 内容区。

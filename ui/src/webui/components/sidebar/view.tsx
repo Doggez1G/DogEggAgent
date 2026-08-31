@@ -1,30 +1,32 @@
-import React from 'react'
-import { MessageSquare, FolderOpen, History, Settings, Plus, PanelLeftClose, PanelLeft, Palette } from 'lucide-react'
+import React, { useState, useEffect } from 'react'
+import {
+  MessageSquare, FolderOpen, Settings as SettingsIcon, Plus, PanelLeftClose, PanelLeft,
+  ChevronDown, ChevronRight, Trash2, Palette, FolderPlus,
+} from 'lucide-react'
 import { Brand } from '../../brand'
-import type { Panel, ThemeName } from '../../app/view-state'
+import type { ThemeName, SessionItem } from '../../app/view-state'
 import styles from './sidebar.module.css'
 
-// 侧栏：可收起的导航栏。展开 240px（图标+文字），收起 56px（仅图标）。
-// 导航：Chat / Sessions / Settings + 目录切换 + 新建会话。
-// 底部：主题色块按钮（3 个小圆点切换主题）。
+// 侧栏：项目/会话树。
+// 按 cwd 分组会话为项目。每个项目可折叠/展开。
+// 项目右边 + 按钮添加新会话。底部 + Add Project 打开目录选择器。
+// 点击会话 = resume_session。会话右边有删除按钮。
 interface SidebarProps {
-  panel: Panel
   cwd: string
   isRunning: boolean
   theme: ThemeName
   collapsed: boolean
+  sessions: SessionItem[]
+  activeSessionId: string
   onToggleCollapse: () => void
-  onPanelChange: (panel: Panel) => void
-  onNewSession: () => void
+  onNewSession: (cwd?: string) => void
+  onResumeSession: (id: string) => void
+  onDeleteSession: (id: string) => void
+  onDeleteProject: (cwd: string) => void
+  onAddProject: () => void
+  onOpenSettings: () => void
   onThemeChange: (theme: ThemeName) => void
-  onCdClick: () => void
 }
-
-const NAV_ITEMS: { panel: Panel; icon: typeof MessageSquare; label: string }[] = [
-  { panel: 'chat', icon: MessageSquare, label: 'Chat' },
-  { panel: 'sessions', icon: History, label: 'Sessions' },
-  { panel: 'settings', icon: Settings, label: 'Settings' },
-]
 
 const THEMES: { theme: ThemeName; label: string; color: string }[] = [
   { theme: 'catppuccin', label: 'Catppuccin', color: '#89B4FA' },
@@ -34,86 +36,192 @@ const THEMES: { theme: ThemeName; label: string; color: string }[] = [
 
 export function Sidebar(props: SidebarProps) {
   const c = props.collapsed
+  // 按 cwd 分组会话。
+  const projects = groupByCwd(props.sessions)
+
   return (
     <aside className={`${styles.sidebar} ${c ? styles.collapsed : ''}`}>
       {/* 顶部：品牌 + 收起按钮 */}
       <div className={styles.topBar}>
         {c ? (
-          <button className={styles.collapseBtn} onClick={props.onToggleCollapse} title="Expand sidebar" aria-label="Expand sidebar">
+          <button className={styles.iconBtn} onClick={props.onToggleCollapse} title="Expand sidebar" aria-label="Expand sidebar">
             <PanelLeft size={18} strokeWidth={1.5} />
           </button>
         ) : (
           <>
             <Brand size={20} />
-            <button className={styles.collapseBtn} onClick={props.onToggleCollapse} title="Collapse sidebar" aria-label="Collapse sidebar">
+            <button className={styles.iconBtn} onClick={props.onToggleCollapse} title="Collapse sidebar" aria-label="Collapse sidebar">
               <PanelLeftClose size={18} strokeWidth={1.5} />
             </button>
           </>
         )}
       </div>
 
-      {/* 导航 */}
+      {/* 项目/会话树 */}
       <nav className={styles.nav}>
-        {NAV_ITEMS.map(({ panel, icon: Icon, label }) => (
-          <button
-            key={panel}
-            className={`${styles.navItem} ${props.panel === panel ? styles.active : ''} sidebar-item`}
-            onClick={() => props.onPanelChange(panel)}
-            title={c ? label : undefined}
-            aria-label={label}
-          >
-            <Icon size={18} strokeWidth={1.5} className={styles.navIcon} />
-            {!c && <span className={styles.navLabel}>{label}</span>}
-          </button>
-        ))}
-
-        {/* 目录切换 */}
-        <button
-          className={`${styles.navItem} sidebar-item`}
-          onClick={props.onCdClick}
-          title={c ? `Directory: ${props.cwd}` : props.cwd}
-          aria-label="Change directory"
-        >
-          <FolderOpen size={18} strokeWidth={1.5} className={styles.navIcon} />
-          {!c && <span className={styles.cwdLabel}>{props.cwd.split(/[/\\]/).pop() || props.cwd}</span>}
-        </button>
-
-        {/* 新建会话 */}
-        <button
-          className={`${styles.newBtn} sidebar-item`}
-          onClick={props.onNewSession}
-          disabled={props.isRunning}
-          title={c ? 'New session' : undefined}
-          aria-label="New session"
-        >
-          <Plus size={16} strokeWidth={1.5} />
-          {!c && <span>New Session</span>}
-        </button>
-      </nav>
-
-      {/* 底部：主题色块 */}
-      <div className={styles.bottom}>
         {c ? (
-          <button className={styles.themeToggleCollapsed} title="Theme" aria-label="Theme">
-            <Palette size={16} strokeWidth={1.5} />
+          /* 收起态：只显示添加项目按钮 */
+          <button className={styles.iconBtn + ' ' + styles.collapsedAdd} onClick={props.onAddProject} title="Add project" aria-label="Add project">
+            <FolderPlus size={18} strokeWidth={1.5} />
           </button>
         ) : (
-          <div className={styles.themeRow}>
-            <Palette size={12} strokeWidth={1.5} className={styles.themeLabel} />
-            {THEMES.map((t) => (
-              <button
-                key={t.theme}
-                className={`${styles.themeBtn} ${props.theme === t.theme ? styles.themeActive : ''} sidebar-item`}
-                onClick={() => props.onThemeChange(t.theme)}
-                title={t.label}
-                aria-label={`Theme: ${t.label}`}
-              >
-                <span className={styles.themeSwatch} style={{ background: t.color }} />
-              </button>
-            ))}
-          </div>
+          <>
+            {projects.length === 0 ? (
+              <div className={styles.emptyProjects}>
+                <p>No projects yet.</p>
+                <p>Add a project directory to start.</p>
+              </div>
+            ) : (
+              projects.map((proj) => (
+                <ProjectTree
+                  key={proj.cwd}
+                  cwd={proj.cwd}
+                  name={proj.name}
+                  sessions={proj.sessions}
+                  activeSessionId={props.activeSessionId}
+                  isRunning={props.isRunning}
+                  onNewSession={() => props.onNewSession(proj.cwd)}
+                  onResumeSession={props.onResumeSession}
+                  onDeleteSession={props.onDeleteSession}
+                  onDeleteProject={() => props.onDeleteProject(proj.cwd)}
+                />
+              ))
+            )}
+            <button className={styles.addProjectBtn} onClick={props.onAddProject}>
+              <FolderPlus size={14} strokeWidth={1.5} />
+              <span>Add Project</span>
+            </button>
+          </>
+        )}
+      </nav>
+
+      {/* 底部：设置 + 主题 */}
+      <div className={styles.bottom}>
+        {c ? (
+          <>
+            <button className={styles.iconBtn} onClick={props.onOpenSettings} title="Settings" aria-label="Settings">
+              <SettingsIcon size={18} strokeWidth={1.5} />
+            </button>
+            <button className={styles.iconBtn} title="Theme" aria-label="Theme">
+              <Palette size={18} strokeWidth={1.5} />
+            </button>
+          </>
+        ) : (
+          <>
+            <button className={styles.settingsBtn} onClick={props.onOpenSettings}>
+              <SettingsIcon size={14} strokeWidth={1.5} />
+              <span>Settings</span>
+            </button>
+            <div className={styles.themeRow}>
+              {THEMES.map((t) => (
+                <button
+                  key={t.theme}
+                  className={`${styles.themeBtn} ${props.theme === t.theme ? styles.themeActive : ''}`}
+                  onClick={() => props.onThemeChange(t.theme)}
+                  title={t.label}
+                  aria-label={`Theme: ${t.label}`}
+                >
+                  <span className={styles.themeSwatch} style={{ background: t.color }} />
+                </button>
+              ))}
+            </div>
+          </>
         )}
       </div>
     </aside>
   )
+}
+
+// 项目树：可折叠的项目 + 其下的会话列表。
+function ProjectTree(props: {
+  cwd: string
+  name: string
+  sessions: SessionItem[]
+  activeSessionId: string
+  isRunning: boolean
+  onNewSession: () => void
+  onResumeSession: (id: string) => void
+  onDeleteSession: (id: string) => void
+  onDeleteProject: () => void
+}) {
+  const [expanded, setExpanded] = useState(true)
+
+  return (
+    <div className={styles.project}>
+      {/* 项目头 */}
+      <div className={styles.projectHeader}>
+        <button
+          className={styles.projectToggle}
+          onClick={() => setExpanded(!expanded)}
+          aria-label={expanded ? 'Collapse' : 'Expand'}
+        >
+          {expanded
+            ? <ChevronDown size={12} strokeWidth={2} />
+            : <ChevronRight size={12} strokeWidth={2} />
+          }
+        </button>
+        <FolderOpen size={14} strokeWidth={1.5} className={styles.projectIcon} />
+        <span className={styles.projectName} title={props.cwd}>{props.name}</span>
+        <button
+          className={styles.projectAdd}
+          onClick={props.onNewSession}
+          disabled={props.isRunning}
+          title="New session"
+          aria-label="New session"
+        >
+          <Plus size={12} strokeWidth={2} />
+        </button>
+        <button
+          className={styles.projectDel}
+          onClick={props.onDeleteProject}
+          title="Delete project"
+          aria-label="Delete project"
+        >
+          <Trash2 size={12} strokeWidth={1.5} />
+        </button>
+      </div>
+
+      {/* 会话列表 */}
+      {expanded && (
+        <div className={styles.sessionList}>
+          {props.sessions.map((s) => (
+            <div
+              key={s.id}
+              className={`${styles.sessionItem} ${props.activeSessionId === s.id ? styles.sessionActive : ''}`}
+              onClick={() => props.onResumeSession(s.id)}
+            >
+              <MessageSquare size={12} strokeWidth={1.5} className={styles.sessionIcon} />
+              <span className={styles.sessionPreview}>{s.preview || s.id}</span>
+              <button
+                className={styles.sessionDel}
+                onClick={(e) => { e.stopPropagation(); props.onDeleteSession(s.id) }}
+                title="Delete session"
+                aria-label="Delete session"
+              >
+                <Trash2 size={11} strokeWidth={1.5} />
+              </button>
+            </div>
+          ))}
+          {props.sessions.length === 0 && (
+            <p className={styles.noSessions}>No sessions</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// 按 cwd 分组会话为项目列表。
+function groupByCwd(sessions: SessionItem[]): { cwd: string; name: string; sessions: SessionItem[] }[] {
+  const map = new Map<string, SessionItem[]>()
+  for (const s of sessions) {
+    const key = s.cwd || '(unknown)'
+    if (!map.has(key)) map.set(key, [])
+    map.get(key)!.push(s)
+  }
+  return Array.from(map.entries()).map(([cwd, sess]) => ({
+    cwd,
+    name: cwd.split(/[/\\]/).pop() || cwd,
+    sessions: sess.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+  }))
 }

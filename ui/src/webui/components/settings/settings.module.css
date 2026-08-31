@@ -3,7 +3,7 @@
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  grid-area: main;
+  flex: 1;
 }
 
 /* ── 面板头 ── */
