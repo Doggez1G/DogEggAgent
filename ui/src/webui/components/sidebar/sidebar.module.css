@@ -49,7 +49,7 @@
   gap: var(--sp-1);
   padding: 0 var(--sp-3) var(--sp-2);
 }
-.searchIcon { color: var(--color-subtext); flex-shrink: 0; }
+.searchIcon { color: var(--color-muted, var(--color-subtext)); flex-shrink: 0; }
 .searchInput {
   width: 100%;
   padding: var(--sp-1) var(--sp-2);
@@ -62,7 +62,7 @@
   outline: none;
   transition: border-color var(--t-fast) ease;
 }
-.searchInput::placeholder { color: var(--color-subtext); }
+.searchInput::placeholder { color: var(--color-muted, var(--color-subtext)); }
 .searchInput:focus { border-color: var(--color-accent); }
 
 /* ── 导航 ── */

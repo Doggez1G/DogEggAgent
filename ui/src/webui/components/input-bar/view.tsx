@@ -12,9 +12,10 @@ interface InputBarProps {
   onCommandNav: (cmd: string) => void
   onClearHistory: () => void
   onQuit: () => void
+  onUserSubmit: (text: string) => void
 }
 
-export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit }: InputBarProps) {
+export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit, onUserSubmit }: InputBarProps) {
   const [input, setInput] = useState('')
   const [suggestIdx, setSuggestIdx] = useState<number | null>(null)
   const suggestIdxRef = useRef<number | null>(null)
@@ -31,6 +32,7 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
     const result = parseCommand(input)
     if (result.kind === 'user' && !result.text) return
     if (result.kind === 'user') {
+      onUserSubmit(result.text)
       port.post({ type: 'submit', text: result.text })
     } else if (result.kind === 'message') {
       const cmd = input.trim().split(/\s+/)[0] ?? ''
@@ -42,7 +44,7 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
     }
     setInput('')
     setSuggest(null)
-  }, [input, matches, port, onCommandNav, onClearHistory, onQuit, setSuggest])
+  }, [input, matches, port, onCommandNav, onClearHistory, onQuit, onUserSubmit, setSuggest])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (matches.length > 0) {

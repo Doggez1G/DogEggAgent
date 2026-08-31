@@ -6,6 +6,7 @@ import styles from './info-panel.module.css'
 
 // 右侧信息面板：卡片式可折叠 section + 状态 pill + 渐变进度条。
 interface InfoPanelProps {
+  sessionId: string
   provider: string | undefined
   model: string | undefined
   status: string
@@ -32,17 +33,19 @@ const STATUS_LABELS: Record<string, string> = {
 const basename = (p: string): string => p.split(/[/\\]/).pop() ?? p
 
 export function InfoPanel(props: InfoPanelProps) {
-  const { collapsed, port, status } = props
+  const { collapsed, port, status, sessionId } = props
   const requested = useRef<Set<string>>(new Set())
 
+  // 会话切换时清除请求缓存——新会话需要重新请求 tools/system/log/context。
   useEffect(() => {
-    if (collapsed) return
-    const req = requested.current
-    if (!req.has('tools')) { req.add('tools'); port.post({ type: 'tools_request' }) }
-    if (!req.has('system')) { req.add('system'); port.post({ type: 'system_request' }) }
-    if (!req.has('log')) { req.add('log'); port.post({ type: 'log_request' }) }
-    if (!req.has('context')) { req.add('context'); port.post({ type: 'context_request' }) }
-  }, [collapsed, port])
+    requested.current.clear()
+    if (!collapsed) {
+      requested.current.add('tools'); port.post({ type: 'tools_request' })
+      requested.current.add('system'); port.post({ type: 'system_request' })
+      requested.current.add('log'); port.post({ type: 'log_request' })
+      requested.current.add('context'); port.post({ type: 'context_request' })
+    }
+  }, [sessionId])  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (collapsed) return
@@ -61,9 +64,10 @@ export function InfoPanel(props: InfoPanelProps) {
   }
 
   const statusLabel = STATUS_LABELS[status] ?? status
+  // 用实时 tokens 重新计算 percent，确保进度条跟随 token 变化（不依赖 contextState 的快照）。
   const tokens = props.contextState?.estimatedTokens ?? props.tokens
   const windowTokens = props.contextState?.windowTokens ?? props.windowTokens
-  const percent = props.contextState?.percent ?? (tokens && windowTokens ? Math.round((tokens / windowTokens) * 100) : 0)
+  const percent = tokens && windowTokens ? Math.round((tokens / windowTokens) * 100) : (props.contextState?.percent ?? 0)
   const overload = percent > 80
   const files = [...props.filesTouched].sort((a, b) => b.time - a.time)
 

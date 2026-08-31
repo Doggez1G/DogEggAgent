@@ -91,6 +91,14 @@ export function App({ port }: AppProps) {
       } else if (msg.type === 'session_ready') {
         setSessionId(msg.id)
         setFilesTouched([])
+        // 清除旧会话的右侧面板数据——新会话的数据需要重新请求。
+        setContextState(null)
+        setSystemState(null)
+        setLogState(null)
+        setToolCalls([])
+        // 请求新会话的实时状态。
+        port.post({ type: 'status_request' })
+        port.post({ type: 'context_request' })
         refreshSessions()
       } else if (msg.type === 'session_deleted') {
         setSessions((prev) => prev.filter((s) => s.id !== msg.id))
@@ -180,6 +188,7 @@ export function App({ port }: AppProps) {
         <ChatView chat={chat} isRunning={isRunning} />
       </div>
       <InfoPanel
+        sessionId={sessionId}
         provider={statusBar.provider}
         model={statusBar.model}
         status={chat.status}
@@ -196,7 +205,7 @@ export function App({ port }: AppProps) {
         port={port}
       />
       <div className={styles.inputArea}>
-        <InputBar port={port} isRunning={isRunning} onCommandNav={onCommandNav} onClearHistory={onClearHistory} onQuit={onQuit} />
+        <InputBar port={port} isRunning={isRunning} onCommandNav={onCommandNav} onClearHistory={onClearHistory} onQuit={onQuit} onUserSubmit={(text) => dispatch({ type: 'local_user', text })} />
       </div>
 
       {/* 模态层 */}

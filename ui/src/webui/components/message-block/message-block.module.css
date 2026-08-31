@@ -3,8 +3,8 @@
 /* ═══ User: 右对齐圆角气泡 ═══ */
 .userRow {
   display: flex;
-  gap: var(--sp-2);
-  margin-bottom: var(--sp-4);
+  gap: 12px;
+  margin-bottom: 20px;
   justify-content: flex-end;
 }
 .userBubble {
@@ -12,8 +12,8 @@
   background: var(--color-accent-soft);
   border: 1px solid var(--color-accent-soft-border);
   border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
-  padding: var(--sp-2) var(--sp-3);
-  font-size: var(--fs-base);
+  padding: 10px 14px;
+  font-size: 14px;
   line-height: 1.6;
   color: var(--color-text);
   word-break: break-word;
@@ -34,8 +34,8 @@
 /* ═══ Assistant: avatar + 正文 ═══ */
 .assistantRow {
   display: flex;
-  gap: var(--sp-3);
-  margin-bottom: var(--sp-4);
+  gap: 12px;
+  margin-bottom: 20px;
 }
 .assistantAvatar {
   width: 28px;
@@ -104,9 +104,10 @@
 }
 .thinkingBody {
   padding: 0 var(--sp-3) var(--sp-2);
-  font-size: var(--fs-sm);
+  font-size: 13px;
   color: var(--color-subtext);
   line-height: 1.6;
+  font-family: var(--font-mono);
 }
 
 /* ═══ Tool: 状态卡片 ═══ */
@@ -120,8 +121,8 @@
 .toolHeader {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-3);
+  gap: 8px;
+  padding: 8px 12px;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -163,17 +164,17 @@
 .toolArgs {
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--color-subtext);
+  color: var(--color-muted, var(--color-subtext));
   flex: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .toolBody {
-  padding: var(--sp-2) var(--sp-3) var(--sp-3);
+  padding: 8px 12px 10px;
   border-top: 1px solid var(--color-border);
   font-family: var(--font-mono);
-  font-size: var(--fs-xs);
+  font-size: 12px;
   color: var(--color-subtext);
   line-height: 1.5;
   max-height: 200px;

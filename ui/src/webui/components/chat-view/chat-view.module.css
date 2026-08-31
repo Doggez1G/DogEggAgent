@@ -36,7 +36,7 @@
 .messages {
   max-width: 760px;
   margin: 0 auto;
-  padding: var(--sp-6) var(--sp-6) var(--sp-2);
+  padding: 24px 24px 8px;
   width: 100%;
 }
 
@@ -44,8 +44,8 @@
 .streaming {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-2) 0;
+  gap: 8px;
+  padding: 8px 0;
 }
 .assistantAvatar {
   width: 28px;
@@ -60,7 +60,7 @@
 }
 .streamingDots {
   display: flex;
-  gap: var(--sp-1);
+  gap: 4px;
 }
 .streamingDot {
   width: 6px;
@@ -76,8 +76,8 @@
   50% { transform: scale(1.2); opacity: 1; }
 }
 .streamingText {
-  font-size: var(--fs-xs);
-  color: var(--color-subtext);
+  font-size: 12px;
+  color: var(--color-muted, var(--color-subtext));
 }
 
 /* ── Streaming thinking ── */
@@ -109,8 +109,8 @@
 /* ── Streaming assistant (复用结构) ── */
 .assistantRow {
   display: flex;
-  gap: var(--sp-3);
-  margin-bottom: var(--sp-4);
+  gap: 12px;
+  margin-bottom: 20px;
 }
 .assistantContent {
   flex: 1;

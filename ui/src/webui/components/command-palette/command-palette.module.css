@@ -1,5 +1,4 @@
-/* 命令面板：玻璃拟态遮罩 + 居中（略偏上）卡片。
-   尺寸用 CSS token；进入动画复用全局 .modal-enter（animations.css 的 modal-in 关键帧）。 */
+/* 命令面板：玻璃拟态遮罩 + 居中卡片。匹配 mockup 设计。 */
 
 .scrim {
   position: fixed;
@@ -8,20 +7,20 @@
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
   display: flex;
-  align-items: center;
-  /* 底部留白把卡片推到略偏上位置。 */
-  padding-bottom: 15vh;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 15vh;
   z-index: var(--z-modal);
 }
 
 .palette {
-  background: var(--color-card);
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl, var(--radius-lg));
   box-shadow: var(--shadow-lg);
   width: 90%;
   max-width: 560px;
-  max-height: 70vh;
+  max-height: 60vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -32,12 +31,12 @@
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: var(--sp-3) var(--sp-4);
+  padding: var(--sp-4) var(--sp-4);
   border-bottom: 1px solid var(--color-border);
 }
 
 .searchIcon {
-  color: var(--color-subtext);
+  color: var(--color-muted, var(--color-subtext));
   flex-shrink: 0;
 }
 
@@ -47,18 +46,30 @@
   background: transparent;
   color: var(--color-text);
   font-family: var(--font-sans);
-  font-size: var(--fs-base);
+  font-size: 15px;
   outline: none;
 }
 
 .searchInput::placeholder {
+  color: var(--color-muted, var(--color-subtext));
+}
+
+.escKey {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  background: var(--color-surface-elevated);
   color: var(--color-subtext);
+  flex-shrink: 0;
 }
 
 /* ── 结果列表 ── */
 .results {
+  flex: 1;
   overflow-y: auto;
-  padding: var(--sp-2) 0;
+  padding: var(--sp-2);
 }
 
 .group {
@@ -67,12 +78,12 @@
 }
 
 .groupLabel {
-  font-size: var(--fs-xs);
+  font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-subtext);
-  padding: var(--sp-2) var(--sp-4) var(--sp-1);
+  letter-spacing: 0.08em;
+  color: var(--color-muted, var(--color-subtext));
+  padding: var(--sp-2) var(--sp-2) var(--sp-1);
 }
 
 .item {
@@ -81,34 +92,51 @@
   gap: var(--sp-2);
   width: 100%;
   text-align: left;
-  padding: var(--sp-2) var(--sp-4);
+  padding: var(--sp-2) var(--sp-2);
   border: none;
   background: transparent;
   color: var(--color-text);
   cursor: pointer;
+  border-radius: var(--radius-md);
   transition: background-color var(--t-fast) ease;
 }
 
 .item:hover {
-  background: var(--color-surface-elevated);
+  background: var(--color-accent-soft);
 }
 
 .itemActive {
-  background: var(--color-surface-elevated);
+  background: var(--color-accent-soft);
 }
 
+/* 图标方块——28px 圆角 */
 .itemIcon {
-  color: var(--color-subtext);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  background: var(--color-surface-elevated);
+  color: var(--color-subtext);
 }
 
-.itemActive .itemIcon {
-  color: var(--color-accent);
+.itemActive .itemIcon,
+.item:hover .itemIcon {
+  background: var(--color-accent);
+  color: var(--color-accent-fg);
+}
+
+.itemText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .itemLabel {
-  flex: 1;
-  min-width: 0;
   font-size: var(--fs-sm);
   color: var(--color-text);
   white-space: nowrap;
@@ -117,19 +145,50 @@
 }
 
 .itemDesc {
-  flex-shrink: 1;
-  min-width: 0;
-  max-width: 45%;
-  font-size: var(--fs-xs);
-  color: var(--color-subtext);
+  font-size: 11px;
+  color: var(--color-muted, var(--color-subtext));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+.itemShortcut {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-muted, var(--color-subtext));
+  flex-shrink: 0;
+}
+
+/* ── 底部快捷键提示 ── */
+.footer {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.footerHint {
+  font-size: 11px;
+  color: var(--color-muted, var(--color-subtext));
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.footerKey {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 5px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  background: var(--color-surface-elevated);
+  color: var(--color-subtext);
+}
+
 .empty {
   padding: var(--sp-6);
   text-align: center;
-  color: var(--color-subtext);
+  color: var(--color-muted, var(--color-subtext));
   font-size: var(--fs-sm);
 }
