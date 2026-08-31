@@ -2,18 +2,60 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 12px 8px;
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
   grid-area: sidebar;
   overflow: hidden;
+  transition: width 200ms ease;
 }
 
-.brandArea {
-  padding: 4px 8px 12px;
+/* 展开态 */
+.sidebar {
+  width: 240px;
+  padding: 8px 8px;
+}
+
+/* 收起态 */
+.collapsed {
+  width: 56px;
+  padding: 8px 4px;
+}
+
+/* ── 顶部：品牌 + 收起按钮 ── */
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 4px 12px;
   flex-shrink: 0;
 }
 
+.collapsed .topBar {
+  justify-content: center;
+  padding: 4px 0 12px;
+}
+
+.collapseBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-subtext);
+  cursor: pointer;
+  transition: all 120ms ease;
+  flex-shrink: 0;
+}
+
+.collapseBtn:hover {
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+}
+
+/* ── 导航 ── */
 .nav {
   display: flex;
   flex-direction: column;
@@ -26,7 +68,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
+  padding: 9px 12px;
   border: none;
   background: transparent;
   color: var(--color-subtext);
@@ -35,13 +77,29 @@
   cursor: pointer;
   border-radius: var(--radius-sm);
   text-align: left;
-  min-height: 36px;
+  min-height: 38px;
   transition: all 120ms ease;
 }
 
 .navItem:hover {
   background: var(--color-surface-elevated);
   color: var(--color-text);
+}
+
+.navIcon {
+  flex-shrink: 0;
+}
+
+.navLabel {
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.cwdLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
 }
 
 .active {
@@ -61,11 +119,15 @@
   border-radius: 2px;
 }
 
-.cwdLabel {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 140px;
+/* 收起态导航项：居中图标，隐藏文字 */
+.collapsed .navItem {
+  justify-content: center;
+  padding: 9px 0;
+}
+
+.collapsed .newBtn {
+  justify-content: center;
+  padding: 9px 0;
 }
 
 /* 新建会话按钮 */
@@ -73,7 +135,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 9px 12px;
   margin-top: 4px;
   border: 1px dashed var(--color-border);
   background: transparent;
@@ -97,69 +159,35 @@
   cursor: not-allowed;
 }
 
-/* ── 底部切换器 ── */
-.switchers {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding-top: 12px;
-  border-top: 1px solid var(--color-border);
+/* ── 底部：主题切换 ── */
+.bottom {
   flex-shrink: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
 }
 
-.switcherGroup {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.switcherLabel {
+.themeRow {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  gap: 6px;
+  padding: 4px 8px;
+}
+
+.themeLabel {
   color: var(--color-subtext);
-  padding: 0 4px;
-}
-
-.btnGroup {
-  display: flex;
-  gap: 2px;
-  background: var(--color-bg);
-  border-radius: var(--radius-sm);
-  padding: 2px;
-}
-
-.layoutBtn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  height: 26px;
-  border: none;
-  background: transparent;
-  color: var(--color-subtext);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition: all 120ms ease;
-}
-
-.layoutBtn:hover {
-  color: var(--color-text);
+  flex-shrink: 0;
 }
 
 .themeBtn {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: 1;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   border: none;
+  border-radius: var(--radius-sm);
   background: transparent;
   cursor: pointer;
-  border-radius: var(--radius-sm);
   transition: all 120ms ease;
 }
 
@@ -168,21 +196,34 @@
 }
 
 .themeSwatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.themeActive .themeSwatch {
+  border: 2px solid var(--color-text);
   width: 14px;
   height: 14px;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
-.activeSwitch {
+/* 收起态：主题按钮居中 */
+.themeToggleCollapsed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin: 0 auto;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-subtext);
+  cursor: pointer;
+}
+
+.themeToggleCollapsed:hover {
   background: var(--color-surface-elevated);
-  box-shadow: var(--shadow-sm);
-}
-
-.activeSwitch .themeSwatch {
-  border: 2px solid var(--color-text);
-}
-
-.layoutBtn.activeSwitch {
-  color: var(--color-accent);
+  color: var(--color-text);
 }

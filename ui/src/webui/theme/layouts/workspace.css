@@ -1,9 +1,0 @@
-/* Workspace 布局：侧栏 + 聊天 + 右侧详情面板。 */
-[data-layout='workspace'] {
-  grid-template-columns: 240px 1fr 320px;
-  grid-template-rows: auto 1fr auto;
-  grid-template-areas:
-    'sidebar topbar detail'
-    'sidebar main detail'
-    'sidebar input detail';
-}

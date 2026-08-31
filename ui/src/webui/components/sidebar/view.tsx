@@ -1,19 +1,21 @@
 import React from 'react'
-import { MessageSquare, FolderOpen, History, Settings, Plus, Square, Columns3, Maximize, Palette } from 'lucide-react'
+import { MessageSquare, FolderOpen, History, Settings, Plus, PanelLeftClose, PanelLeft, Palette } from 'lucide-react'
 import { Brand } from '../../brand'
-import type { Panel, LayoutName, ThemeName } from '../../app/view-state'
+import type { Panel, ThemeName } from '../../app/view-state'
 import styles from './sidebar.module.css'
 
-// 侧栏：持久导航。聊天/会话/设置 三项 + 目录切换 + 新建 + 布局切换 + 主题切换。
+// 侧栏：可收起的导航栏。展开 240px（图标+文字），收起 56px（仅图标）。
+// 导航：Chat / Sessions / Settings + 目录切换 + 新建会话。
+// 底部：主题色块按钮（3 个小圆点切换主题）。
 interface SidebarProps {
   panel: Panel
   cwd: string
   isRunning: boolean
-  layout: LayoutName
   theme: ThemeName
+  collapsed: boolean
+  onToggleCollapse: () => void
   onPanelChange: (panel: Panel) => void
   onNewSession: () => void
-  onLayoutChange: (layout: LayoutName) => void
   onThemeChange: (theme: ThemeName) => void
   onCdClick: () => void
 }
@@ -24,12 +26,6 @@ const NAV_ITEMS: { panel: Panel; icon: typeof MessageSquare; label: string }[] =
   { panel: 'settings', icon: Settings, label: 'Settings' },
 ]
 
-const LAYOUTS: { layout: LayoutName; icon: typeof Square; label: string }[] = [
-  { layout: 'focus', icon: Square, label: 'Focus' },
-  { layout: 'workspace', icon: Columns3, label: 'Workspace' },
-  { layout: 'zen', icon: Maximize, label: 'Zen' },
-]
-
 const THEMES: { theme: ThemeName; label: string; color: string }[] = [
   { theme: 'catppuccin', label: 'Catppuccin', color: '#89B4FA' },
   { theme: 'ios-light', label: 'iOS Light', color: '#007AFF' },
@@ -37,34 +33,49 @@ const THEMES: { theme: ThemeName; label: string; color: string }[] = [
 ]
 
 export function Sidebar(props: SidebarProps) {
+  const c = props.collapsed
   return (
-    <aside className={styles.sidebar}>
-      <div className={styles.brandArea}>
-        <Brand size={22} />
+    <aside className={`${styles.sidebar} ${c ? styles.collapsed : ''}`}>
+      {/* 顶部：品牌 + 收起按钮 */}
+      <div className={styles.topBar}>
+        {c ? (
+          <button className={styles.collapseBtn} onClick={props.onToggleCollapse} title="Expand sidebar" aria-label="Expand sidebar">
+            <PanelLeft size={18} strokeWidth={1.5} />
+          </button>
+        ) : (
+          <>
+            <Brand size={20} />
+            <button className={styles.collapseBtn} onClick={props.onToggleCollapse} title="Collapse sidebar" aria-label="Collapse sidebar">
+              <PanelLeftClose size={18} strokeWidth={1.5} />
+            </button>
+          </>
+        )}
       </div>
 
+      {/* 导航 */}
       <nav className={styles.nav}>
         {NAV_ITEMS.map(({ panel, icon: Icon, label }) => (
           <button
             key={panel}
             className={`${styles.navItem} ${props.panel === panel ? styles.active : ''} sidebar-item`}
             onClick={() => props.onPanelChange(panel)}
+            title={c ? label : undefined}
             aria-label={label}
           >
-            <Icon size={18} strokeWidth={1.5} />
-            <span>{label}</span>
+            <Icon size={18} strokeWidth={1.5} className={styles.navIcon} />
+            {!c && <span className={styles.navLabel}>{label}</span>}
           </button>
         ))}
 
-        {/* 目录切换——打开 fs-browser 模态 */}
+        {/* 目录切换 */}
         <button
           className={`${styles.navItem} sidebar-item`}
           onClick={props.onCdClick}
+          title={c ? `Directory: ${props.cwd}` : props.cwd}
           aria-label="Change directory"
-          title={props.cwd}
         >
-          <FolderOpen size={18} strokeWidth={1.5} />
-          <span className={styles.cwdLabel}>{props.cwd.split(/[/\\]/).pop() || props.cwd}</span>
+          <FolderOpen size={18} strokeWidth={1.5} className={styles.navIcon} />
+          {!c && <span className={styles.cwdLabel}>{props.cwd.split(/[/\\]/).pop() || props.cwd}</span>}
         </button>
 
         {/* 新建会话 */}
@@ -72,44 +83,27 @@ export function Sidebar(props: SidebarProps) {
           className={`${styles.newBtn} sidebar-item`}
           onClick={props.onNewSession}
           disabled={props.isRunning}
+          title={c ? 'New session' : undefined}
           aria-label="New session"
         >
           <Plus size={16} strokeWidth={1.5} />
-          <span>New Session</span>
+          {!c && <span>New Session</span>}
         </button>
       </nav>
 
-      {/* 底部：布局 + 主题切换 */}
-      <div className={styles.switchers}>
-        {/* 布局切换：三个图标按钮 */}
-        <div className={styles.switcherGroup}>
-          <span className={styles.switcherLabel}>Layout</span>
-          <div className={styles.btnGroup}>
-            {LAYOUTS.map(({ layout, icon: Icon, label }) => (
-              <button
-                key={layout}
-                className={`${styles.layoutBtn} ${props.layout === layout ? styles.activeSwitch : ''} sidebar-item`}
-                onClick={() => props.onLayoutChange(layout)}
-                title={label}
-                aria-label={`Layout: ${label}`}
-              >
-                <Icon size={14} strokeWidth={1.5} />
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* 主题切换：三个色块按钮 */}
-        <div className={styles.switcherGroup}>
-          <span className={styles.switcherLabel}>
-            <Palette size={11} strokeWidth={1.5} />
-            Theme
-          </span>
-          <div className={styles.btnGroup}>
+      {/* 底部：主题色块 */}
+      <div className={styles.bottom}>
+        {c ? (
+          <button className={styles.themeToggleCollapsed} title="Theme" aria-label="Theme">
+            <Palette size={16} strokeWidth={1.5} />
+          </button>
+        ) : (
+          <div className={styles.themeRow}>
+            <Palette size={12} strokeWidth={1.5} className={styles.themeLabel} />
             {THEMES.map((t) => (
               <button
                 key={t.theme}
-                className={`${styles.themeBtn} ${props.theme === t.theme ? styles.activeSwitch : ''} sidebar-item`}
+                className={`${styles.themeBtn} ${props.theme === t.theme ? styles.themeActive : ''} sidebar-item`}
                 onClick={() => props.onThemeChange(t.theme)}
                 title={t.label}
                 aria-label={`Theme: ${t.label}`}
@@ -118,7 +112,7 @@ export function Sidebar(props: SidebarProps) {
               </button>
             ))}
           </div>
-        </div>
+        )}
       </div>
     </aside>
   )

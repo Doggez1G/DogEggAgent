@@ -1,10 +1,8 @@
-// WebUI 视图状态：两个正交维度——panel（持久侧栏选择）+ modal（中断性弹窗，叠加在任意面板之上）。
+// WebUI 视图状态：panel（持久侧栏选择）+ modal（中断性弹窗，叠加在任意面板之上）。
 // 区别于 TUI 的单选一 View（聊天 XOR overlay）：WebUI 的 panel 持久保留，modal 独立叠加。
-// 另含 theme + layout 两个偏好维度。
 export type Panel = 'chat' | 'sessions' | 'settings'
 export type SettingsTab = 'general' | 'models' | 'permissions' | 'tools' | 'context' | 'system-prompt' | 'logs'
 export type ThemeName = 'catppuccin' | 'ios-light' | 'ios-dark'
-export type LayoutName = 'focus' | 'workspace' | 'zen'
 
 export type Modal =
   | { kind: 'none' }
@@ -12,14 +10,6 @@ export type Modal =
   | { kind: 'confirm'; title: string; message: string; onConfirm: () => void }
   | { kind: 'fs-browser' }
   | { kind: 'help' }
-
-export interface WebViewState {
-  panel: Panel
-  settingsTab: SettingsTab
-  modal: Modal
-  theme: ThemeName
-  layout: LayoutName
-}
 
 // 斜杠命令 → 面板/设置导航映射。
 // 输入斜杠命令后导航到对应面板而非弹 overlay（与 TUI 的 overlay 模式不同）。
