@@ -243,7 +243,7 @@
   cursor: pointer;
   transition: background-color var(--t-fast) ease, border-color var(--t-fast) ease, color var(--t-fast) ease;
 }
-.addProjectBtn:hover { background: var(--color-surface-elevated); border-color: var(--color-accent); border-style: solid; color: var(--color-accent); }
+.addProjectBtn:hover { background: var(--color-surface-elevated); border-color: var(--color-accent); color: var(--color-accent); }
 
 /* ── 底部 ── */
 .bottom {

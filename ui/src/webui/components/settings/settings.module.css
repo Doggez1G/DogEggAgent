@@ -5,6 +5,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
   overflow: hidden;
   flex: 1;
 }
@@ -19,6 +20,7 @@
 /* 滚动主体：全宽（无 max-width，避免 720px modal 右侧留白）。 */
 .scrollBody {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   width: 100%;
   padding: var(--sp-4) var(--sp-6);
@@ -180,7 +182,6 @@
 
 .addBtn:hover {
   border-color: var(--color-accent);
-  border-style: solid;
   color: var(--color-accent);
 }
 

@@ -36,6 +36,7 @@ export function App({ port }: AppProps) {
   const [permissionsList, setPermissionsList] = useState<string[]>([])
   const [toolCalls, setToolCalls] = useState<{ id: string; name: string; status: 'running' | 'done' | 'error'; output?: string }[]>([])
   const [filesTouched, setFilesTouched] = useState<FileTouched[]>([])
+  const [pendingPermission, setPendingPermission] = useState<{ id: string; tool: string; input: unknown } | null>(null)
 
   const modalRef = useRef(modal)
   useEffect(() => { modalRef.current = modal }, [modal])
@@ -77,9 +78,9 @@ export function App({ port }: AppProps) {
     const off = port.onMessage((msg: AgentToUiMessage) => {
       dispatch(msg)
       if (msg.type === 'permission_request') {
-        setModal({ kind: 'permission', id: msg.id, tool: msg.tool, input: msg.input })
-      } else if (msg.type === 'state' && msg.to !== 'waiting_permission' && modalRef.current.kind === 'permission') {
-        setModal({ kind: 'none' })
+        setPendingPermission({ id: msg.id, tool: msg.tool, input: msg.input })
+      } else if (msg.type === 'state' && msg.to !== 'waiting_permission' && pendingPermission) {
+        setPendingPermission(null)
       } else if (msg.type === 'config_state' || msg.type === 'config_updated') {
         setConfig(msg.config)
       } else if (msg.type === 'status_state') {
@@ -133,6 +134,9 @@ export function App({ port }: AppProps) {
         ))
       } else if (msg.type === 'history_cleared') {
         setFilesTouched([])
+      } else if (msg.type === 'finished' || msg.type === 'error') {
+        // 对话结束后刷新会话列表——后端已保存更新后的 preview 到磁盘。
+        refreshSessions()
       }
     })
     port.post({ type: 'config_request' })
@@ -205,6 +209,13 @@ export function App({ port }: AppProps) {
         port={port}
       />
       <div className={styles.inputArea}>
+        {pendingPermission && (
+          <PermissionBanner
+            tool={pendingPermission.tool}
+            input={pendingPermission.input}
+            onDecision={(d) => { port.post({ type: 'permission_decision', id: pendingPermission.id, decision: d }); setPendingPermission(null) }}
+          />
+        )}
         <InputBar port={port} isRunning={isRunning} onCommandNav={onCommandNav} onClearHistory={onClearHistory} onQuit={onQuit} onUserSubmit={(text) => dispatch({ type: 'local_user', text })} />
       </div>
 
@@ -225,11 +236,6 @@ export function App({ port }: AppProps) {
           onClose={() => setModal({ kind: 'none' })}
           port={port}
         />
-      )}
-      {modal.kind === 'permission' && (
-        <PermissionModal id={modal.id} tool={modal.tool} input={modal.input}
-          onDecision={(d) => { port.post({ type: 'permission_decision', id: modal.id, decision: d }); setModal({ kind: 'none' }) }}
-          onClose={() => { port.post({ type: 'permission_decision', id: modal.id, decision: 'reject' }); setModal({ kind: 'none' }) }} />
       )}
       {modal.kind === 'confirm' && (
         <ConfirmModal title={modal.title} message={modal.message} onConfirm={modal.onConfirm} onClose={() => setModal({ kind: 'none' })} />
@@ -261,30 +267,28 @@ function SettingsModal(props: { config: Config | null; port: UiPort; onClose: ()
   )
 }
 
-// ── 权限 Modal ──
-function PermissionModal(props: { id: string; tool: string; input: unknown; onDecision: (d: 'allow_once' | 'allow_always' | 'reject') => void; onClose: () => void }) {
-  const inp = props.input as Record<string, unknown> | null
+// ── 权限确认条——在输入框上方内联呈现，与对话区一体 ──
+function PermissionBanner({ tool, input, onDecision }: { tool: string; input: unknown; onDecision: (d: 'allow_once' | 'allow_always' | 'reject') => void }) {
+  const inp = input as Record<string, unknown> | null
   return (
-    <div className={styles.scrim} onClick={props.onClose}>
-      <div className={styles.modal + ' modal-enter'} onClick={(e) => e.stopPropagation()}>
-        <div className={styles.modalHeader}>
-          <h2 className={styles.modalTitle}>Permission: {props.tool}</h2>
-          <button className={styles.modalClose} onClick={props.onClose} aria-label="Close"><X size={16} strokeWidth={2} /></button>
-        </div>
-        {props.tool === 'edit_file' && inp && (
-          <pre className={styles.diffPreview}>- {String(inp.old_string ?? '').slice(0, 200)}{'\n'}+ {String(inp.new_string ?? '').slice(0, 200)}</pre>
-        )}
-        {props.tool === 'write_file' && inp && (
-          <pre className={styles.diffPreview}>+ {String(inp.content ?? '').slice(0, 200)}</pre>
-        )}
-        {props.tool === 'shell' && inp && (
-          <pre className={styles.diffPreview}>{String(inp.command ?? '')}</pre>
-        )}
-        <div className={styles.modalActions}>
-          <Button variant="primary" onClick={() => props.onDecision('allow_once')}>Allow Once</Button>
-          <Button variant="secondary" onClick={() => props.onDecision('allow_always')}>Allow Always</Button>
-          <Button variant="danger" onClick={() => props.onDecision('reject')}>Reject</Button>
-        </div>
+    <div className={styles.permissionBanner + ' block-enter'}>
+      <div className={styles.permissionHeader}>
+        <span className={styles.permissionTool}>{tool}</span>
+        <span className={styles.permissionHint}>requests permission</span>
+      </div>
+      {tool === 'edit_file' && inp && (
+        <pre className={styles.permissionDiff}>- {String(inp.old_string ?? '').slice(0, 200)}{'\n'}+ {String(inp.new_string ?? '').slice(0, 200)}</pre>
+      )}
+      {tool === 'write_file' && inp && (
+        <pre className={styles.permissionDiff}>+ {String(inp.content ?? '').slice(0, 200)}</pre>
+      )}
+      {tool === 'shell' && inp && (
+        <pre className={styles.permissionDiff}>{String(inp.command ?? '')}</pre>
+      )}
+      <div className={styles.permissionActions}>
+        <Button size="sm" variant="primary" onClick={() => onDecision('allow_once')}>Allow Once</Button>
+        <Button size="sm" variant="secondary" onClick={() => onDecision('allow_always')}>Allow Always</Button>
+        <Button size="sm" variant="danger" onClick={() => onDecision('reject')}>Reject</Button>
       </div>
     </div>
   )

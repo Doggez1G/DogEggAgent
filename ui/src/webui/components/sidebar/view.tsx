@@ -184,7 +184,7 @@ function ProjectTree(props: {
               onClick={() => props.onResumeSession(s.id)}
             >
               <span className={styles.sessionDot} />
-              <span className={styles.sessionPreview}>{s.preview || s.id}</span>
+              <span className={styles.sessionPreview}>{s.preview || 'New Session'}</span>
               <span className={styles.sessionTime}>{relTime(s.updatedAt)}</span>
               <button className={styles.sessionDel} onClick={(e) => { e.stopPropagation(); props.onDeleteSession(s.id) }} title="Delete session" aria-label="Delete session">
                 <Trash2 size={10} strokeWidth={1.5} />

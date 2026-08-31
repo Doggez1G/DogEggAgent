@@ -39,14 +39,19 @@ export function InfoPanel(props: InfoPanelProps) {
   // 会话切换时清除请求缓存——新会话需要重新请求 tools/system/log/context。
   useEffect(() => {
     requested.current.clear()
-    if (!collapsed) {
-      requested.current.add('tools'); port.post({ type: 'tools_request' })
-      requested.current.add('system'); port.post({ type: 'system_request' })
-      requested.current.add('log'); port.post({ type: 'log_request' })
-      requested.current.add('context'); port.post({ type: 'context_request' })
-    }
-  }, [sessionId])  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sessionId])
 
+  // 面板展开时请求数据（首次展开或会话切换后展开）。
+  useEffect(() => {
+    if (collapsed) return
+    const req = requested.current
+    if (!req.has('tools')) { req.add('tools'); port.post({ type: 'tools_request' }) }
+    if (!req.has('system')) { req.add('system'); port.post({ type: 'system_request' }) }
+    if (!req.has('log')) { req.add('log'); port.post({ type: 'log_request' }) }
+    if (!req.has('context')) { req.add('context'); port.post({ type: 'context_request' }) }
+  }, [collapsed, sessionId, port])
+
+  // 运行中 context 每 3s 刷新。
   useEffect(() => {
     if (collapsed) return
     const isRunning = status !== 'idle' && status !== 'finished' && status !== 'cancelled' && status !== 'error'

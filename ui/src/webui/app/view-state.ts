@@ -13,7 +13,6 @@ export type Modal =
   | { kind: 'none' }
   | { kind: 'settings' }
   | { kind: 'command-palette' }
-  | { kind: 'permission'; id: string; tool: string; input: unknown }
   | { kind: 'confirm'; title: string; message: string; onConfirm: () => void }
   | { kind: 'fs-browser'; onConfirm: (path: string) => void }
   | { kind: 'help' }
