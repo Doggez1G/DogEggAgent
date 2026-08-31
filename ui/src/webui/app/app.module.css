@@ -11,12 +11,30 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+}
+
+/* Workspace 布局的右侧详情面板（点击工具块在此展开完整输出）。 */
+.detailPanel {
+  grid-area: detail;
+  overflow-y: auto;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  padding: 16px;
+}
+
+.detailPlaceholder {
+  color: var(--color-subtext);
+  font-size: 13px;
+  text-align: center;
+  padding-top: 40px;
 }
 
 .inputArea {
   grid-area: input;
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 .placeholder {

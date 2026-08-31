@@ -1,12 +1,13 @@
 import React, { useEffect, useRef } from 'react'
 import { MessageBlock } from '../message-block'
 import { KIND_ICON, KIND_LABEL, TOKEN_CSS_VAR } from '../../theme/token-map'
+import type { ChatState } from '../../../shared/reducer'
 import type { Block } from '../../../shared/block'
 import type { BlockKind, ColorToken } from '../../../shared/block'
-import type { ChatState } from '../../../shared/reducer'
 import styles from './chat-view.module.css'
 
 // 聊天视口：消息列表 + 流式 partial 块。自动滚动到底部。
+// Block 的 text/full 已由 App 渲染为 HTML（marked），此组件负责 DOM 呈现。
 interface ChatViewProps {
   chat: ChatState
   isRunning: boolean
@@ -31,11 +32,22 @@ export function ChatView({ chat, isRunning }: ChatViewProps) {
         </div>
       ) : (
         <div className={styles.messages}>
-          {chat.blocks.map((b: Block, i: number) => (
-            <MessageBlock key={i} kind={b.kind} color={b.color} text={b.text} full={b.full} />
-          ))}
+          {chat.blocks.map((b: Block, i: number) => {
+            // App 已把 text → html（markdown 渲染），但 Block 类型里字段仍是 text。
+            // 这里读 (b as any).html 或 fallback 到 b.text。
+            const html = (b as unknown as { html?: string }).html
+            const fullHtml = (b as unknown as { fullHtml?: string }).fullHtml
+            return (
+              <MessageBlock key={i} kind={b.kind} color={b.color} text={b.text} full={b.full}
+                html={html} fullHtml={fullHtml} />
+            )
+          })}
           {chat.partial && (
-            <StreamingBlock kind={chat.partial.kind === 'thinking' ? 'thinking' : 'assistant'} text={chat.partial.text} />
+            <StreamingBlock
+              kind={chat.partial.kind === 'thinking' ? 'thinking' : 'assistant'}
+              text={chat.partial.text}
+              html={(chat.partial as unknown as { html?: string }).html}
+            />
           )}
           {isRunning && !chat.partial && (
             <div className={styles.thinkingDots}>
@@ -52,11 +64,11 @@ export function ChatView({ chat, isRunning }: ChatViewProps) {
 }
 
 // 流式 partial 块：实时显示正在生成的文本。
-function StreamingBlock({ kind, text }: { kind: BlockKind; text: string }) {
+function StreamingBlock({ kind, text, html }: { kind: BlockKind; text: string; html?: string }) {
   const Icon = KIND_ICON[kind]!
   const label = KIND_LABEL[kind]!
   const color = (kind === 'thinking' ? 'yellow' : 'text') as ColorToken
-  const colorVar = TOKEN_CSS_VAR[color]
+  const colorVar = TOKEN_CSS_VAR[color]!
   return (
     <div className={styles.block + ' block-enter'}>
       <div className={styles.bar} style={{ background: colorVar }} />
@@ -66,7 +78,10 @@ function StreamingBlock({ kind, text }: { kind: BlockKind; text: string }) {
           <span className={styles.label} style={{ color: colorVar }}>{label}</span>
         </div>
         <div className={styles.body}>
-          <pre className={styles.text + ' token-stream'}>{text}</pre>
+          {html
+            ? <div className={styles.htmlContent + ' token-stream'} dangerouslySetInnerHTML={{ __html: html }} />
+            : <pre className={styles.text + ' token-stream'}>{text}</pre>
+          }
         </div>
       </div>
     </div>

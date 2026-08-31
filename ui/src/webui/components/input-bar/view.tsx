@@ -108,7 +108,13 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
         <textarea
           className={styles.textInput}
           value={input}
-          onChange={(e) => { setInput(e.target.value); setSuggest(null) }}
+          onChange={(e) => {
+            setInput(e.target.value)
+            setSuggest(null)
+            // 自动增高：重置 height 让 scrollHeight 计算实际内容高度。
+            e.target.style.height = 'auto'
+            e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px'
+          }}
           onKeyDown={handleKeyDown}
           placeholder={isRunning ? '' : 'Type a message or / for commands...'}
           rows={1}

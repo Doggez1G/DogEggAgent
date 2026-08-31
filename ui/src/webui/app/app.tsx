@@ -1,7 +1,9 @@
-import React, { useCallback, useEffect, useReducer, useState } from 'react'
+import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { marked } from 'marked'
 import type { AgentToUiMessage, Config, UiPort } from '@dogegg/bridge'
 import { Sidebar, TopBar, ChatView, InputBar, StatusBar, Settings, Sessions } from '../components'
 import { reducer, type ChatState } from '../../shared/reducer'
+import type { Block } from '../../shared/block'
 import type { Panel, SettingsTab, ThemeName, LayoutName, Modal } from './view-state'
 import { COMMAND_TO_NAV } from './view-state'
 import styles from './app.module.css'
@@ -14,6 +16,9 @@ interface AppProps {
 }
 
 const initialState: ChatState = { blocks: [], status: 'idle', partial: null }
+
+// 配置 marked（markdown → HTML），用于聊天消息渲染。
+marked.setOptions({ breaks: true, gfm: true })
 
 export function App({ port }: AppProps) {
   const [chat, dispatch] = useReducer(reducer, initialState)
@@ -32,10 +37,17 @@ export function App({ port }: AppProps) {
   const [logState, setLogState] = useState<{ path: string; tail: string } | null>(null)
   const [permissionsList, setPermissionsList] = useState<string[]>([])
 
-  // 应用 theme + layout 到 <html> 的 data 属性。
+  // 用 ref 镜像 modal，避免 onMessage effect 因 modal 变化而重复订阅。
+  const modalRef = useRef(modal)
+  useEffect(() => { modalRef.current = modal }, [modal])
+
+  // 应用 theme 到 <html> 的 data-theme 属性（CSS 变量切换）。
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
   }, [theme])
+
+  // 应用 layout 到 <html>（供 CSS 选择器匹配）+ .app div 的 data-layout（grid 模板）。
+  // layout 切换由 .app div 的 data-layout 属性驱动（CSS [data-layout] 选择器匹配 grid 容器）。
   useEffect(() => {
     document.documentElement.setAttribute('data-layout', layout)
   }, [layout])
@@ -62,12 +74,13 @@ export function App({ port }: AppProps) {
   }, [])
 
   // 订阅后端消息：dispatch 到 reducer + 按 msg.type 切换 panel/modal。
+  // 注意：不把 modal 放依赖数组——用 ref 镜像读取，避免每次 modal 变化都重新订阅 port。
   useEffect(() => {
     const off = port.onMessage((msg: AgentToUiMessage) => {
       dispatch(msg)
       if (msg.type === 'permission_request') {
         setModal({ kind: 'permission', id: msg.id, tool: msg.tool, input: msg.input })
-      } else if (msg.type === 'state' && msg.to !== 'waiting_permission' && modal.kind === 'permission') {
+      } else if (msg.type === 'state' && msg.to !== 'waiting_permission' && modalRef.current.kind === 'permission') {
         setModal({ kind: 'none' })
       } else if (msg.type === 'config_state' || msg.type === 'config_updated') {
         setConfig(msg.config)
@@ -86,16 +99,32 @@ export function App({ port }: AppProps) {
         setPermissionsList(msg.tools)
       }
     })
-    // 订阅后主动取一次配置。
+    // 订阅后主动取一次配置和状态。
     port.post({ type: 'config_request' })
     port.post({ type: 'status_request' })
     return off
-  }, [port, modal])
+  }, [port])
 
   const isRunning = chat.status !== 'idle' && chat.status !== 'finished' && chat.status !== 'cancelled' && chat.status !== 'error'
 
+  // markdown 渲染：把 Block 的 text/full 从 markdown 转 HTML 供 DOM 渲染。
+  const renderBlocks = chat.blocks.map((b: Block) => ({
+    ...b,
+    html: b.kind === 'assistant' || b.kind === 'thinking'
+      ? marked.parse(b.text)
+      : b.text,
+    fullHtml: b.full !== undefined
+      ? (b.kind === 'assistant' || b.kind === 'thinking' ? marked.parse(b.full) : b.full)
+      : undefined,
+  }))
+
+  // 流式 partial 的 HTML。
+  const partialHtml = chat.partial
+    ? marked.parse(chat.partial.text)
+    : null
+
   return (
-    <div className={styles.app} data-layout={layout}>
+    <div className={styles.app} data-layout={layout} data-theme={theme}>
       {layout !== 'zen' && (
         <Sidebar
           panel={panel}
@@ -113,7 +142,7 @@ export function App({ port }: AppProps) {
       <TopBar provider={statusBar.provider} model={statusBar.model} cwd={cwd} isRunning={isRunning} />
       <div className={styles.mainArea}>
         {panel === 'chat' ? (
-          <ChatView chat={chat} isRunning={isRunning} />
+          <ChatView chat={{ ...chat, blocks: renderBlocks as unknown as Block[], partial: chat.partial ? { ...chat.partial, html: partialHtml } : null } as unknown as ChatState} isRunning={isRunning} />
         ) : panel === 'sessions' ? (
           <Sessions port={port} />
         ) : (
@@ -130,6 +159,14 @@ export function App({ port }: AppProps) {
           />
         )}
       </div>
+
+      {/* Workspace 布局的右侧详情面板 */}
+      {layout === 'workspace' && (
+        <div className={styles.detailPanel}>
+          <p className={styles.detailPlaceholder}>Detail</p>
+        </div>
+      )}
+
       <div className={styles.inputArea}>
         <StatusBar status={chat.status} tokens={statusBar.tokens} windowTokens={statusBar.windowTokens} />
         <InputBar port={port} isRunning={isRunning} onCommandNav={onCommandNav} onClearHistory={onClearHistory} onQuit={onQuit} />
@@ -161,7 +198,7 @@ export function App({ port }: AppProps) {
   )
 }
 
-// ── 模态组件（P3 骨架版，P4 细化）──
+// ── 模态组件 ──
 
 function PermissionModal(props: { id: string; tool: string; input: unknown; onDecision: (d: 'allow_once' | 'allow_always' | 'reject') => void; onClose: () => void }) {
   const inp = props.input as Record<string, unknown> | null

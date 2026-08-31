@@ -75,7 +75,9 @@
   resize: none;
   outline: none;
   max-height: 200px;
-  min-height: 22px;
+  min-height: 24px;
+  overflow-y: auto;
+  padding: 0;
 }
 
 .textInput::placeholder {

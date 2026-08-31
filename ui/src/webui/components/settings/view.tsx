@@ -174,6 +174,9 @@ function PermissionsTab({ tools, port }: { tools: string[]; port: UiPort }) {
 // ── Tools 标签页：工具列表（只读）──
 function ToolsTab({ tools, port }: { tools: { name: string; description: string }[]; port: UiPort }) {
   React.useEffect(() => { port.post({ type: 'tools_request' }) }, [port])
+  if (tools.length === 0) {
+    return <p className={styles.empty}>Loading tools...</p>
+  }
   return (
     <div className={styles.fieldList}>
       {tools.map((t) => (
