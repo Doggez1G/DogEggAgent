@@ -39,13 +39,19 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
     if (result.kind === 'user') {
       onUserSubmit(result.text)
       port.post({ type: 'submit', text: result.text })
+    } else if (result.kind === 'help') {
+      // /cd 无参数 → 打开文件选择器选目录（而非显示帮助）。
+      // /help 或未知命令 → 打开帮助 modal。
+      const cmd = input.trim().split(/\s+/)[0] ?? ''
+      if (cmd === '/cd') { onCommandFeedback?.('/cd') }
+      else { onCommandNav('/help') }
     } else if (result.kind === 'message') {
       const cmd = input.trim().split(/\s+/)[0] ?? ''
       if (result.msg.type === 'clear_history') { onClearHistory(); setInput(''); setSuggest(null); return }
       if (result.msg.type === 'quit') { onQuit(); setInput(''); setSuggest(null); return }
-      // /cd 命令——toast 反馈。
-      if (result.msg.type === 'set_cwd') { onCommandFeedback?.('/cd', result.msg.path) }
-      // /session 命令——打开命令面板。
+      // /cd 有参数 → 直接发 set_cwd 消息。
+      // /cd 无参数 → 已在 help 分支处理（打开文件选择器）。
+      // /session → 突出侧栏。
       if (result.msg.type === 'list_sessions') { onCommandFeedback?.('/session') }
       const nav = COMMAND_TO_MODAL[cmd]
       if (nav) { onCommandNav(cmd) }

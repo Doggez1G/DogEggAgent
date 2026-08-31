@@ -48,7 +48,8 @@ export function App({ port }: AppProps) {
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const toolSeqRef = useRef(0)
-  // 记录 permission_decision 的 id→decision 映射，供 tool_start 时关联决策标签。
+  // 记录 permission_decision 的 toolName→decision 映射，供 tool_start 时关联决策标签。
+  // permission_request.id 与 tool_start.id 不同（后端分别生成），无法按 id 匹配，改用 toolName。
   const permissionDecisions = useRef<Map<string, 'allow_once' | 'allow_always' | 'reject'>>(new Map())
 
   // 显示 toast 提示——3 秒后自动消失。
@@ -132,30 +133,29 @@ export function App({ port }: AppProps) {
       } else if (msg.type === 'tools_list') {
         setToolsList(msg.tools)
         setInfoCollapsed(false)
-        showToast(`${msg.tools.length} tools available`)
       } else if (msg.type === 'context_state') {
         setContextState({ estimatedTokens: msg.estimatedTokens, windowTokens: msg.windowTokens, percent: msg.percent })
         // /context 命令的反馈——展开面板显示 context 信息。
-        if (chat.status === 'idle') { setInfoCollapsed(false); showToast(`Context: ${msg.estimatedTokens.toLocaleString()} / ${msg.windowTokens.toLocaleString()} tokens (${msg.percent}%)`) }
+        if (chat.status === 'idle') setInfoCollapsed(false)
       } else if (msg.type === 'system_state') {
         setSystemState({ path: msg.path, content: msg.content })
         setInfoCollapsed(false)
-        showToast('System prompt loaded')
       } else if (msg.type === 'log_state') {
         setLogState({ path: msg.path, tail: msg.tail })
         setInfoCollapsed(false)
-        showToast('Log loaded')
       } else if (msg.type === 'permissions_list') {
         setPermissionsList(msg.tools)
         // /permissions 命令的反馈——展开面板显示 session permissions。
         setInfoCollapsed(false)
-        showToast(msg.tools.length > 0 ? `${msg.tools.length} tools always-allowed this session` : 'No always-allowed tools this session')
       } else if (msg.type === 'tool_start') {
         const seq = ++toolSeqRef.current
-        const decision = permissionDecisions.current.get(msg.id)
+        // 按 toolName 查找 decision——permission_request.id 与 tool_start.id 不同。
+        const decision = permissionDecisions.current.get(msg.name)
         // 记录执行时的配置权限快照——不随后续设置变化。
         const configPerm = getToolConfigPerm(msg.name, config)
         setToolCalls((prev) => [...prev, { id: msg.id, name: msg.name, status: 'running', seq, decision, configPerm }])
+        // 用完后清除 decision（避免下一个同名工具继承上次决策）。
+        if (decision) permissionDecisions.current.delete(msg.name)
         // Files Touched：从 tool_start input 提取文件路径。
         if ((msg.name === 'edit_file' || msg.name === 'write_file') && msg.input) {
           const inp = msg.input as Record<string, unknown>
@@ -194,12 +194,10 @@ export function App({ port }: AppProps) {
         setFilesTouched([])
         setToolCalls([])
         port.post({ type: 'context_request' })
-        showToast('History cleared')
       } else if (msg.type === 'compaction') {
         port.post({ type: 'context_request' })
-        showToast(`Context compacted: ${msg.before_tokens} → ${msg.after_tokens} tokens`)
       } else if (msg.type === 'notice') {
-        showToast(msg.text)
+        // notice 由 reducer 处理为对话面板中的 notice 块，不需要 toast。
       } else if (msg.type === 'finished' || msg.type === 'error') {
         // 对话结束后刷新会话列表 + context 状态。
         refreshSessions()
@@ -243,38 +241,7 @@ export function App({ port }: AppProps) {
         onResumeSession={(id) => port.post({ type: 'resume_session', id })}
         onDeleteSession={handleDeleteSession}
         onDeleteProject={handleDeleteProject}
-        onAddProject={() => {
-          // 使用原生目录选择对话框 + 后端路径解析。
-          const input = document.createElement('input')
-          input.type = 'file'
-          input.setAttribute('webkitdirectory', '')
-          input.onchange = async () => {
-            const files = input.files
-            if (!files || files.length === 0) return
-            // webkitRelativePath 第一段是选中的目录名。
-            const dirName = files[0]!.webkitRelativePath.split('/')[0] ?? ''
-            if (!dirName) return
-            // 后端搜索完整路径。
-            try {
-              const resp = await fetch('/api/resolve-path', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: dirName }),
-              })
-              const data = await resp.json()
-              const paths: string[] = data.paths ?? []
-              if (paths.length >= 1) {
-                port.post({ type: 'new_session', cwd: paths[0] })
-              } else {
-                // 未找到——回退到目录浏览器。
-                setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })
-              }
-            } catch {
-              setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })
-            }
-          }
-          input.click()
-        }}
+        onAddProject={() => setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })}
         onOpenSettings={() => setModal({ kind: 'settings' })}
         onThemeChange={setTheme}
       />
@@ -313,7 +280,7 @@ export function App({ port }: AppProps) {
           <PermissionBanner
             tool={pendingPermission.tool}
             input={pendingPermission.input}
-            onDecision={(d) => { permissionDecisions.current.set(pendingPermission.id, d); port.post({ type: 'permission_decision', id: pendingPermission.id, decision: d }); setPendingPermission(null) }}
+            onDecision={(d) => { permissionDecisions.current.set(pendingPermission.tool, d); port.post({ type: 'permission_decision', id: pendingPermission.id, decision: d }); setPendingPermission(null) }}
           />
         )}
         <InputBar
@@ -324,31 +291,11 @@ export function App({ port }: AppProps) {
           onQuit={onQuit}
           onUserSubmit={(text) => dispatch({ type: 'local_user', text })}
           onNewSession={() => port.post({ type: 'new_session' })}
-          onCompact={() => { port.post({ type: 'compact_request' }); showToast('Compacting context...') }}
-          onAddProject={() => {
-            const input = document.createElement('input')
-            input.type = 'file'
-            input.setAttribute('webkitdirectory', '')
-            input.onchange = async () => {
-              const files = input.files
-              if (!files || files.length === 0) return
-              const dirName = files[0]!.webkitRelativePath.split('/')[0] ?? ''
-              if (!dirName) return
-              try {
-                const resp = await fetch('/api/resolve-path', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: dirName }) })
-                const data = await resp.json()
-                const paths: string[] = data.paths ?? []
-                if (paths.length >= 1) port.post({ type: 'new_session', cwd: paths[0] })
-                else setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })
-              } catch {
-                setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })
-              }
-            }
-            input.click()
-          }}
+          onCompact={() => port.post({ type: 'compact_request' })}
+          onAddProject={() => setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })}
           onCommandFeedback={(cmd, arg) => {
-            if (cmd === '/cd') showToast(`Working directory changed to ${arg}`)
-            else if (cmd === '/session') setModal({ kind: 'command-palette' })
+            if (cmd === '/cd') setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'set_cwd', path }); setModal({ kind: 'none' }) } })
+            else if (cmd === '/session') setSidebarCollapsed(false) // 突出侧栏
           }}
         />
       </div>
