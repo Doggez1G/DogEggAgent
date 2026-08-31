@@ -1,9 +1,7 @@
-/* Settings — 卡片堆叠风格。
-   卡片 chrome（边框、标题、折叠箭头）由 primitives Card 提供，此处只管内容布局与局部控件。 */
+/* Settings — 左侧导航 + 右侧内容区（IDE 风格分栏）。 */
 
 .settings {
   display: flex;
-  flex-direction: column;
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -17,58 +15,291 @@
   font-size: var(--fs-base);
 }
 
-/* 滚动主体：全宽（无 max-width，避免 720px modal 右侧留白）。 */
-.scrollBody {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  width: 100%;
-  padding: var(--sp-4) var(--sp-6);
+/* ── 左侧导航 ── */
+.nav {
+  width: 180px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--color-border);
+  padding: var(--sp-3) var(--sp-2);
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
+  gap: 2px;
+  overflow-y: auto;
 }
 
-.divider {
-  height: 1px;
-  background: var(--color-border);
-  margin: var(--sp-1) 0;
-}
-
-/* 两列并排字段（maxIterations / maxRetries）。子项均分宽度。 */
-.fieldRow2 {
+.navItem {
   display: flex;
-  gap: var(--sp-3);
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-subtext);
+  font-size: var(--fs-sm);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background-color var(--t-fast) ease, color var(--t-fast) ease;
 }
 
-.fieldRow2 > * {
+.navItem:hover {
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+}
+
+.navActive {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-weight: 500;
+}
+
+/* ── 右侧内容区 ── */
+.content {
   flex: 1;
   min-width: 0;
+  overflow-y: auto;
+  padding: var(--sp-5) var(--sp-6);
 }
 
-/* ── Model 行：两行布局 ── */
-/* 上行：Cpu 图标 + 模型名/输入框 + 删除按钮 */
-/* 下行：上下文窗口 + reasoning 徽标 + 开关 */
-.modelRow {
+.sectionTitle {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: var(--sp-1);
+}
+
+.sectionDesc {
+  font-size: var(--fs-xs);
+  color: var(--color-muted, var(--color-subtext));
+  margin-bottom: var(--sp-5);
+}
+
+/* ── 字段组 ── */
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.field {
   display: flex;
   flex-direction: column;
   gap: var(--sp-1);
-  padding: var(--sp-1) var(--sp-2);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
 }
 
-.modelRowTop {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-1);
+.fieldLabel {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--color-text);
 }
 
-.modelRowBottom {
+.fieldDesc {
+  font-size: 11px;
+  color: var(--color-muted, var(--color-subtext));
+}
+
+/* ── Select ── */
+.selectWrap {
+  position: relative;
+}
+
+.select {
+  width: 100%;
+  padding: var(--sp-2) 28px var(--sp-2) var(--sp-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: var(--fs-sm);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: border-color var(--t-fast) ease;
+}
+
+.select:focus {
+  border-color: var(--color-accent);
+}
+
+.selectArrow {
+  position: absolute;
+  right: var(--sp-2);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-muted, var(--color-subtext));
+  pointer-events: none;
+}
+
+/* ── Input ── */
+.input {
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: var(--fs-sm);
+  font-family: var(--font-sans);
+  outline: none;
+  transition: border-color var(--t-fast) ease;
+}
+
+.input:focus {
+  border-color: var(--color-accent);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* ── File picker ── */
+.filePicker {
+  display: flex;
+}
+
+.filePicker .input {
+  flex: 1;
+  border-right: none;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+.filePickerBtn {
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--color-border);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  background: var(--color-surface-elevated);
+  color: var(--color-subtext);
+  cursor: pointer;
   display: flex;
   align-items: center;
-  gap: var(--sp-1);
-  padding-left: var(--sp-5);
+  transition: background-color var(--t-fast) ease, color var(--t-fast) ease;
+}
+
+.filePickerBtn:hover {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+/* ── Two columns ── */
+.twoCol {
+  display: flex;
+  gap: var(--sp-4);
+}
+
+.twoCol > .field {
+  flex: 1;
+}
+
+/* ── Toggle row ── */
+.toggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-1) 0;
+}
+
+.toggleDesc {
+  font-size: 11px;
+  color: var(--color-muted, var(--color-subtext));
+}
+
+/* ── Provider 卡片 ── */
+.providerList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.providerCard {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.providerHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  cursor: pointer;
+  transition: background-color var(--t-fast) ease;
+}
+
+.providerHeader:hover {
+  background: var(--color-card-hover, var(--color-surface-elevated));
+}
+
+.providerIcon {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+.providerName {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.providerMeta {
+  flex: 1;
+  font-size: 11px;
+  color: var(--color-muted, var(--color-subtext));
+}
+
+.providerChevron {
+  color: var(--color-muted, var(--color-subtext));
+  transition: transform var(--t-normal) ease;
+  flex-shrink: 0;
+}
+
+.collapsedCard .providerChevron {
+  transform: rotate(-90deg);
+}
+
+.providerBody {
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.modelsLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-subtext);
+  margin-top: var(--sp-1);
+}
+
+/* ── Model 编辑器 ── */
+.modelEditor {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.modelEditorHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
 }
 
 .modelIcon {
@@ -76,104 +307,64 @@
   flex-shrink: 0;
 }
 
-.modelNameText {
+.modelEditorTitle {
   flex: 1;
-  min-width: 0;
   font-family: var(--font-mono);
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
   color: var(--color-text);
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transition: color var(--t-fast) ease;
+  font-weight: 500;
 }
 
-.modelNameText:hover {
-  color: var(--color-accent);
-}
-
-.modelMeta {
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  color: var(--color-subtext);
-}
-
-.modelInput {
-  flex: 1;
-  min-width: 0;
-  padding: var(--sp-1) var(--sp-2);
-  border: 1px solid var(--color-accent);
+.modelDel {
+  width: 24px;
+  height: 24px;
+  border: none;
   border-radius: var(--radius-sm);
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  outline: none;
-}
-
-.iconDelete {
+  background: transparent;
+  color: var(--color-muted, var(--color-subtext));
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: var(--sp-4);
-  height: var(--sp-4);
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-subtext);
-  cursor: pointer;
   flex-shrink: 0;
-  transition: color var(--t-fast) ease;
-}
-
-.iconDelete:hover {
-  color: var(--color-danger);
-}
-
-/* ── Provider 列表 ── */
-.providerList {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-}
-
-/* ProviderCard 现使用 primitives Card，此处仅作容器对齐。 */
-.subCard {
-  display: flex;
-  flex-direction: column;
-}
-
-.deleteBtn {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-1);
-  padding: var(--sp-1) var(--sp-2);
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-danger);
-  font-size: var(--fs-xs);
-  font-family: var(--font-sans);
-  cursor: pointer;
-  align-self: flex-start;
   transition: background-color var(--t-fast) ease, color var(--t-fast) ease;
 }
 
-.deleteBtn:hover {
-  background: var(--color-danger);
-  color: var(--color-bg);
+.modelDel:hover {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
 }
 
+.modelFields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
+}
+
+.modelFields .field {
+  gap: var(--sp-1);
+}
+
+.modelFields .fieldLabel {
+  font-size: 11px;
+  color: var(--color-muted, var(--color-subtext));
+}
+
+.modelFields .input {
+  padding: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-xs);
+}
+
+/* ── Add / Delete 按钮 ── */
 .addBtn {
   display: flex;
   align-items: center;
   gap: var(--sp-1);
-  padding: var(--sp-2) var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
   border: 1px dashed var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: transparent;
-  color: var(--color-subtext);
+  color: var(--color-muted, var(--color-subtext));
   font-size: var(--fs-sm);
   font-family: var(--font-sans);
   cursor: pointer;
@@ -185,102 +376,273 @@
   color: var(--color-accent);
 }
 
+.deleteBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--color-danger-soft);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-danger);
+  font-size: var(--fs-xs);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  align-self: flex-start;
+  transition: background-color var(--t-fast) ease;
+}
+
+.deleteBtn:hover {
+  background: var(--color-danger-soft);
+}
+
 /* ── Permissions ── */
 .permList {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-2);
+  gap: var(--sp-4);
 }
 
-.permBucket {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
+.permSection {
+  margin-bottom: var(--sp-3);
 }
 
-.permBucketHeader {
+.permHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--sp-2) var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
 }
 
-.permBucketName {
+.permName {
   font-size: var(--fs-sm);
   font-weight: 600;
   text-transform: capitalize;
 }
 
-.permBucketName[data-bucket='allow'] { color: var(--color-success); }
-.permBucketName[data-bucket='reject'] { color: var(--color-danger); }
-.permBucketName[data-bucket='ask'] { color: var(--color-warning); }
+.permName[data-bucket='allow'] { color: var(--color-success); }
+.permName[data-bucket='reject'] { color: var(--color-danger); }
+.permName[data-bucket='ask'] { color: var(--color-warning); }
 
-.permBucketCount {
-  font-size: var(--fs-xs);
-  color: var(--color-subtext);
+.permCount {
+  font-size: 11px;
+  color: var(--color-muted, var(--color-subtext));
 }
 
-.permTools {
+.permChips {
   display: flex;
   flex-wrap: wrap;
   gap: var(--sp-1);
-  padding: 0 var(--sp-3) var(--sp-2);
+  padding: var(--sp-3) 0;
 }
 
-.permToolChip {
-  display: flex;
+.permChip {
+  display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
-  padding: var(--sp-1) var(--sp-2);
-  background: var(--color-bg);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
-}
-
-.permToolChip code {
+  padding: var(--sp-1) var(--sp-3);
+  background: var(--color-surface-elevated);
+  border-radius: var(--radius-full, 9999px);
+  font-size: 11px;
   font-family: var(--font-mono);
-  font-size: var(--fs-xs);
   color: var(--color-text);
 }
 
-.permToolRemove {
+.permChip code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text);
+}
+
+.permChipX {
+  width: 14px;
+  height: 14px;
+  border: none;
+  background: transparent;
+  color: var(--color-muted, var(--color-subtext));
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: var(--sp-4);
-  height: var(--sp-4);
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--color-subtext);
-  cursor: pointer;
-  transition: color var(--t-fast) ease;
 }
 
-.permToolRemove:hover {
+.permChipX:hover {
   color: var(--color-danger);
 }
 
 .permEmpty {
-  font-size: var(--fs-xs);
-  color: var(--color-subtext);
-  opacity: 0.6;
+  font-size: 11px;
+  color: var(--color-muted, var(--color-subtext));
+  padding: var(--sp-1) 0;
 }
 
-.permAddInput {
+/* 工具选择下拉框 */
+.permAddWrap {
+  position: relative;
+}
+
+.permAdd {
   width: 100%;
-  padding: var(--sp-1) var(--sp-2);
-  border: none;
-  border-top: 1px solid var(--color-border);
+  padding: var(--sp-2) 28px var(--sp-2) var(--sp-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   background: var(--color-bg);
   color: var(--color-text);
-  font-family: var(--font-mono);
   font-size: var(--fs-xs);
   outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  transition: border-color var(--t-fast) ease;
+}
+
+.permAdd:focus {
+  border-color: var(--color-accent);
+}
+
+.permAddArrow {
+  position: absolute;
+  right: var(--sp-2);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-muted, var(--color-subtext));
+  pointer-events: none;
+}
+
+/* ── 文件选择器 Modal ── */
+.fileScrim {
+  position: fixed;
+  inset: 0;
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal);
+}
+
+.fileModal {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  max-width: 560px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+  padding: var(--sp-6);
+}
+
+.fileHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-3);
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.fileTitle {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.fileClose {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-subtext);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color var(--t-fast) ease, color var(--t-fast) ease;
+}
+
+.fileClose:hover {
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+}
+
+.fileBreadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  flex-wrap: wrap;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--sp-3);
+  font-size: var(--fs-xs);
+}
+
+.fileBack, .fileUp {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-subtext);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color var(--t-fast) ease, color var(--t-fast) ease;
+}
+
+.fileBack:hover, .fileUp:hover {
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+}
+
+.fileCrumb { color: var(--color-subtext); font-family: var(--font-mono); padding: 2px 4px; }
+.fileCrumbActive { color: var(--color-accent); font-family: var(--font-mono); font-weight: 500; padding: 2px 4px; }
+.fileCrumbSep { color: var(--color-subtext); }
+
+.fileList {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--sp-3);
+}
+
+.fileItem {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  text-align: left;
+  padding: var(--sp-2) var(--sp-3);
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  cursor: pointer;
   transition: background-color var(--t-fast) ease;
 }
 
-.permAddInput:focus {
-  background: var(--color-surface-elevated);
+.fileItem:last-child { border-bottom: none; }
+.fileItem:hover { background: var(--color-surface-elevated); }
+.fileItemSelected { background: var(--color-accent-soft); }
+.fileItemDirIcon { color: var(--color-accent); flex-shrink: 0; }
+.fileItemFileIcon { color: var(--color-subtext); flex-shrink: 0; }
+.fileItemSelected .fileItemFileIcon { color: var(--color-accent); }
+.fileEmpty { padding: var(--sp-6); text-align: center; color: var(--color-subtext); font-size: var(--fs-sm); }
+
+.fileActions {
+  display: flex;
+  gap: var(--sp-2);
+  justify-content: flex-end;
 }

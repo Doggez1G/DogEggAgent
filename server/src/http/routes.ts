@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { join, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { execSync } from 'node:child_process'
 import { listDirs, resolveFsPath } from '../fs'
 
 // MIME 类型映射——静态文件 serve 时设置正确的 Content-Type。
@@ -21,14 +22,50 @@ const MIME: Record<string, string> = {
 // 返回 true 表示已处理（handler 已写响应），false 表示未匹配（交给静态文件 fallback）。
 export type RouteHandler = (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>
 
-// fs handler：GET /api/fs?path=/some/dir → 返回子目录列表 JSON。
+// fs handler：GET /api/fs?path=/some/dir&files=true → 返回子目录列表（+ 文件列表）JSON。
 async function fsHandler(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
   if (req.method !== 'GET') {
     res.writeHead(405); res.end('Method Not Allowed'); return true
   }
-  const result = await listDirs(resolveFsPath(url.searchParams.get('path') ?? undefined))
+  const includeFiles = url.searchParams.get('files') === 'true'
+  const result = await listDirs(resolveFsPath(url.searchParams.get('path') ?? undefined), includeFiles)
   res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' })
   res.end(JSON.stringify(result))
+  return true
+}
+
+// shells handler：GET /api/shells → 检测系统可用的 shell 程序列表。
+function detectShells(): { value: string; label: string }[] {
+  const candidates = [
+    { cmd: 'powershell', value: 'powershell', label: 'PowerShell' },
+    { cmd: 'pwsh', value: 'pwsh', label: 'PowerShell 7' },
+    { cmd: 'cmd', value: 'cmd', label: 'Command Prompt (cmd)' },
+    { cmd: 'bash', value: 'bash', label: 'Bash' },
+    { cmd: 'zsh', value: 'zsh', label: 'Zsh' },
+    { cmd: 'sh', value: 'sh', label: 'sh' },
+  ]
+  const found: { value: string; label: string }[] = []
+  for (const c of candidates) {
+    try {
+      execSync(`${c.cmd} --version 2>&1` + (process.platform === 'win32' ? '' : ` || ${c.cmd} -c 'exit 0' 2>&1`), {
+        timeout: 3000,
+        stdio: 'pipe',
+      })
+      found.push({ value: c.value, label: c.label })
+    } catch {
+      // shell not available — skip
+    }
+  }
+  return found
+}
+
+async function shellsHandler(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+  if (req.method !== 'GET') {
+    res.writeHead(405); res.end('Method Not Allowed'); return true
+  }
+  const shells = detectShells()
+  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' })
+  res.end(JSON.stringify(shells))
   return true
 }
 
@@ -50,6 +87,8 @@ export function createRoutes(opts: {
   })
   // 目录浏览：GET /api/fs
   routes.set('/api/fs', fsHandler)
+  // Shell 检测：GET /api/shells
+  routes.set('/api/shells', shellsHandler)
   return routes
 }
 
