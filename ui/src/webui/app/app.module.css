@@ -47,8 +47,8 @@
 .permissionBanner {
   max-width: 760px;
   margin: 0 auto var(--sp-2);
-  background: var(--color-warning-soft-bg, rgba(251, 191, 36, 0.08));
-  border: 1px solid var(--color-warning-soft-border, rgba(251, 191, 36, 0.15));
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-left: 3px solid var(--color-warning);
   border-radius: var(--radius-md);
   padding: var(--sp-3) var(--sp-4);
@@ -61,34 +61,73 @@
   align-items: center;
   gap: var(--sp-2);
 }
+.permissionShield {
+  color: var(--color-warning);
+  flex-shrink: 0;
+}
 .permissionTool {
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--color-warning);
 }
+.permissionFile {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--color-text);
+  background: var(--color-surface-elevated);
+  padding: 1px var(--sp-2);
+  border-radius: var(--radius-sm);
+}
 .permissionHint {
   font-size: var(--fs-xs);
   color: var(--color-muted, var(--color-subtext));
 }
-.permissionDiff {
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  line-height: 1.5;
+.permissionDiffWrap {
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   padding: var(--sp-2) var(--sp-3);
+  max-height: 120px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.permissionDiffLine {
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 150px;
-  overflow-y: auto;
+}
+.permissionDiffDel { color: var(--color-danger); }
+.permissionDiffAdd { color: var(--color-success); }
+.permissionShellCmd {
   color: var(--color-text);
-  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .permissionActions {
   display: flex;
   gap: var(--sp-2);
+}
+
+/* ── Toast 提示 ── */
+.toast {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-2) var(--sp-4);
+  font-size: var(--fs-sm);
+  color: var(--color-text);
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-modal);
+  max-width: 400px;
 }
 
 /* ── 模态层 ── */

@@ -18,6 +18,7 @@ interface InfoPanelProps {
   systemState: { path: string; content: string } | null
   logState: { path: string; tail: string } | null
   filesTouched: { path: string; action: 'edit' | 'write'; toolName: string; time: number }[]
+  permissionsList: string[]
   collapsed: boolean
   onToggleCollapse: () => void
   port: UiPort
@@ -31,6 +32,13 @@ const STATUS_LABELS: Record<string, string> = {
 }
 
 const basename = (p: string): string => p.split(/[/\\]/).pop() ?? p
+
+// 获取工具的权限标签——permissionsList 是 allow_always 授权列表。
+// 未在 allow 列表中的工具默认是 ask（需要确认），除非在 config permission 中设为 reject。
+function getToolPermission(toolName: string, allowAlways: string[]): string | null {
+  if (allowAlways.includes(toolName)) return 'allow'
+  return 'ask'
+}
 
 export function InfoPanel(props: InfoPanelProps) {
   const { collapsed, port, status, sessionId } = props
@@ -115,26 +123,30 @@ export function InfoPanel(props: InfoPanelProps) {
           ) : <p className={styles.emptyText}>Not available</p>}
         </InfoCard>
 
-        <InfoCard title="Tool Calls" icon={Wrench} defaultOpen={false}>
+        <InfoCard title="Tool Calls" icon={Wrench}>
           {props.toolCalls.length === 0 ? (
             <p className={styles.emptyText}>No tool calls yet</p>
           ) : (
             <div className={styles.toolList}>
-              {props.toolCalls.slice(-8).reverse().map((tc) => (
-                <div key={tc.id} className={styles.toolCallItem}>
-                  <span className={`${styles.toolCallIcon} ${styles[`toolCall_${tc.status}`]}`}>
-                    {tc.status === 'running' && <span className="spin" style={{ display: 'inline-block' }}>↻</span>}
-                    {tc.status === 'done' && '✓'}
-                    {tc.status === 'error' && '✕'}
-                  </span>
-                  <span className={styles.toolCallName}>{tc.name}</span>
-                </div>
-              ))}
+              {props.toolCalls.slice(-8).reverse().map((tc) => {
+                const perm = getToolPermission(tc.name, props.permissionsList)
+                return (
+                  <div key={tc.id} className={styles.toolCallItem}>
+                    <span className={`${styles.toolCallIcon} ${styles[`toolCall_${tc.status}`]}`}>
+                      {tc.status === 'running' && <span className="spin" style={{ display: 'inline-block' }}>↻</span>}
+                      {tc.status === 'done' && '✓'}
+                      {tc.status === 'error' && '✕'}
+                    </span>
+                    <span className={styles.toolCallName}>{tc.name}</span>
+                    {perm && <span className={styles.toolPerm} data-perm={perm}>{perm}</span>}
+                  </div>
+                )
+              })}
             </div>
           )}
         </InfoCard>
 
-        <InfoCard title="Files Touched" icon={FileEdit} defaultOpen={false}>
+        <InfoCard title="Files Touched" icon={FileEdit}>
           {files.length === 0 ? (
             <p className={styles.emptyText}>No files touched</p>
           ) : (
@@ -152,14 +164,20 @@ export function InfoPanel(props: InfoPanelProps) {
           )}
         </InfoCard>
 
-        <InfoCard title="Available Tools" icon={Wrench} defaultOpen={false}>
+        <InfoCard title="Available Tools" icon={Wrench}>
           {props.toolsList.length === 0 ? (
             <p className={styles.emptyText}>Loading...</p>
           ) : (
             <div className={styles.miniList}>
-              {props.toolsList.map((t) => (
-                <div key={t.name} className={styles.miniItem}><code className={styles.miniName}>{t.name}</code></div>
-              ))}
+              {props.toolsList.map((t) => {
+                const perm = getToolPermission(t.name, props.permissionsList)
+                return (
+                  <div key={t.name} className={styles.miniItem}>
+                    <code className={styles.miniName}>{t.name}</code>
+                    {perm && <span className={styles.toolPerm} data-perm={perm}>{perm}</span>}
+                  </div>
+                )
+              })}
             </div>
           )}
         </InfoCard>

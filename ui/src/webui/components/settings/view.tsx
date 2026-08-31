@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Trash2, Plus, Server, Cpu, ShieldCheck, SlidersHorizontal, ChevronDown, X, FileText, FolderClosed, FolderUp, ArrowLeft, ChevronRight } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Trash2, Plus, Server, Cpu, ShieldCheck, SlidersHorizontal, ChevronDown, X, FileText } from 'lucide-react'
 import type { Config, UiPort } from '@dogegg/bridge'
 import { Toggle, Button } from '../primitives'
 import styles from './settings.module.css'
@@ -58,8 +58,19 @@ function GeneralSection({ config, port }: { config: Config; port: UiPort }) {
     fetch('/api/shells').then((r) => r.json()).then(setShells).catch(() => setShells([]))
   }, [])
 
-  // System prompt 文件选择器状态。
-  const [fileBrowserOpen, setFileBrowserOpen] = useState(false)
+  // System prompt 文件选择器——使用原生文件对话框。
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      // File 对象的 path 在浏览器中不可用，用 name 作为 fallback。
+      // 但在 Electron 或特定环境下 webkitRelativePath 可用。
+      const path = (file as unknown as { path?: string }).path ?? file.name
+      port.post({ type: 'config_set', path: 'systemPrompt', value: path })
+    }
+    e.target.value = '' // reset for re-selection
+  }
 
   return (
     <>
@@ -69,15 +80,16 @@ function GeneralSection({ config, port }: { config: Config; port: UiPort }) {
         <SelectField label="Default Provider" desc="Which API provider to use" value={config.defaultProvider ?? ''} options={providers.length ? providers : [{ value: '', label: '(none)' }]} onChange={(v) => port.post({ type: 'config_set', path: 'defaultProvider', value: v })} />
         <SelectField label="Default Model" desc="Which model to use for responses" value={config.defaultModel ?? ''} options={modelOptions.length ? modelOptions : [{ value: '', label: '(select provider first)' }]} onChange={(v) => port.post({ type: 'config_set', path: 'defaultModel', value: v })} />
 
-        {/* System Prompt — 文件选择器 */}
+        {/* System Prompt — 原生文件选择对话框 */}
         <div className={styles.field}>
           <span className={styles.fieldLabel}>System Prompt</span>
           <span className={styles.fieldDesc}>Path to system prompt file (empty = built-in)</span>
           <div className={styles.filePicker}>
             <input className={`${styles.input} ${styles.mono}`} placeholder="(built-in)" value={config.systemPrompt ?? ''} readOnly />
-            <button className={styles.filePickerBtn} onClick={() => setFileBrowserOpen(true)} title="Browse file">
+            <button className={styles.filePickerBtn} onClick={() => fileInputRef.current?.click()} title="Browse file">
               <FileText size={14} strokeWidth={1.5} />
             </button>
+            <input ref={fileInputRef} type="file" style={{ display: 'none' }} onChange={handleFileSelect} accept=".txt,.md,.text,.markdown" />
           </div>
         </div>
 
@@ -89,13 +101,6 @@ function GeneralSection({ config, port }: { config: Config; port: UiPort }) {
           <NumberField label="Max Retries" value={config.maxRetries} onChange={(v) => port.post({ type: 'config_set', path: 'maxRetries', value: v })} />
         </div>
       </div>
-
-      {fileBrowserOpen && (
-        <FilePickerModal
-          onConfirm={(path) => { port.post({ type: 'config_set', path: 'systemPrompt', value: path }); setFileBrowserOpen(false) }}
-          onClose={() => setFileBrowserOpen(false)}
-        />
-      )}
     </>
   )
 }
@@ -245,72 +250,6 @@ function PermissionsSection({ config, port }: { config: Config; port: UiPort }) 
         })}
       </div>
     </>
-  )
-}
-
-// ── 文件选择器 Modal ──
-function FilePickerModal({ onConfirm, onClose }: { onConfirm: (path: string) => void; onClose: () => void }) {
-  const [current, setCurrent] = useState('')
-  const [dirs, setDirs] = useState<string[]>([])
-  const [files, setFiles] = useState<string[]>([])
-  const [parent, setParent] = useState<string | null>(null)
-  const [history, setHistory] = useState<string[]>([])
-  const [selectedFile, setSelectedFile] = useState('')
-
-  useEffect(() => {
-    fetch('/api/fs?files=true').then((r) => r.json()).then((d) => { setCurrent(d.current); setDirs(d.dirs); setFiles(d.files ?? []); setParent(d.parent) })
-  }, [])
-
-  const browse = (path: string) => {
-    setHistory((h) => [...h, current])
-    fetch(`/api/fs?path=${encodeURIComponent(path)}&files=true`).then((r) => r.json()).then((d) => { setCurrent(d.current); setDirs(d.dirs); setFiles(d.files ?? []); setParent(d.parent); setSelectedFile('') })
-  }
-  const goBack = () => {
-    if (history.length === 0) return
-    const prev = history[history.length - 1]!
-    setHistory((h) => h.slice(0, -1))
-    fetch(`/api/fs?path=${encodeURIComponent(prev)}&files=true`).then((r) => r.json()).then((d) => { setCurrent(d.current); setDirs(d.dirs); setFiles(d.files ?? []); setParent(d.parent); setSelectedFile('') })
-  }
-  const breadcrumbs = current ? current.split(/[/\\]/).filter(Boolean) : []
-
-  return (
-    <div className={styles.fileScrim} onClick={onClose}>
-      <div className={styles.fileModal} onClick={(e) => e.stopPropagation()}>
-        <div className={styles.fileHeader}>
-          <span className={styles.fileTitle}>Select System Prompt File</span>
-          <button className={styles.fileClose} onClick={onClose}><X size={16} strokeWidth={2} /></button>
-        </div>
-        <div className={styles.fileBreadcrumb}>
-          {history.length > 0 && <button className={styles.fileBack} onClick={goBack}><ArrowLeft size={14} strokeWidth={1.5} /></button>}
-          {parent && <button className={styles.fileUp} onClick={() => browse(parent)}><FolderUp size={14} strokeWidth={1.5} /></button>}
-          {breadcrumbs.map((seg, i) => (
-            <span key={i}>
-              {i > 0 && <ChevronRight size={10} strokeWidth={1.5} className={styles.fileCrumbSep} />}
-              <span className={i === breadcrumbs.length - 1 ? styles.fileCrumbActive : styles.fileCrumb}>{seg}</span>
-            </span>
-          ))}
-        </div>
-        <div className={styles.fileList}>
-          {dirs.map((d) => (
-            <button key={d} className={styles.fileItem} onClick={() => browse(current + '/' + d)}>
-              <FolderClosed size={15} strokeWidth={1.5} className={styles.fileItemDirIcon} />
-              <span>{d}</span>
-            </button>
-          ))}
-          {files.map((f) => (
-            <button key={f} className={`${styles.fileItem} ${selectedFile === f ? styles.fileItemSelected : ''}`} onClick={() => setSelectedFile(f)}>
-              <FileText size={15} strokeWidth={1.5} className={styles.fileItemFileIcon} />
-              <span>{f}</span>
-            </button>
-          ))}
-          {dirs.length === 0 && files.length === 0 && <p className={styles.fileEmpty}>No items</p>}
-        </div>
-        <div className={styles.fileActions}>
-          <Button variant="primary" size="sm" disabled={!selectedFile} onClick={() => onConfirm(current + '/' + selectedFile)}>Select File</Button>
-          <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
-        </div>
-      </div>
-    </div>
   )
 }
 

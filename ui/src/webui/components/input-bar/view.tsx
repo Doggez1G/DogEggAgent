@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react'
-import { ArrowUp, Square, Slash, MessageSquare } from 'lucide-react'
+import { ArrowUp, Square, Slash, MoreHorizontal, Eraser, Archive, Plus, FolderPlus } from 'lucide-react'
 import { matchCommands, parseCommand } from '../../../shared/commands'
 import { COMMAND_TO_MODAL } from '../../app/view-state'
 import type { UiPort } from '@dogegg/bridge'
@@ -13,11 +13,15 @@ interface InputBarProps {
   onClearHistory: () => void
   onQuit: () => void
   onUserSubmit: (text: string) => void
+  onNewSession?: () => void
+  onCompact?: () => void
+  onAddProject?: () => void
 }
 
-export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit, onUserSubmit }: InputBarProps) {
+export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit, onUserSubmit, onNewSession, onCompact, onAddProject }: InputBarProps) {
   const [input, setInput] = useState('')
   const [suggestIdx, setSuggestIdx] = useState<number | null>(null)
+  const [quickMenuOpen, setQuickMenuOpen] = useState(false)
   const suggestIdxRef = useRef<number | null>(null)
   const setSuggest = useCallback((i: number | null) => { suggestIdxRef.current = i; setSuggestIdx(i) }, [])
 
@@ -111,9 +115,32 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
           disabled={isRunning}
         />
         <div className={styles.toolbar}>
-          <button className={styles.toolBtn} title="Slash commands" aria-label="Slash commands" onClick={() => { setInput('/'); }}>
-            <Slash size={13} strokeWidth={1.5} />
-          </button>
+          <div className={styles.quickMenuWrap}>
+            <button className={styles.toolBtn} title="Quick actions" aria-label="Quick actions" onClick={() => setQuickMenuOpen(!quickMenuOpen)}>
+              <MoreHorizontal size={13} strokeWidth={1.5} />
+            </button>
+            {quickMenuOpen && (
+              <div className={styles.quickMenu}>
+                <button className={styles.quickItem} onClick={() => { onNewSession?.(); setQuickMenuOpen(false) }}>
+                  <Plus size={13} strokeWidth={1.5} /><span>New Session</span>
+                </button>
+                <button className={styles.quickItem} onClick={() => { onAddProject?.(); setQuickMenuOpen(false) }}>
+                  <FolderPlus size={13} strokeWidth={1.5} /><span>Add Project</span>
+                </button>
+                <div className={styles.quickDivider} />
+                <button className={styles.quickItem} onClick={() => { onClearHistory(); setQuickMenuOpen(false) }}>
+                  <Eraser size={13} strokeWidth={1.5} /><span>Clear History</span>
+                </button>
+                <button className={styles.quickItem} disabled={isRunning} onClick={() => { onCompact?.(); setQuickMenuOpen(false) }}>
+                  <Archive size={13} strokeWidth={1.5} /><span>Compact Context</span>
+                </button>
+                <div className={styles.quickDivider} />
+                <button className={styles.quickItem} onClick={() => { setInput('/'); setQuickMenuOpen(false) }}>
+                  <Slash size={13} strokeWidth={1.5} /><span>Slash Commands</span>
+                </button>
+              </div>
+            )}
+          </div>
           <span className={styles.hint}>Enter to send · Shift+Enter for newline</span>
           {isRunning ? (
             <button className={styles.stopBtn} onClick={() => port.post({ type: 'cancel' })} aria-label="Stop">

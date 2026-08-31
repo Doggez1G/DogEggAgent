@@ -145,6 +145,11 @@ export function reducer(state: ChatState, msg: Action): ChatState {
       return { ...state, blocks }
     }
     case 'state':
+      // 转换到 cancelled/idle 时 flush partial——避免取消后残留的流式文本被
+      // 下一轮 text_delta 拼接（导致"先回答上一个问题"的 bug）。
+      if (msg.to === 'cancelled' || msg.to === 'idle') {
+        return { ...flush(state), status: msg.to }
+      }
       return { ...state, status: msg.to }
     case 'finished':
       return { ...flush(state), status: 'finished' }

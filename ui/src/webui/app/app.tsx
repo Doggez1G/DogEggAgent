@@ -37,6 +37,15 @@ export function App({ port }: AppProps) {
   const [toolCalls, setToolCalls] = useState<{ id: string; name: string; status: 'running' | 'done' | 'error'; output?: string }[]>([])
   const [filesTouched, setFilesTouched] = useState<FileTouched[]>([])
   const [pendingPermission, setPendingPermission] = useState<{ id: string; tool: string; input: unknown } | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 显示 toast 提示——3 秒后自动消失。
+  const showToast = useCallback((msg: string) => {
+    setToast(msg)
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setToast(null), 3000)
+  }, [])
 
   const modalRef = useRef(modal)
   useEffect(() => { modalRef.current = modal }, [modal])
@@ -97,9 +106,12 @@ export function App({ port }: AppProps) {
         setSystemState(null)
         setLogState(null)
         setToolCalls([])
-        // 请求新会话的实时状态。
+        // 请求新会话的实时状态 + 右侧面板数据（不依赖 InfoPanel 的 effect timing）。
         port.post({ type: 'status_request' })
         port.post({ type: 'context_request' })
+        port.post({ type: 'system_request' })
+        port.post({ type: 'log_request' })
+        port.post({ type: 'tools_request' })
         refreshSessions()
       } else if (msg.type === 'session_deleted') {
         setSessions((prev) => prev.filter((s) => s.id !== msg.id))
@@ -134,9 +146,18 @@ export function App({ port }: AppProps) {
         ))
       } else if (msg.type === 'history_cleared') {
         setFilesTouched([])
+        setToolCalls([])
+        port.post({ type: 'context_request' })
+        showToast('History cleared')
+      } else if (msg.type === 'compaction') {
+        port.post({ type: 'context_request' })
+        showToast(`Context compacted: ${msg.before_tokens} → ${msg.after_tokens} tokens`)
+      } else if (msg.type === 'notice') {
+        showToast(msg.text)
       } else if (msg.type === 'finished' || msg.type === 'error') {
-        // 对话结束后刷新会话列表——后端已保存更新后的 preview 到磁盘。
+        // 对话结束后刷新会话列表 + context 状态。
         refreshSessions()
+        port.post({ type: 'context_request' })
       }
     })
     port.post({ type: 'config_request' })
@@ -176,7 +197,20 @@ export function App({ port }: AppProps) {
         onResumeSession={(id) => port.post({ type: 'resume_session', id })}
         onDeleteSession={handleDeleteSession}
         onDeleteProject={handleDeleteProject}
-        onAddProject={() => setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })}
+        onAddProject={async () => {
+          // 使用原生目录选择对话框（File System Access API）。
+          try {
+            const handle = await (window as unknown as { showDirectoryPicker?: () => Promise<{ name: string }> }).showDirectoryPicker?.()
+            if (handle) {
+              // 浏览器安全限制：无法获取完整路径，用目录名作为 cwd fallback。
+              // 在 Electron 环境下可获取完整路径。
+              port.post({ type: 'new_session', cwd: handle.name })
+            }
+          } catch {
+            // 用户取消或 API 不支持——回退到 FsBrowserModal。
+            setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })
+          }
+        }}
         onOpenSettings={() => setModal({ kind: 'settings' })}
         onThemeChange={setTheme}
       />
@@ -204,6 +238,7 @@ export function App({ port }: AppProps) {
         systemState={systemState}
         logState={logState}
         filesTouched={filesTouched}
+        permissionsList={permissionsList}
         collapsed={infoCollapsed}
         onToggleCollapse={() => setInfoCollapsed(!infoCollapsed)}
         port={port}
@@ -216,7 +251,24 @@ export function App({ port }: AppProps) {
             onDecision={(d) => { port.post({ type: 'permission_decision', id: pendingPermission.id, decision: d }); setPendingPermission(null) }}
           />
         )}
-        <InputBar port={port} isRunning={isRunning} onCommandNav={onCommandNav} onClearHistory={onClearHistory} onQuit={onQuit} onUserSubmit={(text) => dispatch({ type: 'local_user', text })} />
+        <InputBar
+          port={port}
+          isRunning={isRunning}
+          onCommandNav={onCommandNav}
+          onClearHistory={onClearHistory}
+          onQuit={onQuit}
+          onUserSubmit={(text) => dispatch({ type: 'local_user', text })}
+          onNewSession={() => port.post({ type: 'new_session' })}
+          onCompact={() => { port.post({ type: 'compact_request' }); showToast('Compacting context...') }}
+          onAddProject={async () => {
+            try {
+              const handle = await (window as unknown as { showDirectoryPicker?: () => Promise<{ name: string }> }).showDirectoryPicker?.()
+              if (handle) port.post({ type: 'new_session', cwd: handle.name })
+            } catch {
+              setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })
+            }
+          }}
+        />
       </div>
 
       {/* 模态层 */}
@@ -246,6 +298,11 @@ export function App({ port }: AppProps) {
       {modal.kind === 'fs-browser' && (
         <FsBrowserModal onConfirm={modal.onConfirm} onClose={() => setModal({ kind: 'none' })} />
       )}
+
+      {/* Toast 提示 */}
+      {toast && (
+        <div className={styles.toast + ' block-enter'}>{toast}</div>
+      )}
     </div>
   )
 }
@@ -270,24 +327,36 @@ function SettingsModal(props: { config: Config | null; port: UiPort; onClose: ()
 // ── 权限确认条——在输入框上方内联呈现，与对话区一体 ──
 function PermissionBanner({ tool, input, onDecision }: { tool: string; input: unknown; onDecision: (d: 'allow_once' | 'allow_always' | 'reject') => void }) {
   const inp = input as Record<string, unknown> | null
+  const filePath = inp ? String(inp.path ?? inp.command ?? '') : ''
   return (
     <div className={styles.permissionBanner + ' block-enter'}>
       <div className={styles.permissionHeader}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" className={styles.permissionShield}>
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
         <span className={styles.permissionTool}>{tool}</span>
-        <span className={styles.permissionHint}>requests permission</span>
+        {filePath && <span className={styles.permissionFile}>{filePath.split(/[/\\]/).pop()}</span>}
+        <span className={styles.permissionHint}>wants to execute — approve?</span>
       </div>
       {tool === 'edit_file' && inp && (
-        <pre className={styles.permissionDiff}>- {String(inp.old_string ?? '').slice(0, 200)}{'\n'}+ {String(inp.new_string ?? '').slice(0, 200)}</pre>
+        <div className={styles.permissionDiffWrap}>
+          <span className={`${styles.permissionDiffLine} ${styles.permissionDiffDel}`}>- {String(inp.old_string ?? '').slice(0, 150)}</span>
+          <span className={`${styles.permissionDiffLine} ${styles.permissionDiffAdd}`}>+ {String(inp.new_string ?? '').slice(0, 150)}</span>
+        </div>
       )}
       {tool === 'write_file' && inp && (
-        <pre className={styles.permissionDiff}>+ {String(inp.content ?? '').slice(0, 200)}</pre>
+        <div className={styles.permissionDiffWrap}>
+          <span className={`${styles.permissionDiffLine} ${styles.permissionDiffAdd}`}>+ {String(inp.content ?? '').slice(0, 150)}</span>
+        </div>
       )}
       {tool === 'shell' && inp && (
-        <pre className={styles.permissionDiff}>{String(inp.command ?? '')}</pre>
+        <div className={styles.permissionDiffWrap}>
+          <code className={styles.permissionShellCmd}>{String(inp.command ?? '')}</code>
+        </div>
       )}
       <div className={styles.permissionActions}>
         <Button size="sm" variant="primary" onClick={() => onDecision('allow_once')}>Allow Once</Button>
-        <Button size="sm" variant="secondary" onClick={() => onDecision('allow_always')}>Allow Always</Button>
+        <Button size="sm" variant="secondary" onClick={() => onDecision('allow_always')}>Always Allow</Button>
         <Button size="sm" variant="danger" onClick={() => onDecision('reject')}>Reject</Button>
       </div>
     </div>

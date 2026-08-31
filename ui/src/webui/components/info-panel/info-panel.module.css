@@ -207,6 +207,19 @@
 .toolCall_running { color: var(--color-accent); }
 .toolCallName { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--color-text); flex: 1; }
 
+/* 工具权限标签 */
+.toolPerm {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.toolPerm[data-perm='allow'] { background: var(--color-success-soft); color: var(--color-success); }
+.toolPerm[data-perm='ask'] { background: var(--color-warning-soft); color: var(--color-warning); }
+.toolPerm[data-perm='reject'] { background: var(--color-danger-soft); color: var(--color-danger); }
+
 /* ── Files Touched ── */
 .fileItem {
   display: flex;
