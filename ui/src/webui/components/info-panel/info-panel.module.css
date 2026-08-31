@@ -4,6 +4,12 @@
   flex-direction: column;
   background: var(--color-surface);
   border-left: 1px solid var(--color-border);
+  overflow: hidden;
+}
+
+/* 滚动区域——header 固定，内容可滚动 */
+.scrollArea {
+  flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -65,26 +71,34 @@
   color: var(--color-text);
 }
 
-/* ── 分区 ── */
+/* ── 分区（可折叠）── */
 .section {
-  padding: 12px 14px;
   border-bottom: 1px solid var(--color-border);
 }
 
-.section:last-child {
-  border-bottom: none;
-}
+.section:last-child { border-bottom: none; }
 
-.sectionTitle {
+.sectionToggle {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: transparent;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--color-subtext);
-  margin-bottom: 8px;
+  cursor: pointer;
+  transition: color 80ms ease;
+}
+
+.sectionToggle:hover { color: var(--color-text); }
+
+.sectionBody {
+  padding: 0 14px 10px;
 }
 
 /* ── 状态 ── */

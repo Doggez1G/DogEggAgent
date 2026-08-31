@@ -1,11 +1,10 @@
-import React, { useEffect } from 'react'
-import { Cpu, Gauge, Activity, Wrench, ChevronRight, ChevronLeft, Terminal, ScrollText, ShieldCheck } from 'lucide-react'
+import React, { useEffect, useState } from 'react'
+import { Cpu, Gauge, Activity, Wrench, ChevronRight, ChevronLeft, ChevronDown, Terminal, ScrollText } from 'lucide-react'
 import type { UiPort } from '@dogegg/bridge'
 import styles from './info-panel.module.css'
 
 // 右侧信息面板：实时显示运行时信息。
-// 状态 + 模型 + Token + 工具调用 + 可用工具 + System Prompt + 日志。
-// 挂载时请求数据，运行中定时刷新 token。
+// 每个 section 可折叠/展开。面板整体可滚动。
 interface InfoPanelProps {
   provider: string | undefined
   model: string | undefined
@@ -29,10 +28,24 @@ const STATUS_LABELS: Record<string, string> = {
   error: 'Error', compacting: 'Compacting',
 }
 
+// 可折叠的 section 组件。
+function CollapsibleSection({ title, icon: Icon, defaultOpen = true, children }: { title: string; icon: typeof Activity; defaultOpen?: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <section className={styles.section}>
+      <button className={styles.sectionToggle} onClick={() => setOpen(!open)}>
+        {open ? <ChevronDown size={13} strokeWidth={2} /> : <ChevronRight size={13} strokeWidth={2} />}
+        <Icon size={13} strokeWidth={1.5} />
+        <span>{title}</span>
+      </button>
+      {open && <div className={styles.sectionBody}>{children}</div>}
+    </section>
+  )
+}
+
 export function InfoPanel(props: InfoPanelProps) {
   const { collapsed, port, status } = props
 
-  // 挂载时请求工具/system/log/context。
   useEffect(() => {
     if (!collapsed) {
       port.post({ type: 'tools_request' })
@@ -42,7 +55,6 @@ export function InfoPanel(props: InfoPanelProps) {
     }
   }, [collapsed, port])
 
-  // 运行中定时刷新 context（token 实时更新）。
   useEffect(() => {
     if (collapsed) return
     const isRunning = status !== 'idle' && status !== 'finished' && status !== 'cancelled' && status !== 'error'
@@ -60,7 +72,6 @@ export function InfoPanel(props: InfoPanelProps) {
   }
 
   const statusLabel = STATUS_LABELS[status] ?? status
-  // 用 contextState 的 percent 优先（更准确），fallback 到 tokens/windowTokens。
   const tokens = props.contextState?.estimatedTokens ?? props.tokens
   const windowTokens = props.contextState?.windowTokens ?? props.windowTokens
   const percent = props.contextState?.percent ?? (tokens && windowTokens ? Math.round((tokens / windowTokens) * 100) : 0)
@@ -74,94 +85,83 @@ export function InfoPanel(props: InfoPanelProps) {
         </button>
       </header>
 
-      {/* 状态 */}
-      <section className={styles.section}>
-        <div className={styles.sectionTitle}><Activity size={13} strokeWidth={1.5} /><span>Status</span></div>
-        <div className={styles.statusRow}>
-          <span className={styles.statusDot} data-status={status} />
-          <span className={styles.statusText}>{statusLabel}</span>
-        </div>
-      </section>
+      <div className={styles.scrollArea}>
+        {/* 状态 + 模型（始终展开） */}
+        <CollapsibleSection title="Status" icon={Activity}>
+          <div className={styles.statusRow}>
+            <span className={styles.statusDot} data-status={status} />
+            <span className={styles.statusText}>{statusLabel}</span>
+          </div>
+        </CollapsibleSection>
 
-      {/* 模型 */}
-      <section className={styles.section}>
-        <div className={styles.sectionTitle}><Cpu size={13} strokeWidth={1.5} /><span>Model</span></div>
-        <div className={styles.modelRow}>
-          <span className={styles.modelProvider}>{props.provider ?? '—'}</span>
-          <span className={styles.modelName}>{props.model ?? '—'}</span>
-        </div>
-      </section>
+        <CollapsibleSection title="Model" icon={Cpu}>
+          <div className={styles.modelRow}>
+            <span className={styles.modelProvider}>{props.provider ?? '—'}</span>
+            <span className={styles.modelName}>{props.model ?? '—'}</span>
+          </div>
+        </CollapsibleSection>
 
-      {/* Token */}
-      <section className={styles.section}>
-        <div className={styles.sectionTitle}><Gauge size={13} strokeWidth={1.5} /><span>Context</span></div>
-        {tokens !== undefined && windowTokens !== undefined ? (
-          <>
-            <div className={styles.tokenBar}>
-              <div className={styles.tokenFill} style={{ width: `${Math.min(100, percent)}%` }} data-overload={percent > 80} />
-            </div>
-            <div className={styles.tokenNumbers}>
-              <span className={styles.tokenUsed}>{tokens.toLocaleString()}</span>
-              <span className={styles.tokenSep}>/</span>
-              <span className={styles.tokenWindow}>{windowTokens.toLocaleString()}</span>
-              <span className={styles.tokenPercent} data-overload={percent > 80}>{percent}%</span>
-            </div>
-          </>
-        ) : <p className={styles.emptyText}>Not available</p>}
-      </section>
-
-      {/* 工具调用 */}
-      <section className={styles.section + ' ' + styles.toolSection}>
-        <div className={styles.sectionTitle}><Wrench size={13} strokeWidth={1.5} /><span>Tool Calls</span></div>
-        {props.toolCalls.length === 0 ? (
-          <p className={styles.emptyText}>No tool calls yet</p>
-        ) : (
-          <div className={styles.toolList}>
-            {props.toolCalls.slice(-8).reverse().map((tc) => (
-              <div key={tc.id} className={styles.toolItem} data-status={tc.status}>
-                <span className={styles.toolIcon}>
-                  {tc.status === 'running' && <span className={styles.spinner} />}
-                  {tc.status === 'done' && '✓'}
-                  {tc.status === 'error' && '✕'}
-                </span>
-                <div className={styles.toolInfo}>
-                  <code className={styles.toolName}>{tc.name}</code>
-                  {tc.output && <span className={styles.toolOutput}>{tc.output.slice(0, 50)}</span>}
-                </div>
+        <CollapsibleSection title="Context" icon={Gauge}>
+          {tokens !== undefined && windowTokens !== undefined ? (
+            <>
+              <div className={styles.tokenBar}>
+                <div className={styles.tokenFill} style={{ width: `${Math.min(100, percent)}%` }} data-overload={percent > 80} />
               </div>
-            ))}
-          </div>
-        )}
-      </section>
+              <div className={styles.tokenNumbers}>
+                <span className={styles.tokenUsed}>{tokens.toLocaleString()}</span>
+                <span className={styles.tokenSep}>/</span>
+                <span className={styles.tokenWindow}>{windowTokens.toLocaleString()}</span>
+                <span className={styles.tokenPercent} data-overload={percent > 80}>{percent}%</span>
+              </div>
+            </>
+          ) : <p className={styles.emptyText}>Not available</p>}
+        </CollapsibleSection>
 
-      {/* 可用工具 */}
-      <section className={styles.section}>
-        <div className={styles.sectionTitle}><Wrench size={13} strokeWidth={1.5} /><span>Available Tools</span></div>
-        {props.toolsList.length === 0 ? <p className={styles.emptyText}>Loading...</p> : (
-          <div className={styles.miniList}>
-            {props.toolsList.map(t => <div key={t.name} className={styles.miniItem}><code className={styles.miniName}>{t.name}</code></div>)}
-          </div>
-        )}
-      </section>
+        <CollapsibleSection title="Tool Calls" icon={Wrench} defaultOpen={false}>
+          {props.toolCalls.length === 0 ? (
+            <p className={styles.emptyText}>No tool calls yet</p>
+          ) : (
+            <div className={styles.toolList}>
+              {props.toolCalls.slice(-8).reverse().map((tc) => (
+                <div key={tc.id} className={styles.toolItem} data-status={tc.status}>
+                  <span className={styles.toolIcon}>
+                    {tc.status === 'running' && <span className={styles.spinner} />}
+                    {tc.status === 'done' && '✓'}
+                    {tc.status === 'error' && '✕'}
+                  </span>
+                  <div className={styles.toolInfo}>
+                    <code className={styles.toolName}>{tc.name}</code>
+                    {tc.output && <span className={styles.toolOutput}>{tc.output.slice(0, 50)}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CollapsibleSection>
 
-      {/* System Prompt */}
-      <section className={styles.section}>
-        <div className={styles.sectionTitle}><Terminal size={13} strokeWidth={1.5} /><span>System Prompt</span></div>
-        {props.systemState ? (
-          <div className={styles.miniContent}>
-            <span className={styles.miniPath}>{props.systemState.path}</span>
-            <pre className={styles.miniPre}>{props.systemState.content.slice(0, 200)}</pre>
-          </div>
-        ) : <p className={styles.emptyText}>Loading...</p>}
-      </section>
+        <CollapsibleSection title="Available Tools" icon={Wrench} defaultOpen={false}>
+          {props.toolsList.length === 0 ? <p className={styles.emptyText}>Loading...</p> : (
+            <div className={styles.miniList}>
+              {props.toolsList.map(t => <div key={t.name} className={styles.miniItem}><code className={styles.miniName}>{t.name}</code></div>)}
+            </div>
+          )}
+        </CollapsibleSection>
 
-      {/* 日志 */}
-      <section className={styles.section}>
-        <div className={styles.sectionTitle}><ScrollText size={13} strokeWidth={1.5} /><span>Log Tail</span></div>
-        {props.logState ? (
-          <pre className={styles.miniPre}>{props.logState.tail.slice(0, 500)}</pre>
-        ) : <p className={styles.emptyText}>Loading...</p>}
-      </section>
+        <CollapsibleSection title="System Prompt" icon={Terminal} defaultOpen={false}>
+          {props.systemState ? (
+            <div className={styles.miniContent}>
+              <span className={styles.miniPath}>{props.systemState.path}</span>
+              <pre className={styles.miniPre}>{props.systemState.content.slice(0, 200)}</pre>
+            </div>
+          ) : <p className={styles.emptyText}>Loading...</p>}
+        </CollapsibleSection>
+
+        <CollapsibleSection title="Log Tail" icon={ScrollText} defaultOpen={false}>
+          {props.logState ? (
+            <pre className={styles.miniPre}>{props.logState.tail.slice(0, 500)}</pre>
+          ) : <p className={styles.emptyText}>Loading...</p>}
+        </CollapsibleSection>
+      </div>
     </aside>
   )
 }

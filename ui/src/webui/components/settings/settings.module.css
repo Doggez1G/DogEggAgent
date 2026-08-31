@@ -169,73 +169,50 @@
 .editBtn:hover { border-color: var(--color-accent); color: var(--color-accent); }
 .editBtnMono { font-family: var(--font-mono); }
 
-/* ── 树编辑器 ── */
-.treeEditor { display: flex; flex-direction: column; gap: 10px; max-width: 560px; }
+/* ── Provider 列表 ── */
+.providerList { display: flex; flex-direction: column; gap: 10px; max-width: 560px; }
 
-.breadcrumb { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 12px; }
+.providerCard { background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; }
 
-.crumbItem { border: none; background: transparent; color: var(--color-subtext); font-family: var(--font-mono); font-size: 12px; cursor: pointer; padding: 2px 4px; border-radius: var(--radius-sm); }
-.crumbItem:hover { color: var(--color-text); background: var(--color-surface-elevated); }
-.crumbActive { color: var(--color-accent); font-family: var(--font-mono); font-size: 12px; padding: 2px 4px; }
-.crumbSep { color: var(--color-subtext); }
+.providerHeader { display: flex; align-items: center; gap: 6px; padding: 10px 12px; cursor: pointer; transition: background-color 80ms ease; }
+.providerHeader:hover { background: var(--color-surface-elevated); }
 
-.treeList { border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; }
+.chevronBtn { display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; border: none; background: transparent; color: var(--color-subtext); cursor: pointer; flex-shrink: 0; }
 
-.treeRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 9px 12px;
-  cursor: pointer;
-  border-bottom: 1px solid var(--color-border);
-  transition: background-color 80ms ease;
-}
+.providerIcon { color: var(--color-accent); flex-shrink: 0; }
 
-.treeRow:last-child { border-bottom: none; }
-.treeRow:hover { background: var(--color-surface-elevated); }
+.providerName { font-size: 13px; font-weight: 600; color: var(--color-text); flex-shrink: 0; }
 
-.treeLabel { flex: 1; font-size: 13px; font-family: var(--font-mono); color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.treeActionsInline { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.treeArrow { color: var(--color-subtext); }
-.treeDelBtn { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--color-subtext); cursor: pointer; }
-.treeDelBtn:hover { color: var(--color-danger); background: var(--color-surface); }
+.providerUrl { flex: 1; font-family: var(--font-mono); font-size: 11px; color: var(--color-subtext); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ── 卡片列表 ── */
-.cardList { display: flex; flex-direction: column; gap: 8px; max-width: 480px; }
+.providerBody { padding: 12px; display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--color-border); }
 
-.emptyCard { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 40px 20px; text-align: center; }
-.emptyIcon { color: var(--color-subtext); opacity: 0.5; }
-.emptyTitle { font-size: 15px; font-weight: 500; color: var(--color-text); }
-.emptyDesc { font-size: 13px; color: var(--color-subtext); max-width: 340px; line-height: 1.5; }
+.modelSection { margin-top: 4px; }
 
-.permCard { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); transition: border-color 120ms ease; }
-.permCard:hover { border-color: var(--color-accent); }
-.permInfo { display: flex; align-items: center; gap: 8px; }
-.permIcon { color: var(--color-accent); }
-.permName { font-family: var(--font-mono); font-size: 13px; color: var(--color-text); font-weight: 500; }
-.revokeBtn { padding: 4px 12px; border: 1px solid var(--color-danger); border-radius: var(--radius-sm); background: transparent; color: var(--color-danger); font-size: 12px; font-weight: 500; cursor: pointer; font-family: var(--font-sans); transition: all 120ms ease; }
-.revokeBtn:hover { background: var(--color-danger); color: var(--color-bg); }
+.modelSectionHeader { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 
-.toolCard { display: flex; flex-direction: column; gap: 3px; padding: 10px 14px; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
-.toolCardName { font-family: var(--font-mono); font-size: 13px; color: var(--color-accent); font-weight: 600; }
-.toolCardDesc { font-size: 12px; color: var(--color-subtext); line-height: 1.4; }
+.addModelBtn { display: flex; align-items: center; gap: 4px; padding: 3px 8px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: transparent; color: var(--color-subtext); font-size: 11px; cursor: pointer; font-family: var(--font-sans); }
+.addModelBtn:hover { border-color: var(--color-accent); color: var(--color-accent); }
 
-/* ── Context ── */
-.contextPanel { max-width: 480px; }
-.contextStatRow { display: flex; gap: 24px; margin-bottom: 14px; }
-.contextStat { display: flex; flex-direction: column; gap: 2px; }
-.contextStatValue { font-family: var(--font-mono); font-size: 20px; font-weight: 600; color: var(--color-text); }
-.contextStatValue[data-overload='true'] { color: var(--color-danger); }
-.contextStatLabel { font-size: 10px; color: var(--color-subtext); text-transform: uppercase; letter-spacing: 0.05em; }
-.contextBarLarge { width: 100%; height: 8px; background: var(--color-surface-elevated); border-radius: var(--radius-sm); overflow: hidden; }
-.contextFillLarge { height: 100%; background: var(--color-accent); border-radius: var(--radius-sm); transition: width 300ms ease; }
-.contextFillLarge[data-overload='true'] { background: var(--color-danger); }
+.modelRow { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: var(--radius-sm); background: var(--color-surface); margin-bottom: 2px; }
+.modelRow:hover { background: var(--color-surface-elevated); }
 
-/* ── 代码面板 ── */
-.codePanel { display: flex; flex-direction: column; gap: 8px; max-width: 640px; }
-.codePath { display: flex; align-items: center; gap: 6px; color: var(--color-subtext); font-size: 12px; }
-.codePath code { font-family: var(--font-mono); font-size: 12px; }
-.codeBlock { font-family: var(--font-mono); font-size: 12px; line-height: 1.5; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 12px; white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow-y: auto; color: var(--color-text); }
+.modelIcon { color: var(--color-subtext); flex-shrink: 0; }
+
+.modelNameText { flex: 1; font-family: var(--font-mono); font-size: 12px; color: var(--color-text); cursor: pointer; }
+
+.modelMeta { font-family: var(--font-mono); font-size: 10px; color: var(--color-subtext); }
+
+.reasoningBadge { font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: var(--radius-sm); background: var(--color-warning); color: var(--color-bg); text-transform: uppercase; }
+
+.modelInput { flex: 1; padding: 4px 8px; border: 1px solid var(--color-accent); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text); font-family: var(--font-mono); font-size: 12px; outline: none; }
+
+.delBtn { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--color-subtext); cursor: pointer; flex-shrink: 0; opacity: 0; transition: opacity 120ms ease; }
+.providerHeader:hover .delBtn, .modelRow:hover .delBtn, .treeRow:hover .delBtn { opacity: 1; }
+.delBtn:hover { color: var(--color-danger); background: var(--color-surface); }
+
+.addCardBtn { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border: 1px dashed var(--color-border); border-radius: var(--radius-md); background: transparent; color: var(--color-subtext); font-size: 13px; font-family: var(--font-sans); cursor: pointer; transition: all 120ms ease; }
+.addCardBtn:hover { background: var(--color-surface-elevated); border-color: var(--color-accent); border-style: solid; color: var(--color-accent); }
 
 /* ── Permissions 概览 ── */
 .permOverview { display: flex; flex-direction: column; gap: 8px; max-width: 480px; }
@@ -248,3 +225,19 @@
 .permBucketName[data-bucket='reject'] { color: var(--color-danger); }
 .permBucketName[data-bucket='ask'] { color: var(--color-warning); }
 .permBucketCount { font-size: 12px; color: var(--color-subtext); }
+
+/* ── Permissions Bucket Editor ── */
+.permBucketEditor { display: flex; flex-direction: column; gap: 10px; max-width: 480px; }
+
+.breadcrumb { display: flex; align-items: center; gap: 4px; font-size: 12px; }
+.crumbItem { border: none; background: transparent; color: var(--color-subtext); font-family: var(--font-mono); font-size: 12px; cursor: pointer; padding: 2px 4px; border-radius: var(--radius-sm); }
+.crumbItem:hover { color: var(--color-text); background: var(--color-surface-elevated); }
+.crumbActive { color: var(--color-accent); font-family: var(--font-mono); font-size: 12px; padding: 2px 4px; }
+.crumbSep { color: var(--color-subtext); }
+
+.treeList { border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; }
+.treeRow { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--color-border); transition: background-color 80ms ease; }
+.treeRow:last-child { border-bottom: none; }
+.treeRow:hover { background: var(--color-surface-elevated); }
+.treeLabel { flex: 1; font-size: 13px; font-family: var(--font-mono); color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.treeArrow { color: var(--color-subtext); }
