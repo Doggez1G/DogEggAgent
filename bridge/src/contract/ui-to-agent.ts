@@ -5,7 +5,7 @@ export type UiToAgentMessage =
   | { type: 'submit'; text: string }
   | { type: 'permission_decision'; id: string; decision: PermissionDecision }
   | { type: 'cancel' }
-  | { type: 'new_session' }
+  | { type: 'new_session'; cwd?: string } // 新建会话，可选指定工作目录（WebUI 项目树添加会话用）
   | { type: 'list_sessions' }
   | { type: 'resume_session'; id: string }
   | { type: 'config_request' }
@@ -20,6 +20,7 @@ export type UiToAgentMessage =
   | { type: 'permissions_request' } // /permissions：查询当前会话的 allow_always 授权
   | { type: 'permission_revoke'; tool: string } // 撤销某工具的 allow_always 授权
   | { type: 'set_cwd'; path: string } // 运行时切换工作目录（/cd 命令 / WebUI 目录选择器共用）
+  | { type: 'delete_session'; id: string } // 删除会话文件（WebUI 项目树删除会话用）
   | { type: 'clear_history' }
   | { type: 'compact_request' }
   | { type: 'quit' }

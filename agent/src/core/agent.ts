@@ -14,7 +14,7 @@ import { loadSystemPrompt, estimateContextTokens, compactContext, summarizeHisto
 import { getAllTools, toolSchemas } from '../tools'
 import { adapterFor } from '../llm/adapter-for'
 import { runLoop } from '../loop/run'
-import { saveSession, loadSession, listSessions } from '../session'
+import { saveSession, loadSession, listSessions, deleteSession, defaultSessionsDir } from '../session'
 import { PermissionManager } from '../permission'
 import { newId } from '../shared/id'
 import { log, readLogTail, sessionLogPath } from '../shared/logger'
@@ -137,6 +137,14 @@ export class Agent {
       }
       case 'new_session': {
         if (this.running) { this.emit({ type: 'notice', text: '运行中，请稍候' }); return }
+        // 可选 cwd：WebUI 项目树添加会话时传入指定工作目录。
+        if (cmd.cwd) {
+          try {
+            const resolved = resolve(cmd.cwd)
+            if (!statSync(resolved).isDirectory()) { this.emit({ type: 'notice', text: `${cmd.cwd} 不是目录` }); break }
+            this.cwd = resolved
+          } catch { this.emit({ type: 'notice', text: `路径不存在：${cmd.cwd}` }); break }
+        }
         this.history = []
         this.context = []
         this.sessionId = newId()
@@ -151,6 +159,8 @@ export class Agent {
           this.history = s.history
           this.context = s.context
           this.sessionId = s.id
+          // 恢复该会话的工作目录（项目→会话切换恢复目录）。
+          if (s.cwd) { this.cwd = s.cwd }
           // 恢复该会话的 allow_always 授权（resume 不清空，保留之前设置的授权）。
           this.permission.reset()
           for (const t of s.allowedTools) this.permission.apply(t, 'allow_always')
@@ -269,6 +279,21 @@ export class Agent {
         }
         break
       }
+      case 'delete_session': {
+        // 删除会话文件——运行中阻塞（不能删正在使用的会话）。
+        if (this.running) { this.emit({ type: 'notice', text: '运行中，请稍候' }); return }
+        try {
+          deleteSession(cmd.id)
+          this.emit({ type: 'session_deleted', id: cmd.id })
+          // 如果删除的是当前会话，发一个 notice 提示。
+          if (cmd.id === this.sessionId) {
+            this.emit({ type: 'notice', text: '当前会话已删除' })
+          }
+        } catch {
+          this.emit({ type: 'notice', text: `会话 ${cmd.id} 删除失败` })
+        }
+        break
+      }
 
       case 'quit':
         process.exit(0)
@@ -328,7 +353,7 @@ export class Agent {
       // 无论成功/失败/取消，turn 结束后状态回到 idle（成功路径 loop 停在 finished，需复位）。
       this.running = false
       this.emitState({ kind: 'reset' })
-      try { saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed()) }
+      try { saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed(), defaultSessionsDir(), this.cwd) }
       catch { this.emit({ type: 'notice', text: '会话保存失败（磁盘空间不足或权限问题）' }) }
     }
   }
@@ -355,7 +380,7 @@ export class Agent {
       })
       if (result.compacted) {
         this.context = result.context
-        saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed())
+        saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed(), defaultSessionsDir(), this.cwd)
         this.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after, source: 'manual' })
       } else {
         // context 为空——没有消息可压。

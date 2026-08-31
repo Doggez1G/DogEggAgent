@@ -12,7 +12,8 @@ export type AgentToUiMessage =
   | { type: 'tool_end'; id: string; name: string; output: string; error?: string } // 拒绝/失败工具也发 tool_end（error 标明原因），不再静默塞消息
   | { type: 'permission_request'; id: string; tool: string; input: unknown }
   | { type: 'session_ready'; id: string; messages: Message[] }
-  | { type: 'session_list'; sessions: { id: string; updatedAt: string; preview: string }[] }
+  | { type: 'session_list'; sessions: { id: string; updatedAt: string; preview: string; cwd?: string }[] }
+  | { type: 'session_deleted'; id: string } // 会话已删除——UI 据此刷新侧栏列表
   | { type: 'config_state'; config: Config }
   | { type: 'config_updated'; config: Config }
   | { type: 'tools_list'; tools: { name: string; description: string }[] }
