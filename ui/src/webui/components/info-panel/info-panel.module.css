@@ -271,3 +271,51 @@
   color: var(--color-subtext);
   padding: 4px 0;
 }
+
+/* ── 可用工具列表 ── */
+.miniList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.miniItem {
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+}
+
+.miniName {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-accent);
+  font-weight: 500;
+}
+
+/* ── System Prompt / Log ── */
+.miniContent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.miniPath {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-subtext);
+}
+
+.miniPre {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.4;
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 120px;
+  overflow-y: auto;
+  color: var(--color-subtext);
+  margin: 0;
+}

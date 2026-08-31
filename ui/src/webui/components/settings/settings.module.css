@@ -53,6 +53,8 @@
 /* ── 表单 ── */
 .formList { display: flex; flex-direction: column; gap: 14px; max-width: 480px; }
 .formField { display: flex; flex-direction: column; gap: 5px; }
+.formRow { display: flex; gap: 12px; }
+.formRow .formField { flex: 1; }
 .formLabel { font-size: 13px; font-weight: 500; color: var(--color-text); }
 .formHint { font-size: 12px; color: var(--color-subtext); }
 .sectionDivider { height: 1px; background: var(--color-border); margin: 8px 0; }
@@ -234,3 +236,15 @@
 .codePath { display: flex; align-items: center; gap: 6px; color: var(--color-subtext); font-size: 12px; }
 .codePath code { font-family: var(--font-mono); font-size: 12px; }
 .codeBlock { font-family: var(--font-mono); font-size: 12px; line-height: 1.5; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 12px; white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow-y: auto; color: var(--color-text); }
+
+/* ── Permissions 概览 ── */
+.permOverview { display: flex; flex-direction: column; gap: 8px; max-width: 480px; }
+.permDesc { font-size: 13px; color: var(--color-subtext); line-height: 1.5; margin-bottom: 8px; }
+.permBucketCard { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer; transition: border-color 120ms ease; }
+.permBucketCard:hover { border-color: var(--color-accent); }
+.permBucketInfo { display: flex; align-items: center; gap: 8px; }
+.permBucketName { font-size: 14px; font-weight: 600; text-transform: capitalize; color: var(--color-text); }
+.permBucketName[data-bucket='allow'] { color: var(--color-success); }
+.permBucketName[data-bucket='reject'] { color: var(--color-danger); }
+.permBucketName[data-bucket='ask'] { color: var(--color-warning); }
+.permBucketCount { font-size: 12px; color: var(--color-subtext); }

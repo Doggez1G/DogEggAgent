@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useReducer, useRef, useState } from 'rea
 import { marked } from 'marked'
 import { ChevronRight, FolderClosed, FolderUp, ArrowLeft, X } from 'lucide-react'
 import type { AgentToUiMessage, Config, UiPort } from '@dogegg/bridge'
-import { Sidebar, TopBar, ChatView, InputBar, StatusBar, Settings, InfoPanel } from '../components'
+import { Sidebar, TopBar, ChatView, InputBar, Settings, InfoPanel } from '../components'
 import { reducer, type ChatState } from '../../shared/reducer'
 import type { Block } from '../../shared/block'
 import type { SettingsTab, ThemeName, Modal, SessionItem } from './view-state'
@@ -158,11 +158,15 @@ export function App({ port }: AppProps) {
         tokens={statusBar.tokens}
         windowTokens={statusBar.windowTokens}
         toolCalls={toolCalls}
+        toolsList={toolsList}
+        contextState={contextState}
+        systemState={systemState}
+        logState={logState}
         collapsed={infoCollapsed}
         onToggleCollapse={() => setInfoCollapsed(!infoCollapsed)}
+        port={port}
       />
       <div className={styles.inputArea}>
-        <StatusBar status={chat.status} tokens={statusBar.tokens} windowTokens={statusBar.windowTokens} />
         <InputBar port={port} isRunning={isRunning} onCommandNav={onCommandNav} onClearHistory={onClearHistory} onQuit={onQuit} />
       </div>
 
@@ -172,11 +176,6 @@ export function App({ port }: AppProps) {
           tab={modal.tab}
           config={config}
           port={port}
-          toolsList={toolsList}
-          contextState={contextState}
-          systemState={systemState}
-          logState={logState}
-          permissionsList={permissionsList}
           onTabChange={(tab) => setModal({ kind: 'settings', tab })}
           onClose={() => setModal({ kind: 'none' })}
         />
@@ -204,11 +203,6 @@ function SettingsModal(props: {
   tab: SettingsTab
   config: Config | null
   port: UiPort
-  toolsList: { name: string; description: string }[]
-  contextState: { estimatedTokens: number; windowTokens: number; percent: number } | null
-  systemState: { path: string; content: string } | null
-  logState: { path: string; tail: string } | null
-  permissionsList: string[]
   onTabChange: (tab: SettingsTab) => void
   onClose: () => void
 }) {
@@ -224,11 +218,6 @@ function SettingsModal(props: {
             tab={props.tab}
             config={props.config}
             port={props.port}
-            toolsList={props.toolsList}
-            contextState={props.contextState}
-            systemState={props.systemState}
-            logState={props.logState}
-            permissionsList={props.permissionsList}
             onTabChange={props.onTabChange}
             onBack={props.onClose}
           />

@@ -37,7 +37,7 @@ const THEMES: { theme: ThemeName; label: string; color: string }[] = [
 export function Sidebar(props: SidebarProps) {
   const c = props.collapsed
   // 按 cwd 分组会话。
-  const projects = groupByCwd(props.sessions)
+  const projects = groupByCwd(props.sessions, props.cwd)
 
   return (
     <aside className={`${styles.sidebar} ${c ? styles.collapsed : ''}`}>
@@ -211,9 +211,11 @@ function ProjectTree(props: {
   )
 }
 
-// 按 cwd 分组会话为项目列表。
-function groupByCwd(sessions: SessionItem[]): { cwd: string; name: string; sessions: SessionItem[] }[] {
+// 按 cwd 分组会话为项目列表。当前 cwd 始终显示（即使没有会话）。
+function groupByCwd(sessions: SessionItem[], currentCwd: string): { cwd: string; name: string; sessions: SessionItem[] }[] {
   const map = new Map<string, SessionItem[]>()
+  // 确保 currentCwd 在列表中（空项目也显示）。
+  if (currentCwd) map.set(currentCwd, [])
   for (const s of sessions) {
     const key = s.cwd || '(unknown)'
     if (!map.has(key)) map.set(key, [])
