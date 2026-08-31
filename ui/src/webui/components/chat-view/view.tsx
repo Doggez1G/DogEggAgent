@@ -68,7 +68,21 @@ export function ChatView({ chat, isRunning }: ChatViewProps) {
             />
           )}
 
-          {isRunning && !chat.partial && (
+          {chat.status === 'compacting' && (
+            <div className={styles.compacting}>
+              <div className={styles.assistantAvatar}>
+                <Egg size={16} strokeWidth={1.5} />
+              </div>
+              <div className={styles.streamingDots}>
+                <span className={styles.streamingDot} />
+                <span className={styles.streamingDot} />
+                <span className={styles.streamingDot} />
+              </div>
+              <span className={styles.streamingText}>Compacting context...</span>
+            </div>
+          )}
+
+          {isRunning && !chat.partial && chat.status !== 'compacting' && (
             <div className={styles.streaming}>
               <div className={styles.assistantAvatar}>
                 <Egg size={16} strokeWidth={1.5} />

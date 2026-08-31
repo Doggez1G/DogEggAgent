@@ -80,12 +80,17 @@ function GeneralSection({ config, port }: { config: Config; port: UiPort }) {
         <SelectField label="Default Provider" desc="Which API provider to use" value={config.defaultProvider ?? ''} options={providers.length ? providers : [{ value: '', label: '(none)' }]} onChange={(v) => port.post({ type: 'config_set', path: 'defaultProvider', value: v })} />
         <SelectField label="Default Model" desc="Which model to use for responses" value={config.defaultModel ?? ''} options={modelOptions.length ? modelOptions : [{ value: '', label: '(select provider first)' }]} onChange={(v) => port.post({ type: 'config_set', path: 'defaultModel', value: v })} />
 
-        {/* System Prompt — 原生文件选择对话框 */}
+        {/* System Prompt — 原生文件选择对话框 + 清除按钮 */}
         <div className={styles.field}>
           <span className={styles.fieldLabel}>System Prompt</span>
           <span className={styles.fieldDesc}>Path to system prompt file (empty = built-in)</span>
           <div className={styles.filePicker}>
             <input className={`${styles.input} ${styles.mono}`} placeholder="(built-in)" value={config.systemPrompt ?? ''} readOnly />
+            {config.systemPrompt && (
+              <button className={styles.fileClearBtn} onClick={() => port.post({ type: 'config_set', path: 'systemPrompt', value: '' })} title="Clear">
+                <X size={14} strokeWidth={1.5} />
+              </button>
+            )}
             <button className={styles.filePickerBtn} onClick={() => fileInputRef.current?.click()} title="Browse file">
               <FileText size={14} strokeWidth={1.5} />
             </button>
@@ -156,30 +161,34 @@ function ProviderCard({ provider, pIdx, port }: { provider: Config['providers'][
   )
 }
 
-// Model 编辑器——完整字段：name/contextWindow/maxOutput/reasoning + 删除。
+// Model 编辑器——完整字段：name/contextWindow/maxOutput/reasoning + 删除。可折叠。
 function ModelEditor({ model, pIdx, mIdx, port }: { model: Config['providers'][number]['models'][number]; pIdx: number; mIdx: number; port: UiPort }) {
   const mb = `providers.${pIdx}.models.${mIdx}`
+  const [expanded, setExpanded] = useState(false)
   return (
     <div className={styles.modelEditor}>
-      <div className={styles.modelEditorHeader}>
+      <div className={styles.modelEditorHeader} onClick={() => setExpanded(!expanded)} style={{ cursor: 'pointer' }}>
         <Cpu size={14} strokeWidth={1.5} className={styles.modelIcon} />
         <span className={styles.modelEditorTitle}>{model.name || '(unnamed)'}</span>
-        <button className={styles.modelDel} onClick={() => port.post({ type: 'config_remove', path: 'models', index: mIdx, providerIndex: pIdx })} aria-label="Delete model">
+        <ChevronDown size={12} strokeWidth={2} className={styles.providerChevron} style={{ transform: expanded ? 'none' : 'rotate(-90deg)' }} />
+        <button className={styles.modelDel} onClick={(e) => { e.stopPropagation(); port.post({ type: 'config_remove', path: 'models', index: mIdx, providerIndex: pIdx }) }} aria-label="Delete model">
           <Trash2 size={12} strokeWidth={1.5} />
         </button>
       </div>
-      <div className={styles.modelFields}>
-        <TextField label="Model Name" value={model.name} mono onChange={(v) => port.post({ type: 'config_set', path: `${mb}.name`, value: v })} />
-        <NumberField label="Context Window" value={model.contextWindow} onChange={(v) => port.post({ type: 'config_set', path: `${mb}.contextWindow`, value: v })} />
-        <NumberField label="Max Output" value={model.maxOutput} onChange={(v) => port.post({ type: 'config_set', path: `${mb}.maxOutput`, value: v })} />
-        <div className={styles.field}>
-          <span className={styles.fieldLabel}>Reasoning</span>
-          <div className={styles.toggleRow}>
-            <span className={styles.toggleDesc}>Enable thinking mode</span>
-            <Toggle on={model.reasoning} onChange={() => port.post({ type: 'config_set', path: `${mb}.reasoning`, value: !model.reasoning })} />
+      {expanded && (
+        <div className={styles.modelFields}>
+          <TextField label="Model Name" value={model.name} mono onChange={(v) => port.post({ type: 'config_set', path: `${mb}.name`, value: v })} />
+          <NumberField label="Context Window" value={model.contextWindow} onChange={(v) => port.post({ type: 'config_set', path: `${mb}.contextWindow`, value: v })} />
+          <NumberField label="Max Output" value={model.maxOutput} onChange={(v) => port.post({ type: 'config_set', path: `${mb}.maxOutput`, value: v })} />
+          <div className={styles.field}>
+            <span className={styles.fieldLabel}>Reasoning</span>
+            <div className={styles.toggleRow}>
+              <span className={styles.toggleDesc}>Enable thinking mode</span>
+              <Toggle on={model.reasoning} onChange={() => port.post({ type: 'config_set', path: `${mb}.reasoning`, value: !model.reasoning })} />
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

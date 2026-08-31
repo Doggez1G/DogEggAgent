@@ -40,6 +40,8 @@ export function App({ port }: AppProps) {
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const toolSeqRef = useRef(0)
+  // 记录 permission_decision 的 id→decision 映射，供 tool_start 时关联决策标签。
+  const permissionDecisions = useRef<Map<string, 'allow_once' | 'allow_always' | 'reject'>>(new Map())
 
   // 显示 toast 提示——3 秒后自动消失。
   const showToast = useCallback((msg: string) => {
@@ -121,17 +123,24 @@ export function App({ port }: AppProps) {
         setSessions((prev) => prev.filter((s) => s.id !== msg.id))
       } else if (msg.type === 'tools_list') {
         setToolsList(msg.tools)
+        setInfoCollapsed(false)
+        showToast(`${msg.tools.length} tools available`)
       } else if (msg.type === 'context_state') {
         setContextState({ estimatedTokens: msg.estimatedTokens, windowTokens: msg.windowTokens, percent: msg.percent })
       } else if (msg.type === 'system_state') {
         setSystemState({ path: msg.path, content: msg.content })
+        setInfoCollapsed(false)
+        showToast('System prompt loaded')
       } else if (msg.type === 'log_state') {
         setLogState({ path: msg.path, tail: msg.tail })
+        setInfoCollapsed(false)
+        showToast('Log loaded')
       } else if (msg.type === 'permissions_list') {
         setPermissionsList(msg.tools)
       } else if (msg.type === 'tool_start') {
         const seq = ++toolSeqRef.current
-        setToolCalls((prev) => [...prev, { id: msg.id, name: msg.name, status: 'running', seq }])
+        const decision = permissionDecisions.current.get(msg.id)
+        setToolCalls((prev) => [...prev, { id: msg.id, name: msg.name, status: 'running', seq, decision }])
         // Files Touched：从 tool_start input 提取文件路径。
         if ((msg.name === 'edit_file' || msg.name === 'write_file') && msg.input) {
           const inp = msg.input as Record<string, unknown>
@@ -218,20 +227,7 @@ export function App({ port }: AppProps) {
         onResumeSession={(id) => port.post({ type: 'resume_session', id })}
         onDeleteSession={handleDeleteSession}
         onDeleteProject={handleDeleteProject}
-        onAddProject={async () => {
-          // 使用原生目录选择对话框（File System Access API）。
-          try {
-            const handle = await (window as unknown as { showDirectoryPicker?: () => Promise<{ name: string }> }).showDirectoryPicker?.()
-            if (handle) {
-              // 浏览器安全限制：无法获取完整路径，用目录名作为 cwd fallback。
-              // 在 Electron 环境下可获取完整路径。
-              port.post({ type: 'new_session', cwd: handle.name })
-            }
-          } catch {
-            // 用户取消或 API 不支持——回退到 FsBrowserModal。
-            setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })
-          }
-        }}
+        onAddProject={() => setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })}
         onOpenSettings={() => setModal({ kind: 'settings' })}
         onThemeChange={setTheme}
       />
@@ -270,7 +266,7 @@ export function App({ port }: AppProps) {
           <PermissionBanner
             tool={pendingPermission.tool}
             input={pendingPermission.input}
-            onDecision={(d) => { port.post({ type: 'permission_decision', id: pendingPermission.id, decision: d }); setPendingPermission(null) }}
+            onDecision={(d) => { permissionDecisions.current.set(pendingPermission.id, d); port.post({ type: 'permission_decision', id: pendingPermission.id, decision: d }); setPendingPermission(null) }}
           />
         )}
         <InputBar
@@ -282,14 +278,7 @@ export function App({ port }: AppProps) {
           onUserSubmit={(text) => dispatch({ type: 'local_user', text })}
           onNewSession={() => port.post({ type: 'new_session' })}
           onCompact={() => { port.post({ type: 'compact_request' }); showToast('Compacting context...') }}
-          onAddProject={async () => {
-            try {
-              const handle = await (window as unknown as { showDirectoryPicker?: () => Promise<{ name: string }> }).showDirectoryPicker?.()
-              if (handle) port.post({ type: 'new_session', cwd: handle.name })
-            } catch {
-              setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })
-            }
-          }}
+          onAddProject={() => setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })}
         />
       </div>
 

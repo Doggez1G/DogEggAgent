@@ -183,7 +183,7 @@
 .contextPercent[data-overload='true'] { color: var(--color-danger); }
 
 /* ── 工具调用 ── */
-.toolList { display: flex; flex-direction: column; gap: var(--sp-1); }
+.toolList { display: flex; flex-direction: column; gap: var(--sp-1); max-height: 200px; overflow-y: auto; }
 .toolCallItem {
   display: flex;
   align-items: center;
@@ -243,6 +243,9 @@
 .toolPerm[data-perm='allow'] { background: var(--color-success-soft); color: var(--color-success); }
 .toolPerm[data-perm='ask'] { background: var(--color-warning-soft); color: var(--color-warning); }
 .toolPerm[data-perm='reject'] { background: var(--color-danger-soft); color: var(--color-danger); }
+.toolPerm[data-perm='once'] { background: var(--color-accent-soft); color: var(--color-accent); }
+.toolPerm[data-perm='always'] { background: var(--color-success-soft); color: var(--color-success); }
+.toolPerm[data-perm='rejected'] { background: var(--color-danger-soft); color: var(--color-danger); }
 
 /* 撤销权限按钮 */
 .permRevokeBtn {

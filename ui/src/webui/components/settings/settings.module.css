@@ -185,6 +185,19 @@
   border-color: var(--color-accent);
 }
 
+.fileClearBtn {
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--color-border);
+  border-radius: 0;
+  background: var(--color-surface-elevated);
+  color: var(--color-danger);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  transition: background-color var(--t-fast) ease;
+}
+.fileClearBtn:hover { background: var(--color-danger-soft); }
+
 /* ── Two columns ── */
 .twoCol {
   display: flex;

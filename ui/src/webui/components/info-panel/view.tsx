@@ -133,7 +133,10 @@ export function InfoPanel(props: InfoPanelProps) {
           ) : (
             <div className={styles.toolList}>
               {[...props.toolCalls].reverse().map((tc) => {
-                const perm = getToolPermission(tc.name, cfg)
+                const configPerm = getToolPermission(tc.name, cfg)
+                // 实际权限：config allow → 'allow'（默认放行）；config reject → 'reject'；
+                // config ask + 有 decision → decision；config ask + 无 decision → 'ask'。
+                const actualPerm = configPerm === 'allow' ? 'allow' : configPerm === 'reject' ? 'reject' : (tc.decision === 'allow_once' ? 'once' : tc.decision === 'allow_always' ? 'always' : tc.decision === 'reject' ? 'rejected' : 'ask')
                 return (
                   <div key={tc.id} className={styles.toolCallItem}>
                     <span className={styles.toolCallSeq}>{tc.seq}</span>
@@ -144,8 +147,7 @@ export function InfoPanel(props: InfoPanelProps) {
                       {tc.status === 'rejected' && '⊘'}
                     </span>
                     <span className={styles.toolCallName}>{tc.name}</span>
-                    {tc.decision && <span className={styles.toolDecision} data-decision={tc.decision}>{tc.decision === 'allow_once' ? 'once' : tc.decision === 'allow_always' ? 'always' : 'rejected'}</span>}
-                    <span className={styles.toolPerm} data-perm={perm}>{perm}</span>
+                    <span className={styles.toolPerm} data-perm={actualPerm}>{actualPerm}</span>
                   </div>
                 )
               })}

@@ -80,6 +80,14 @@
   color: var(--color-muted, var(--color-subtext));
 }
 
+/* ── Compacting 指示器 ── */
+.compacting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}
+
 /* ── Streaming thinking ── */
 .streamingThinking {
   background: var(--color-warning-soft-bg);
