@@ -1,12 +1,10 @@
-import { useEffect, useRef } from 'react'
-import { Cpu, Gauge, Activity, Wrench, ChevronRight, ChevronLeft, Terminal, ScrollText, FileEdit, FilePlus } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Cpu, Gauge, Activity, Wrench, ChevronRight, ChevronLeft, ChevronDown, Terminal, ScrollText, FileEdit, FilePlus } from 'lucide-react'
 import type { UiPort } from '@dogegg/bridge'
-import { Section, Badge } from '../primitives'
+import { Badge } from '../primitives'
 import styles from './info-panel.module.css'
 
-// 右侧信息面板：实时显示运行时信息。
-// 折叠分区由 primitives 的 Section 提供；面板自身只渲染内容。
-// 数据请求按需触发：首次展开时只请求一次 tools/system/log/context，运行中 context 每 3s 刷新。
+// 右侧信息面板：卡片式可折叠 section + 状态 pill + 渐变进度条。
 interface InfoPanelProps {
   provider: string | undefined
   model: string | undefined
@@ -37,7 +35,6 @@ export function InfoPanel(props: InfoPanelProps) {
   const { collapsed, port, status } = props
   const requested = useRef<Set<string>>(new Set())
 
-  // 首次展开时请求 tools/system/log/context（各只请求一次）。
   useEffect(() => {
     if (collapsed) return
     const req = requested.current
@@ -47,7 +44,6 @@ export function InfoPanel(props: InfoPanelProps) {
     if (!req.has('context')) { req.add('context'); port.post({ type: 'context_request' }) }
   }, [collapsed, port])
 
-  // 运行中 context 每 3s 刷新一次。
   useEffect(() => {
     if (collapsed) return
     const isRunning = status !== 'idle' && status !== 'finished' && status !== 'cancelled' && status !== 'error'
@@ -81,58 +77,55 @@ export function InfoPanel(props: InfoPanelProps) {
       </header>
 
       <div className={styles.scrollArea}>
-        <Section title="Status" icon={Activity}>
+        <InfoCard title="Status & Model" icon={Activity}>
           <div className={styles.statusRow}>
-            <span className={styles.statusDot} data-status={status} />
-            <span className={styles.statusText}>{statusLabel}</span>
+            <div className={styles.statusPill} data-status={status}>
+              <span className={styles.statusIndicatorDot} data-status={status} />
+              <span className={styles.statusLabel}>{statusLabel}</span>
+            </div>
           </div>
-        </Section>
-
-        <Section title="Model" icon={Cpu}>
           <div className={styles.modelRow}>
             <span className={styles.modelProvider}>{props.provider ?? '—'}</span>
             <span className={styles.modelName}>{props.model ?? '—'}</span>
           </div>
-        </Section>
+        </InfoCard>
 
-        <Section title="Context" icon={Gauge}>
+        <InfoCard title="Context" icon={Gauge}>
           {tokens !== undefined && windowTokens !== undefined ? (
             <>
-              <div className={styles.tokenBar}>
-                <div className={styles.tokenFill} style={{ width: `${Math.min(100, percent)}%` }} data-overload={overload} />
+              <div className={styles.contextBar}>
+                <div className={styles.contextFill} style={{ width: `${Math.min(100, percent)}%` }} data-overload={overload} />
               </div>
-              <div className={styles.tokenNumbers}>
-                <span className={styles.tokenUsed}>{tokens.toLocaleString()}</span>
-                <span className={styles.tokenSep}>/</span>
-                <span className={styles.tokenWindow}>{windowTokens.toLocaleString()}</span>
-                <span className={styles.tokenPercent} data-overload={overload}>{percent}%</span>
+              <div className={styles.contextNumbers}>
+                <span className={styles.contextUsed}>{tokens.toLocaleString()}</span>
+                <span className={styles.contextSep}>/</span>
+                <span className={styles.contextWindow}>{windowTokens.toLocaleString()}</span>
+                <span className={styles.contextPercent} data-overload={overload}>{percent}%</span>
               </div>
             </>
           ) : <p className={styles.emptyText}>Not available</p>}
-        </Section>
+        </InfoCard>
 
-        <Section title="Tool Calls" icon={Wrench} defaultOpen={false}>
+        <InfoCard title="Tool Calls" icon={Wrench} defaultOpen={false}>
           {props.toolCalls.length === 0 ? (
             <p className={styles.emptyText}>No tool calls yet</p>
           ) : (
             <div className={styles.toolList}>
               {props.toolCalls.slice(-8).reverse().map((tc) => (
-                <div key={tc.id} className={styles.toolItem} data-status={tc.status}>
-                  <span className={`${styles.toolIcon} ${tc.status === 'running' ? 'spin' : ''}`}>
+                <div key={tc.id} className={styles.toolCallItem}>
+                  <span className={`${styles.toolCallIcon} ${styles[`toolCall_${tc.status}`]}`}>
+                    {tc.status === 'running' && <span className="spin" style={{ display: 'inline-block' }}>↻</span>}
                     {tc.status === 'done' && '✓'}
                     {tc.status === 'error' && '✕'}
                   </span>
-                  <div className={styles.toolInfo}>
-                    <code className={styles.toolName}>{tc.name}</code>
-                    {tc.output && <span className={styles.toolOutput}>{tc.output.slice(0, 50)}</span>}
-                  </div>
+                  <span className={styles.toolCallName}>{tc.name}</span>
                 </div>
               ))}
             </div>
           )}
-        </Section>
+        </InfoCard>
 
-        <Section title="Files Touched" icon={FileEdit} defaultOpen={false}>
+        <InfoCard title="Files Touched" icon={FileEdit} defaultOpen={false}>
           {files.length === 0 ? (
             <p className={styles.emptyText}>No files touched</p>
           ) : (
@@ -143,16 +136,14 @@ export function InfoPanel(props: InfoPanelProps) {
                     {f.action === 'edit' ? <FileEdit size={12} strokeWidth={1.5} /> : <FilePlus size={12} strokeWidth={1.5} />}
                   </span>
                   <span className={styles.fileName}>{basename(f.path)}</span>
-                  <span className={styles.fileBadge}>
-                    <Badge variant={f.action === 'edit' ? 'warning' : 'success'}>{f.action}</Badge>
-                  </span>
+                  <Badge variant={f.action === 'edit' ? 'warning' : 'success'}>{f.action}</Badge>
                 </div>
               ))}
             </div>
           )}
-        </Section>
+        </InfoCard>
 
-        <Section title="Available Tools" icon={Wrench} defaultOpen={false}>
+        <InfoCard title="Available Tools" icon={Wrench} defaultOpen={false}>
           {props.toolsList.length === 0 ? (
             <p className={styles.emptyText}>Loading...</p>
           ) : (
@@ -162,23 +153,40 @@ export function InfoPanel(props: InfoPanelProps) {
               ))}
             </div>
           )}
-        </Section>
+        </InfoCard>
 
-        <Section title="System Prompt" icon={Terminal} defaultOpen={false}>
+        <InfoCard title="System Prompt" icon={Terminal} defaultOpen={false}>
           {props.systemState ? (
             <div className={styles.miniContent}>
               <span className={styles.miniPath}>{props.systemState.path}</span>
               <pre className={styles.miniPre}>{props.systemState.content.slice(0, 200)}</pre>
             </div>
           ) : <p className={styles.emptyText}>Loading...</p>}
-        </Section>
+        </InfoCard>
 
-        <Section title="Log Tail" icon={ScrollText} defaultOpen={false}>
+        <InfoCard title="Log Tail" icon={ScrollText} defaultOpen={false}>
           {props.logState ? (
             <pre className={styles.miniPre}>{props.logState.tail.slice(0, 500)}</pre>
           ) : <p className={styles.emptyText}>Loading...</p>}
-        </Section>
+        </InfoCard>
       </div>
     </aside>
+  )
+}
+
+// ── 卡片式可折叠 section ──
+function InfoCard({ title, icon: Icon, defaultOpen = true, children }: {
+  title: string; icon: typeof Activity; defaultOpen?: boolean; children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className={`${styles.infoCard} ${open ? '' : styles.collapsedCard}`}>
+      <button className={styles.infoCardHeader} onClick={() => setOpen(!open)}>
+        <ChevronDown size={12} strokeWidth={2} className={styles.infoChevron} />
+        <Icon size={13} strokeWidth={1.5} className={styles.infoCardIcon} />
+        <span className={styles.infoCardTitle}>{title}</span>
+      </button>
+      {open && <div className={styles.infoCardBody}>{children}</div>}
+    </div>
   )
 }

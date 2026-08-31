@@ -2,7 +2,7 @@ import React from 'react'
 import { Cpu, FolderClosed, Search } from 'lucide-react'
 import styles from './top-bar.module.css'
 
-// 顶栏：运行状态 + provider/model + cwd + Cmd+K 命令面板入口。
+// 顶栏：状态 pill + 模型/cwd + Cmd+K 搜索框样式按钮。
 interface TopBarProps {
   provider: string | undefined
   model: string | undefined
@@ -12,45 +12,48 @@ interface TopBarProps {
   onOpenCommandPalette: () => void
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  idle: 'Ready', thinking: 'Thinking', responding: 'Responding',
+  tool_calling: 'Calling Tool', waiting_permission: 'Awaiting Permission',
+  executing: 'Executing', finished: 'Finished', cancelled: 'Cancelled',
+  error: 'Error', compacting: 'Compacting',
+}
+
 export function TopBar({ provider, model, cwd, isRunning, status, onOpenCommandPalette }: TopBarProps) {
-  const modelInfo = provider ? `${provider}/${model ?? '?'}` : 'Not configured'
   const cwdLabel = cwd.split(/[/\\]/).pop() || cwd
-  const statusLabel = status ? status.charAt(0).toUpperCase() + status.slice(1) : ''
+  const statusLabel = STATUS_LABELS[status] ?? status
 
   return (
     <header className={styles.topBar}>
-      {/* 左：运行指示器（脉冲点）或状态文本 */}
-      {isRunning ? (
-        <div className={styles.runningIndicator}>
-          <span className={`${styles.pulseDot} pulse-dot`} />
-          <span className={`${styles.pulseDot} pulse-dot`} />
-          <span className={`${styles.pulseDot} pulse-dot`} />
-        </div>
-      ) : (
-        <span className={styles.statusText}>{statusLabel}</span>
-      )}
-
-      {/* 中：模型信息 */}
-      <div className={styles.modelChip}>
-        <Cpu size={13} strokeWidth={1.5} className={styles.modelIcon} />
-        <span className={styles.modelText}>{modelInfo}</span>
+      {/* 状态 pill */}
+      <div className={styles.statusPill} data-status={status} data-running={isRunning}>
+        <span className={styles.statusDot} data-status={status} />
+        <span>{statusLabel}</span>
       </div>
 
-      {/* 中：工作目录 */}
+      <div className={styles.sep} />
+
+      {/* 模型 */}
+      <div className={styles.modelChip}>
+        <Cpu size={13} strokeWidth={1.5} className={styles.modelIcon} />
+        <span className={styles.modelProvider}>{provider ?? '—'}</span>
+        <span className={styles.modelSlash}>/</span>
+        <span className={styles.modelName}>{model ?? '?'}</span>
+      </div>
+
+      <div className={styles.sep} />
+
+      {/* 工作目录 */}
       <div className={styles.cwdChip} title={cwd}>
         <FolderClosed size={13} strokeWidth={1.5} className={styles.cwdIcon} />
         <span className={styles.cwdText}>{cwdLabel}</span>
       </div>
 
-      {/* 右：Cmd+K 命令面板 */}
-      <button
-        className={styles.cmdkBtn}
-        onClick={onOpenCommandPalette}
-        aria-label="Command palette"
-        title="Command palette (⌘K)"
-      >
+      {/* Cmd+K 搜索框样式按钮 */}
+      <button className={styles.cmdkBtn} onClick={onOpenCommandPalette} aria-label="Command palette">
         <Search size={13} strokeWidth={1.5} />
-        <span>⌘K</span>
+        <span className={styles.cmdkLabel}>Search</span>
+        <span className={styles.cmdkKey}>⌘K</span>
       </button>
     </header>
   )

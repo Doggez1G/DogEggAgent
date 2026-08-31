@@ -1,7 +1,8 @@
+/* 顶栏：状态 pill + 模型/cwd chip + 搜索框样式 Cmd+K。 */
 .topBar {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: var(--sp-3);
   height: var(--topbar-h);
   padding: 0 var(--sp-4);
   background: var(--color-surface);
@@ -9,107 +10,98 @@
   grid-area: topbar;
 }
 
-/* 运行指示器 */
-.runningIndicator {
+/* ── 状态 pill ── */
+.statusPill {
   display: flex;
-  gap: var(--sp-1);
   align-items: center;
-  padding-right: var(--sp-2);
-  border-right: 1px solid var(--color-border);
-  margin-right: var(--sp-1);
-  flex-shrink: 0;
-}
-
-.pulseDot {
-  width: var(--sp-1);
-  height: var(--sp-1);
-  border-radius: 50%;
-  background: var(--color-accent);
-  display: inline-block;
-}
-
-.statusText {
+  gap: var(--sp-1);
+  padding: 2px var(--sp-2);
+  border-radius: 9999px;
   font-size: var(--fs-xs);
-  color: var(--color-subtext);
-  font-family: var(--font-sans);
-  padding-right: var(--sp-2);
-  border-right: 1px solid var(--color-border);
-  margin-right: var(--sp-1);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.statusPill[data-status='idle'] { background: rgba(161, 161, 170, 0.12); color: var(--color-subtext); }
+.statusPill[data-status='thinking'], .statusPill[data-status='responding'] { background: rgba(99, 102, 241, 0.12); color: var(--color-accent); }
+.statusPill[data-status='executing'], .statusPill[data-status='tool_calling'] { background: rgba(34, 197, 94, 0.12); color: var(--color-success); }
+.statusPill[data-status='error'] { background: rgba(239, 68, 68, 0.12); color: var(--color-danger); }
+.statusPill[data-status='finished'] { background: rgba(34, 197, 94, 0.12); color: var(--color-success); }
+.statusPill[data-status='compacting'], .statusPill[data-status='cancelled'], .statusPill[data-status='waiting_permission'] { background: rgba(251, 191, 36, 0.12); color: var(--color-warning); }
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.statusDot[data-status='thinking'], .statusDot[data-status='responding'], .statusDot[data-status='executing'], .statusDot[data-status='tool_calling'], .statusDot[data-status='compacting'] {
+  animation: pulse-dot 1s ease-in-out infinite;
+}
+
+.sep {
+  width: 1px;
+  height: 16px;
+  background: var(--color-border);
   flex-shrink: 0;
 }
 
-/* 模型信息 chip */
+/* ── 模型 chip ── */
 .modelChip {
   display: flex;
   align-items: center;
   gap: var(--sp-1);
-  padding: var(--sp-1) var(--sp-2);
-  background: var(--color-surface-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  flex-shrink: 0;
-}
-
-.modelIcon {
-  color: var(--color-subtext);
-  flex-shrink: 0;
-}
-
-.modelText {
   font-size: var(--fs-xs);
-  font-weight: 500;
-  color: var(--color-text);
-  font-family: var(--font-mono);
-  white-space: nowrap;
+  flex-shrink: 0;
 }
+.modelIcon { color: var(--color-subtext); flex-shrink: 0; }
+.modelProvider { color: var(--color-text); font-weight: 500; }
+.modelSlash { color: var(--color-subtext); }
+.modelName { color: var(--color-text); font-weight: 500; font-family: var(--font-mono); }
 
-/* 工作目录 chip */
+/* ── cwd chip ── */
 .cwdChip {
   display: flex;
   align-items: center;
   gap: var(--sp-1);
-  padding: var(--sp-1) var(--sp-2);
-  background: transparent;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
 }
-
-.cwdIcon {
-  color: var(--color-subtext);
-  flex-shrink: 0;
-}
-
+.cwdIcon { color: var(--color-subtext); flex-shrink: 0; }
 .cwdText {
-  font-size: var(--fs-xs);
   color: var(--color-subtext);
-  font-family: var(--font-mono);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* Cmd+K 按钮 */
+/* ── Cmd+K 搜索框样式按钮 ── */
 .cmdkBtn {
+  margin-left: auto;
   display: flex;
   align-items: center;
-  gap: var(--sp-1);
-  padding: var(--sp-1) var(--sp-2);
-  margin-left: auto;
+  gap: var(--sp-2);
+  padding: 4px var(--sp-2) 4px var(--sp-2);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: transparent;
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
   color: var(--color-subtext);
-  font-family: var(--font-mono);
   font-size: var(--fs-xs);
   cursor: pointer;
   flex-shrink: 0;
-  transition: background-color var(--t-fast) ease, color var(--t-fast) ease, border-color var(--t-fast) ease;
+  transition: border-color var(--t-fast) ease, color var(--t-fast) ease;
 }
-
-.cmdkBtn:hover {
+.cmdkBtn:hover { border-color: var(--color-border-hover, #3F3F46); color: var(--color-text); }
+.cmdkLabel { font-size: var(--fs-xs); }
+.cmdkKey {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 5px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
   background: var(--color-surface-elevated);
-  color: var(--color-text);
+  color: var(--color-subtext);
 }

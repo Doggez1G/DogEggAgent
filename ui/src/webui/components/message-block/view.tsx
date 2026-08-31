@@ -1,13 +1,12 @@
 import { useState } from 'react'
-import { KIND_ICON, TOKEN_CSS_VAR, KIND_LABEL } from '../../theme/token-map'
+import { KIND_ICON, KIND_LABEL, TOKEN_CSS_VAR } from '../../theme/token-map'
+import { Egg, User, ChevronDown, Wrench, Check, X, Loader2 } from 'lucide-react'
 import type { BlockKind, ColorToken } from '../../../shared/block'
 import { isExpandable } from '../../../shared/block'
 import styles from './message-block.module.css'
 
-// 消息块：色条 + Lucide 图标 + 标签 + 正文。
-// 可折叠块（thinking/tool）点击展开/折叠——折叠显示摘要，展开显示 full。
-// 工具运行中：色条脉冲动画替代 spinner。
-// assistant/thinking 块的 text/full 已由 ChatView 渲染为 HTML（markdown），通过 html/fullHtml prop 传入。
+// 消息块：按 kind 分化渲染——每种类型有完全不同的视觉结构。
+// user → 右对齐气泡；assistant → avatar + 正文；thinking → warning 卡片；tool → 状态卡片。
 interface MessageBlockProps {
   kind: BlockKind
   color: ColorToken
@@ -19,45 +18,128 @@ interface MessageBlockProps {
 }
 
 export function MessageBlock({ kind, color, text, full, html, fullHtml, isRunning }: MessageBlockProps) {
-  const [expanded, setExpanded] = useState(false)
-  const Icon = KIND_ICON[kind]!
-  const label = KIND_LABEL[kind]!
-  const colorVar = TOKEN_CSS_VAR[color]!
-  const expandable = isExpandable({ kind, color, text, full })
+  switch (kind) {
+    case 'user':
+      return <UserBlock text={text} />
+    case 'assistant':
+      return <AssistantBlock text={text} html={html} />
+    case 'thinking':
+      return <ThinkingBlock text={text} full={full} html={html} fullHtml={fullHtml} />
+    case 'tool':
+      return <ToolBlock text={text} full={full} isRunning={isRunning} />
+    case 'error':
+      return <ErrorBlock text={text} />
+    default:
+      return <NoticeBlock text={text} color={color} kind={kind} />
+  }
+}
 
-  // 展开时优先用 fullHtml，否则 fallback 到 full 纯文本。
-  // 折叠时优先用 html，否则 fallback 到 text 纯文本。
-  const showHtml = expandable && expanded ? fullHtml : html
-  const showText = expandable && expanded ? (full ?? text) : text
-
+// ── 用户消息：右对齐圆角气泡 ──
+function UserBlock({ text }: { text: string }) {
   return (
-    <div className={styles.block + ' block-enter'}>
-      <div
-        className={`${styles.bar}${isRunning ? ' ' + styles.pulseBar + ' pulse-bar' : ''}`}
-        style={{ background: colorVar }}
-      />
-      <div className={styles.content}>
-        <div className={styles.header}>
-          <Icon size={14} strokeWidth={1.5} />
-          <span className={styles.label} style={{ color: colorVar }}>{label}</span>
-          {expandable && (
-            <button
-              className={styles.toggleBtn}
-              onClick={() => setExpanded(!expanded)}
-              aria-label={expanded ? 'Collapse' : 'Expand'}
-            >
-              {expanded ? '−' : '+'}
-            </button>
-          )}
-        </div>
-        <div className={styles.body}>
-          {showHtml ? (
-            <div className={styles.htmlContent} dangerouslySetInnerHTML={{ __html: showHtml }} />
+    <div className={styles.userRow}>
+      <div className={styles.userBubble}>{text}</div>
+      <div className={styles.userAvatar}>
+        <User size={14} strokeWidth={1.5} />
+      </div>
+    </div>
+  )
+}
+
+// ── 助手消息：avatar + 角色标签 + markdown 正文 ──
+function AssistantBlock({ text, html }: { text: string; html?: string }) {
+  return (
+    <div className={styles.assistantRow}>
+      <div className={styles.assistantAvatar}>
+        <Egg size={16} strokeWidth={1.5} />
+      </div>
+      <div className={styles.assistantContent}>
+        <span className={styles.roleLabel}>DogEgg</span>
+        <div className={styles.assistantBody}>
+          {html ? (
+            <div className={styles.htmlContent} dangerouslySetInnerHTML={{ __html: html }} />
           ) : (
-            <pre className={styles.text}>{showText}</pre>
+            <p>{text}</p>
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── 思考块：warning 色调卡片，可折叠 ──
+function ThinkingBlock({ text, full, html, fullHtml }: { text: string; full?: string; html?: string; fullHtml?: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const expandable = full !== undefined
+  const showHtml = expandable && expanded ? fullHtml : html
+  const showText = expandable && expanded ? (full ?? text) : text
+  return (
+    <div className={`${styles.thinkingCard} ${expanded ? '' : styles.collapsedCard}`}>
+      <button className={styles.thinkingHeader} onClick={() => expandable && setExpanded(!expanded)}>
+        <ChevronDown size={12} strokeWidth={2} className={styles.chevron} />
+        <span className={styles.thinkingLabel}>Thinking</span>
+      </button>
+      {expanded && (
+        <div className={styles.thinkingBody}>
+          {showHtml ? (
+            <div className={styles.htmlContent} dangerouslySetInnerHTML={{ __html: showHtml }} />
+          ) : (
+            <pre className={styles.monoText}>{showText}</pre>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── 工具调用卡片：状态图标 + 工具名 + 参数 + 可折叠详情 ──
+function ToolBlock({ text, full, isRunning }: { text: string; full?: string; isRunning?: boolean }) {
+  const [expanded, setExpanded] = useState(false)
+  const expandable = full !== undefined
+  // 从 text 中提取工具名和参数（格式: "toolName {json}"）
+  const firstSpace = text.indexOf(' ')
+  const toolName = firstSpace > 0 ? text.slice(0, firstSpace) : text
+  const toolArgs = firstSpace > 0 ? text.slice(firstSpace + 1) : ''
+  const isDone = text.includes('✓')
+  const isError = text.includes('✕')
+
+  return (
+    <div className={`${styles.toolCard} ${expanded ? '' : styles.collapsedCard}`}>
+      <button className={styles.toolHeader} onClick={() => expandable && setExpanded(!expanded)}>
+        <div className={`${styles.toolIcon} ${isError ? styles.toolIconError : isDone ? styles.toolIconDone : styles.toolIconRunning}`}>
+          {isError ? <X size={12} strokeWidth={2} /> : isDone ? <Check size={12} strokeWidth={2} /> : isRunning ? <Loader2 size={12} strokeWidth={2} className="spin" /> : <Wrench size={12} strokeWidth={1.5} />}
+        </div>
+        <span className={styles.toolName}>{toolName}</span>
+        <span className={styles.toolArgs}>{toolArgs.slice(0, 60)}</span>
+        {expandable && <ChevronDown size={12} strokeWidth={2} className={styles.chevron} />}
+      </button>
+      {expanded && full && (
+        <div className={styles.toolBody}>
+          <pre className={styles.monoText}>{full}</pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── 错误块 ──
+function ErrorBlock({ text }: { text: string }) {
+  return (
+    <div className={styles.errorCard}>
+      <div className={styles.errorIcon}><X size={14} strokeWidth={2} /></div>
+      <span className={styles.errorText}>{text}</span>
+    </div>
+  )
+}
+
+// ── 通知/自动压缩等 ──
+function NoticeBlock({ text, color, kind }: { text: string; color: ColorToken; kind: BlockKind }) {
+  const Icon = KIND_ICON[kind]!
+  const label = KIND_LABEL[kind]!
+  return (
+    <div className={styles.noticeCard}>
+      <Icon size={12} strokeWidth={1.5} className={styles.noticeIcon} />
+      <span className={styles.noticeText}>{text}</span>
     </div>
   )
 }

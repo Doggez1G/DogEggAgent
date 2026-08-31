@@ -1,10 +1,9 @@
-/* 聊天视口样式——仅滚动区/欢迎页/消息容器/思考点。
-   消息块（色条/头部/正文/markdown）样式统一在 message-block.module.css，此处不重复。 */
+/* 聊天视口样式——仅滚动区/欢迎页/消息容器/streaming 指示器。
+   消息块样式在 message-block.module.css，此处只复用 streaming 所需的少量结构。 */
 
 .chatView {
   grid-area: main;
   overflow-y: auto;
-  padding: var(--sp-4) var(--sp-5);
   background: var(--color-bg);
 }
 
@@ -17,14 +16,17 @@
   height: 100%;
   gap: var(--sp-2);
 }
-
+.welcomeMark {
+  color: var(--color-accent);
+  margin-bottom: var(--sp-2);
+  opacity: 0.8;
+}
 .welcomeTitle {
   font-family: var(--font-display);
   font-size: var(--fs-xl);
   font-weight: 600;
   color: var(--color-text);
 }
-
 .welcomeHint {
   font-size: var(--fs-base);
   color: var(--color-subtext);
@@ -32,25 +34,134 @@
 
 /* ── 消息列表容器 ── */
 .messages {
-  display: flex;
-  flex-direction: column;
-  max-width: 800px;
+  max-width: 760px;
   margin: 0 auto;
+  padding: var(--sp-6) var(--sp-6) var(--sp-2);
   width: 100%;
-  padding: var(--sp-2) var(--sp-4);
 }
 
-/* ── 思考脉冲点（运行中但尚无文本） ── */
-.thinkingDots {
+/* ── Streaming 指示器（运行中但尚无文本）── */
+.streaming {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) 0;
+}
+.assistantAvatar {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--color-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.streamingDots {
   display: flex;
   gap: var(--sp-1);
-  padding: var(--sp-3) var(--sp-5);
 }
-
-.dot {
-  width: var(--sp-1);
-  height: var(--sp-1);
+.streamingDot {
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--color-accent);
-  display: inline-block;
+  animation: streaming-bounce 1s ease-in-out infinite;
+}
+.streamingDot:nth-child(2) { animation-delay: 0.15s; }
+.streamingDot:nth-child(3) { animation-delay: 0.3s; }
+@keyframes streaming-bounce {
+  0%, 100% { transform: scale(0.8); opacity: 0.5; }
+  50% { transform: scale(1.2); opacity: 1; }
+}
+.streamingText {
+  font-size: var(--fs-xs);
+  color: var(--color-subtext);
+}
+
+/* ── Streaming thinking ── */
+.streamingThinking {
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.15);
+  border-left: 3px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--sp-3);
+  overflow: hidden;
+}
+.thinkingHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--color-warning);
+}
+.thinkingLabel { font-weight: 500; }
+.thinkingBody {
+  padding: 0 var(--sp-3) var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--color-subtext);
+  line-height: 1.6;
+}
+
+/* ── Streaming assistant (复用结构) ── */
+.assistantRow {
+  display: flex;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+.assistantContent {
+  flex: 1;
+  min-width: 0;
+}
+.roleLabel {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--color-subtext);
+  margin-bottom: 2px;
+  display: block;
+}
+.assistantBody {
+  font-size: var(--fs-base);
+  line-height: 1.7;
+  color: var(--color-text);
+}
+
+.monoText {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text);
+  margin: 0;
+}
+
+/* ── markdown HTML（streaming 用）── */
+.htmlContent {
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  line-height: 1.7;
+  color: var(--color-text);
+  word-break: break-word;
+}
+.htmlContent :global(p) { margin: var(--sp-1) 0; }
+.htmlContent :global(code) {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  background: var(--color-surface-elevated);
+  padding: 1px var(--sp-1);
+  border-radius: var(--radius-sm);
+}
+.htmlContent :global(pre) {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-3);
+  overflow-x: auto;
+  margin: var(--sp-2) 0;
 }

@@ -1,12 +1,11 @@
 import React, { useState, useRef, useCallback } from 'react'
-import { ArrowUp, Square } from 'lucide-react'
+import { ArrowUp, Square, Slash, MessageSquare } from 'lucide-react'
 import { matchCommands, parseCommand } from '../../../shared/commands'
 import { COMMAND_TO_MODAL } from '../../app/view-state'
 import type { UiPort } from '@dogegg/bridge'
 import styles from './input-bar.module.css'
 
-// 输入栏：文本输入 + 斜杠命令联想 + 发送/停止按钮。
-// 斜杠命令输入后导航到对应面板而非弹 overlay（与 TUI 的 overlay 模式不同）。
+// 输入栏：容器式 textarea + focus ring + 底部工具栏 + 发送/停止按钮。
 interface InputBarProps {
   port: UiPort
   isRunning: boolean
@@ -24,36 +23,28 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
   const matches = input.startsWith('/') ? matchCommands(input) : []
 
   const handleSubmit = useCallback(() => {
-    // 联想补全拦截：有匹配且选中了项时，补全到输入框而非提交。
     if (matches.length > 0 && suggestIdxRef.current !== null) {
       const picked = matches[suggestIdxRef.current]
       if (picked) { setInput(picked.cmd); setSuggest(null) }
       return
     }
-
     const result = parseCommand(input)
     if (result.kind === 'user' && !result.text) return
-
     if (result.kind === 'user') {
       port.post({ type: 'submit', text: result.text })
     } else if (result.kind === 'message') {
-      // 命令消息
       const cmd = input.trim().split(/\s+/)[0] ?? ''
-      // /clear 和 /quit 需确认弹窗
       if (result.msg.type === 'clear_history') { onClearHistory(); setInput(''); setSuggest(null); return }
       if (result.msg.type === 'quit') { onQuit(); setInput(''); setSuggest(null); return }
-      // 导航类命令：发消息 + 打开对应 modal
       const nav = COMMAND_TO_MODAL[cmd]
       if (nav) { onCommandNav(cmd) }
       port.post(result.msg)
     }
-    // result.kind === 'help' 在 parseCommand 里已处理（返回 help），此处不到达
     setInput('')
     setSuggest(null)
   }, [input, matches, port, onCommandNav, onClearHistory, onQuit, setSuggest])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // 联想提示导航
     if (matches.length > 0) {
       if (e.key === 'ArrowUp') {
         e.preventDefault()
@@ -76,12 +67,10 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
       }
       if (e.key === 'Escape') { setSuggest(null); return }
     }
-    // 多行输入：Ctrl+Enter / Shift+Enter 换行，Enter 提交
     if (e.key === 'Enter' && !e.ctrlKey && !e.shiftKey) {
       e.preventDefault()
       handleSubmit()
     }
-    // Ctrl+C 运行中 → 发 cancel
     if (e.ctrlKey && e.key === 'c' && isRunning) {
       e.preventDefault()
       port.post({ type: 'cancel' })
@@ -89,7 +78,7 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
   }
 
   return (
-    <div className={styles.inputBar}>
+    <div className={styles.inputArea}>
       {matches.length > 0 && (
         <div className={styles.suggestions}>
           {matches.map((m, i) => (
@@ -104,14 +93,13 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
           ))}
         </div>
       )}
-      <div className={styles.inputRow}>
+      <div className={styles.inputContainer}>
         <textarea
-          className={styles.textInput}
+          className={styles.textarea}
           value={input}
           onChange={(e) => {
             setInput(e.target.value)
             setSuggest(null)
-            // 自动增高：重置 height 让 scrollHeight 计算实际内容高度。
             e.target.style.height = 'auto'
             e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px'
           }}
@@ -120,20 +108,21 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
           rows={1}
           disabled={isRunning}
         />
-        {isRunning ? (
-          <button className={styles.stopBtn} onClick={() => port.post({ type: 'cancel' })} aria-label="Stop">
-            <Square size={16} fill="currentColor" strokeWidth={0} />
+        <div className={styles.toolbar}>
+          <button className={styles.toolBtn} title="Slash commands" aria-label="Slash commands" onClick={() => { setInput('/'); }}>
+            <Slash size={13} strokeWidth={1.5} />
           </button>
-        ) : (
-          <button
-            className={styles.sendBtn}
-            onClick={handleSubmit}
-            disabled={!input.trim()}
-            aria-label="Send"
-          >
-            <ArrowUp size={16} strokeWidth={2} />
-          </button>
-        )}
+          <span className={styles.hint}>Enter to send · Shift+Enter for newline</span>
+          {isRunning ? (
+            <button className={styles.stopBtn} onClick={() => port.post({ type: 'cancel' })} aria-label="Stop">
+              <Square size={14} fill="currentColor" strokeWidth={0} />
+            </button>
+          ) : (
+            <button className={styles.sendBtn} onClick={handleSubmit} disabled={!input.trim()} aria-label="Send">
+              <ArrowUp size={14} strokeWidth={2} />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )

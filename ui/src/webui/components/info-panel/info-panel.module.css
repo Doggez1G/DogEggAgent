@@ -1,6 +1,4 @@
-/* Info Panel — 右侧实时信息面板。
-   折叠分区 chrome 由 primitives Section 提供，此处只定义面板外壳与内容样式。
-   不定义 @keyframes spin——运行中工具调用的旋转用全局 .spin 类（见 theme/animations.css）。 */
+/* Info Panel — 卡片式 section + 状态 pill + 渐变进度条。 */
 
 .infoPanel {
   grid-area: info;
@@ -15,9 +13,9 @@
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+  padding: var(--sp-2);
 }
 
-/* 收起态：仅一个展开按钮，占满 info 网格列。 */
 .expandBtn {
   grid-area: info;
   display: flex;
@@ -33,22 +31,17 @@
   cursor: pointer;
   transition: color var(--t-fast) ease, background-color var(--t-fast) ease;
 }
-
-.expandBtn:hover {
-  color: var(--color-text);
-  background: var(--color-surface-elevated);
-}
+.expandBtn:hover { color: var(--color-text); background: var(--color-surface-elevated); }
 
 /* ── 头 ── */
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--sp-2) var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
-
 .headerTitle {
   font-size: var(--fs-xs);
   font-weight: 600;
@@ -56,7 +49,6 @@
   letter-spacing: 0.06em;
   color: var(--color-subtext);
 }
-
 .collapseBtn {
   display: flex;
   align-items: center;
@@ -70,202 +62,158 @@
   cursor: pointer;
   transition: background-color var(--t-fast) ease, color var(--t-fast) ease;
 }
+.collapseBtn:hover { background: var(--color-surface-elevated); color: var(--color-text); }
 
-.collapseBtn:hover {
-  background: var(--color-surface-elevated);
-  color: var(--color-text);
+/* ── 卡片式 section ── */
+.infoCard {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--sp-2);
+  overflow: hidden;
+}
+.infoCardHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: background var(--t-fast) ease;
+}
+.infoCardHeader:hover { background: var(--color-surface-elevated); }
+.infoChevron {
+  flex-shrink: 0;
+  transition: transform var(--t-normal) ease;
+}
+.collapsedCard .infoChevron { transform: rotate(-90deg); }
+.infoCardIcon { color: var(--color-accent); flex-shrink: 0; }
+.infoCardTitle {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-subtext);
+}
+.infoCardBody {
+  padding: 0 var(--sp-3) var(--sp-3);
 }
 
-/* ── 状态 ── */
+/* ── 状态 pill ── */
 .statusRow {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
 }
+.statusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 2px var(--sp-2);
+  border-radius: var(--radius-full, 9999px);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+.statusPill[data-status='idle'] { background: rgba(161, 161, 170, 0.12); color: var(--color-subtext); }
+.statusPill[data-status='thinking'], .statusPill[data-status='responding'] { background: rgba(99, 102, 241, 0.12); color: var(--color-accent); }
+.statusPill[data-status='executing'], .statusPill[data-status='tool_calling'] { background: rgba(34, 197, 94, 0.12); color: var(--color-success); }
+.statusPill[data-status='error'] { background: rgba(239, 68, 68, 0.12); color: var(--color-danger); }
+.statusPill[data-status='compacting'] { background: rgba(251, 191, 36, 0.12); color: var(--color-warning); }
+.statusPill[data-status='finished'] { background: rgba(34, 197, 94, 0.12); color: var(--color-success); }
+.statusPill[data-status='cancelled'], .statusPill[data-status='waiting_permission'] { background: rgba(251, 191, 36, 0.12); color: var(--color-warning); }
 
-.statusDot {
-  width: var(--sp-2);
-  height: var(--sp-2);
+.statusIndicatorDot {
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: var(--color-subtext);
+  background: currentColor;
   flex-shrink: 0;
 }
-
-.statusDot[data-status='idle'] { background: var(--color-subtext); }
-.statusDot[data-status='thinking'],
-.statusDot[data-status='responding'] { background: var(--color-accent); animation: pulse-dot 1s ease-in-out infinite; }
-.statusDot[data-status='executing'],
-.statusDot[data-status='tool_calling'] { background: var(--color-success); animation: pulse-dot 1s ease-in-out infinite; }
-.statusDot[data-status='error'] { background: var(--color-danger); }
-.statusDot[data-status='compacting'] { background: var(--color-warning); animation: pulse-dot 1s ease-in-out infinite; }
-.statusDot[data-status='finished'] { background: var(--color-success); }
-.statusDot[data-status='cancelled'] { background: var(--color-warning); }
-.statusDot[data-status='waiting_permission'] { background: var(--color-warning); }
-
-.statusText {
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  color: var(--color-text);
+.statusIndicatorDot[data-status='thinking'],
+.statusIndicatorDot[data-status='responding'],
+.statusIndicatorDot[data-status='executing'],
+.statusIndicatorDot[data-status='tool_calling'],
+.statusIndicatorDot[data-status='compacting'] {
+  animation: pulse-dot 1s ease-in-out infinite;
 }
+.statusLabel { font-weight: 500; }
 
 /* ── 模型 ── */
 .modelRow {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-1);
+  gap: 2px;
 }
+.modelProvider { font-size: var(--fs-xs); color: var(--color-subtext); }
+.modelName { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--color-text); font-weight: 500; }
 
-.modelProvider {
-  font-size: var(--fs-xs);
-  color: var(--color-subtext);
-}
-
-.modelName {
-  font-family: var(--font-mono);
-  font-size: var(--fs-sm);
-  color: var(--color-text);
-  font-weight: 500;
-}
-
-/* ── Token ── */
-.tokenBar {
-  width: 100%;
-  height: calc(var(--sp-3) / 2);
+/* ── Context 渐变进度条 ── */
+.contextBar {
+  height: 6px;
   background: var(--color-surface-elevated);
-  border-radius: var(--radius-sm);
+  border-radius: 3px;
   overflow: hidden;
   margin-bottom: var(--sp-1);
 }
-
-.tokenFill {
+.contextFill {
   height: 100%;
-  background: var(--color-accent);
+  background: linear-gradient(90deg, var(--color-accent), var(--color-success));
+  border-radius: 3px;
   transition: width var(--t-slow) ease;
 }
-
-.tokenFill[data-overload='true'] {
-  background: var(--color-danger);
+.contextFill[data-overload='true'] {
+  background: linear-gradient(90deg, var(--color-warning), var(--color-danger));
 }
-
-.tokenNumbers {
+.contextNumbers {
   display: flex;
   align-items: baseline;
   gap: var(--sp-1);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
 }
-
-.tokenUsed {
-  color: var(--color-text);
-  font-weight: 600;
-}
-
-.tokenSep {
-  color: var(--color-subtext);
-}
-
-.tokenWindow {
-  color: var(--color-subtext);
-}
-
-.tokenPercent {
-  margin-left: auto;
-  color: var(--color-accent);
-  font-weight: 600;
-}
-
-.tokenPercent[data-overload='true'] {
-  color: var(--color-danger);
-}
+.contextUsed { color: var(--color-text); font-weight: 600; }
+.contextSep { color: var(--color-subtext); }
+.contextWindow { color: var(--color-subtext); }
+.contextPercent { margin-left: auto; color: var(--color-accent); font-weight: 600; }
+.contextPercent[data-overload='true'] { color: var(--color-danger); }
 
 /* ── 工具调用 ── */
-.toolList {
+.toolList { display: flex; flex-direction: column; gap: var(--sp-1); }
+.toolCallItem {
   display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-}
-
-.toolItem {
-  display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--sp-2);
-  padding: var(--sp-1) var(--sp-2);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg);
-  transition: background-color var(--t-fast) ease;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
-
-.toolItem:hover {
-  background: var(--color-surface-elevated);
-}
-
-.toolIcon {
-  width: var(--sp-4);
-  height: var(--sp-4);
+.toolCallItem:last-child { border-bottom: none; }
+.toolCallIcon {
+  width: 16px;
+  height: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  color: var(--color-subtext);
+  font-size: 10px;
+  font-weight: 700;
 }
-
-.toolItem[data-status='done'] .toolIcon { color: var(--color-success); }
-.toolItem[data-status='error'] .toolIcon { color: var(--color-danger); }
-.toolItem[data-status='running'] .toolIcon {
-  border: 1px solid var(--color-border);
-  border-top-color: var(--color-accent);
-  border-radius: 50%;
-}
-
-.toolInfo {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-}
-
-.toolName {
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  color: var(--color-text);
-  font-weight: 500;
-}
-
-.toolOutput {
-  font-size: var(--fs-xs);
-  color: var(--color-subtext);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.emptyText {
-  font-size: var(--fs-xs);
-  color: var(--color-subtext);
-  padding: var(--sp-1) 0;
-}
+.toolCall_done { color: var(--color-success); }
+.toolCall_error { color: var(--color-danger); }
+.toolCall_running { color: var(--color-accent); }
+.toolCallName { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--color-text); flex: 1; }
 
 /* ── Files Touched ── */
 .fileItem {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: var(--sp-1) var(--sp-2);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg);
+  padding: 3px 0;
 }
-
-.fileIcon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  color: var(--color-subtext);
-}
-
+.fileIcon { display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--color-subtext); }
 .fileName {
   flex: 1;
   min-width: 0;
@@ -277,53 +225,26 @@
   text-overflow: ellipsis;
 }
 
-.fileBadge {
-  flex-shrink: 0;
-}
+.emptyText { font-size: var(--fs-xs); color: var(--color-subtext); padding: var(--sp-1) 0; }
 
-/* ── 可用工具列表 ── */
-.miniList {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-}
-
-.miniItem {
-  padding: var(--sp-1) var(--sp-2);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg);
-}
-
-.miniName {
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  color: var(--color-accent);
-  font-weight: 500;
-}
+/* ── 可用工具 ── */
+.miniList { display: flex; flex-direction: column; gap: var(--sp-1); }
+.miniItem { padding: 2px var(--sp-2); border-radius: var(--radius-sm); background: var(--color-bg); }
+.miniName { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--color-accent); font-weight: 500; }
 
 /* ── System Prompt / Log ── */
-.miniContent {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-}
-
-.miniPath {
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  color: var(--color-subtext);
-}
-
+.miniContent { display: flex; flex-direction: column; gap: var(--sp-1); }
+.miniPath { font-family: var(--font-mono); font-size: 10px; color: var(--color-subtext); }
 .miniPre {
   font-family: var(--font-mono);
-  font-size: var(--fs-xs);
+  font-size: 10px;
   line-height: 1.4;
   background: var(--color-bg);
   border-radius: var(--radius-sm);
   padding: var(--sp-1) var(--sp-2);
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: calc(var(--sp-8) * 4);
+  max-height: 120px;
   overflow-y: auto;
   color: var(--color-subtext);
   margin: 0;

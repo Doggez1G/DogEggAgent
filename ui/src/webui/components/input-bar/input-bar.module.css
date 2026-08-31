@@ -1,21 +1,111 @@
-.inputBar {
+/* 输入栏：容器式 textarea + focus ring + 底部工具栏。 */
+.inputArea {
   grid-area: input;
-  padding: var(--sp-2) var(--sp-4) var(--sp-3);
-  background: var(--color-surface);
-  border-top: 1px solid var(--color-border);
+  padding: var(--sp-2) var(--sp-6) var(--sp-4);
+  background: var(--color-bg);
 }
 
+.inputContainer {
+  max-width: 760px;
+  margin: 0 auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  transition: border-color var(--t-normal) ease, box-shadow var(--t-normal) ease;
+}
+
+/* focus ring——accent 色 3px 光晕 */
+.inputContainer:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+}
+
+.textarea {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  line-height: 1.6;
+  padding: var(--sp-3) var(--sp-4) var(--sp-1);
+  outline: none;
+  resize: none;
+  min-height: 24px;
+  max-height: 200px;
+}
+.textarea::placeholder { color: var(--color-subtext); }
+.textarea:disabled { cursor: not-allowed; opacity: 0.6; }
+
+/* 底部工具栏 */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-3) var(--sp-2);
+}
+.toolBtn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-subtext);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color var(--t-fast) ease, color var(--t-fast) ease;
+}
+.toolBtn:hover { background: var(--color-surface-elevated); color: var(--color-text); }
+
+.hint {
+  font-size: 11px;
+  color: var(--color-subtext);
+  flex: 1;
+}
+
+/* 发送/停止按钮 */
+.sendBtn, .stopBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform var(--t-fast) ease, background-color var(--t-fast) ease;
+}
+.sendBtn {
+  background: var(--color-accent);
+  color: var(--color-accent-fg);
+}
+.sendBtn:hover:not(:disabled) { transform: scale(1.05); }
+.sendBtn:disabled {
+  background: var(--color-surface-elevated);
+  color: var(--color-subtext);
+  cursor: not-allowed;
+}
+.stopBtn {
+  background: var(--color-danger);
+  color: #FFFFFF;
+}
+.stopBtn:hover { transform: scale(1.05); }
+
+/* ── 斜杠命令建议 ── */
 .suggestions {
+  max-width: 760px;
+  margin: 0 auto var(--sp-2);
   display: flex;
   flex-direction: column;
   gap: 1px;
-  margin-bottom: var(--sp-2);
   background: var(--color-surface-elevated);
   border-radius: var(--radius-md);
   overflow: hidden;
   box-shadow: var(--shadow-md);
 }
-
 .suggestItem {
   display: flex;
   align-items: center;
@@ -24,104 +114,8 @@
   cursor: pointer;
   font-size: var(--fs-sm);
 }
-
-.suggestItem:hover {
-  background: var(--color-surface);
-}
-
-.suggestActive {
-  background: var(--color-surface);
-  color: var(--color-accent);
-}
-
-.suggestCmd {
-  font-family: var(--font-mono);
-  font-weight: 500;
-  color: var(--color-text);
-}
-
-.suggestActive .suggestCmd {
-  color: var(--color-accent);
-}
-
-.suggestDesc {
-  color: var(--color-subtext);
-  font-size: var(--fs-xs);
-}
-
-.inputRow {
-  display: flex;
-  align-items: flex-end;
-  gap: var(--sp-2);
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--sp-2) var(--sp-3);
-  transition: border-color var(--t-normal) ease;
-}
-
-.inputRow:focus-within {
-  border-color: var(--color-accent);
-}
-
-.textInput {
-  flex: 1;
-  border: none;
-  background: transparent;
-  color: var(--color-text);
-  font-family: var(--font-sans);
-  font-size: var(--fs-base);
-  line-height: 1.5;
-  resize: none;
-  outline: none;
-  max-height: 200px;
-  min-height: var(--sp-6);
-  overflow-y: auto;
-  padding: 0;
-}
-
-.textInput::placeholder {
-  color: var(--color-subtext);
-}
-
-.textInput:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-.sendBtn, .stopBtn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--sp-8);
-  height: var(--sp-8);
-  border: none;
-  border-radius: 50%;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background-color var(--t-fast) ease, transform var(--t-fast) ease, opacity var(--t-fast) ease;
-}
-
-.sendBtn {
-  background: var(--color-accent);
-  color: var(--color-accent-fg);
-}
-
-.sendBtn:hover:not(:disabled) {
-  transform: scale(1.05);
-}
-
-.sendBtn:disabled {
-  background: var(--color-surface-elevated);
-  color: var(--color-subtext);
-  cursor: not-allowed;
-}
-
-.stopBtn {
-  background: var(--color-danger);
-  color: #FFFFFF;
-}
-
-.stopBtn:hover {
-  transform: scale(1.05);
-}
+.suggestItem:hover { background: var(--color-surface); }
+.suggestActive { background: var(--color-surface); color: var(--color-accent); }
+.suggestCmd { font-family: var(--font-mono); font-weight: 500; color: var(--color-text); }
+.suggestActive .suggestCmd { color: var(--color-accent); }
+.suggestDesc { color: var(--color-subtext); font-size: var(--fs-xs); }
