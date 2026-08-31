@@ -1,6 +1,6 @@
 .inputBar {
   grid-area: input;
-  padding: 8px 16px 12px;
+  padding: var(--sp-2) var(--sp-4) var(--sp-3);
   background: var(--color-surface);
   border-top: 1px solid var(--color-border);
 }
@@ -9,7 +9,7 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
-  margin-bottom: 8px;
+  margin-bottom: var(--sp-2);
   background: var(--color-surface-elevated);
   border-radius: var(--radius-md);
   overflow: hidden;
@@ -19,10 +19,10 @@
 .suggestItem {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 6px 12px;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .suggestItem:hover {
@@ -46,18 +46,18 @@
 
 .suggestDesc {
   color: var(--color-subtext);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .inputRow {
   display: flex;
   align-items: flex-end;
-  gap: 8px;
+  gap: var(--sp-2);
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  padding: 8px 12px;
-  transition: border-color 200ms ease;
+  padding: var(--sp-2) var(--sp-3);
+  transition: border-color var(--t-normal) ease;
 }
 
 .inputRow:focus-within {
@@ -70,12 +70,12 @@
   background: transparent;
   color: var(--color-text);
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: var(--fs-base);
   line-height: 1.5;
   resize: none;
   outline: none;
   max-height: 200px;
-  min-height: 24px;
+  min-height: var(--sp-6);
   overflow-y: auto;
   padding: 0;
 }
@@ -84,26 +84,30 @@
   color: var(--color-subtext);
 }
 
+.textInput:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .sendBtn, .stopBtn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: var(--sp-8);
+  height: var(--sp-8);
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: 50%;
   cursor: pointer;
   flex-shrink: 0;
-  transition: all 120ms ease;
+  transition: background-color var(--t-fast) ease, transform var(--t-fast) ease, opacity var(--t-fast) ease;
 }
 
 .sendBtn {
   background: var(--color-accent);
-  color: var(--color-bg);
+  color: var(--color-accent-fg);
 }
 
 .sendBtn:hover:not(:disabled) {
-  opacity: 0.9;
   transform: scale(1.05);
 }
 
@@ -115,9 +119,9 @@
 
 .stopBtn {
   background: var(--color-danger);
-  color: var(--color-bg);
+  color: #FFFFFF;
 }
 
 .stopBtn:hover {
-  opacity: 0.9;
+  transform: scale(1.05);
 }

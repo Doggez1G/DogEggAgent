@@ -1,0 +1,93 @@
+/* Button + IconButton — 统一按钮样式。 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color var(--t-fast) ease, border-color var(--t-fast) ease, opacity var(--t-fast) ease;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Variants ── */
+.primary {
+  background: var(--color-accent);
+  color: var(--color-accent-fg);
+}
+.primary:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.secondary {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+}
+.secondary:hover:not(:disabled) {
+  background: var(--color-surface-elevated);
+}
+
+.danger {
+  background: var(--color-danger);
+  color: #FFFFFF;
+}
+.danger:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.ghost {
+  background: transparent;
+  color: var(--color-subtext);
+}
+.ghost:hover:not(:disabled) {
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+}
+
+/* ── Sizes ── */
+.sm {
+  padding: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-xs);
+}
+
+.md {
+  padding: var(--sp-2) var(--sp-4);
+  font-size: var(--fs-sm);
+}
+
+.btnIcon {
+  flex-shrink: 0;
+}
+
+/* ── IconButton ── */
+.iconBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-subtext);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color var(--t-fast) ease, color var(--t-fast) ease;
+}
+
+.iconBtn:hover {
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+}
+
+.iconBtn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}

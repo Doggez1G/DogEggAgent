@@ -1,0 +1,68 @@
+/* Dawn — 亮色中性 + Indigo accent。清爽日间使用。 */
+[data-theme='dawn'] {
+  --color-bg: #FAFAFA;
+  --color-surface: #FFFFFF;
+  --color-surface-elevated: #F4F4F5;
+  --color-card: #FFFFFF;
+  --color-text: #18181B;
+  --color-subtext: #71717A;
+  --color-accent: #6366F1;
+  --color-accent-fg: #FFFFFF;
+  --color-success: #16A34A;
+  --color-warning: #D97706;
+  --color-danger: #DC2626;
+  --color-border: #E5E5E5;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-base: 14px;
+  --fs-md: 16px;
+  --fs-lg: 18px;
+  --fs-xl: 24px;
+  --fs-2xl: 32px;
+
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-display: 'Space Grotesk', var(--font-sans);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-overlay: 50;
+  --z-modal: 100;
+
+  --t-fast: 120ms;
+  --t-normal: 200ms;
+  --t-slow: 300ms;
+
+  --glass-bg: rgba(250, 250, 250, 0.85);
+  --glass-blur: 8px;
+
+  --sidebar-w: 240px;
+  --sidebar-collapsed-w: 48px;
+  --info-w: 280px;
+  --info-collapsed-w: 32px;
+  --topbar-h: 40px;
+
+  --color-token-accent: var(--color-accent);
+  --color-token-text: var(--color-text);
+  --color-token-cyan: #0891B2;
+  --color-token-yellow: var(--color-warning);
+  --color-token-red: var(--color-danger);
+  --color-token-subtext: var(--color-subtext);
+}

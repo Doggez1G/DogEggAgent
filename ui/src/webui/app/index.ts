@@ -1,2 +1,2 @@
 export { App } from './app'
-export type { SettingsTab, ThemeName, Modal, SessionItem } from './view-state'
+export type { ThemeName, Modal, SessionItem, FileTouched } from './view-state'

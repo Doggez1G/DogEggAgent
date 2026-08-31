@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import {
-  MessageSquare, FolderOpen, Settings as SettingsIcon, Plus, PanelLeftClose, PanelLeft,
-  ChevronDown, ChevronRight, Trash2, Palette, FolderPlus,
+  MessageSquare, FolderOpen, Settings as SettingsIcon, Plus, PanelLeftClose,
+  ChevronDown, ChevronRight, Trash2, FolderPlus,
 } from 'lucide-react'
-import { Brand } from '../../brand'
+import { Brand, BrandMark } from '../../brand'
+import { IconButton } from '../primitives'
+import { THEMES } from '../../app/view-state'
 import type { ThemeName, SessionItem } from '../../app/view-state'
 import styles from './sidebar.module.css'
 
@@ -28,12 +30,6 @@ interface SidebarProps {
   onThemeChange: (theme: ThemeName) => void
 }
 
-const THEMES: { theme: ThemeName; label: string; color: string }[] = [
-  { theme: 'catppuccin', label: 'Catppuccin', color: '#89B4FA' },
-  { theme: 'ios-light', label: 'iOS Light', color: '#007AFF' },
-  { theme: 'ios-dark', label: 'iOS Dark', color: '#0A84FF' },
-]
-
 export function Sidebar(props: SidebarProps) {
   const c = props.collapsed
   // 按 cwd 分组会话。
@@ -44,15 +40,24 @@ export function Sidebar(props: SidebarProps) {
       {/* 顶部：品牌 + 收起按钮 */}
       <div className={styles.topBar}>
         {c ? (
-          <button className={styles.iconBtn} onClick={props.onToggleCollapse} title="Expand sidebar" aria-label="Expand sidebar">
-            <PanelLeft size={18} strokeWidth={1.5} />
+          /* 收起态：仅品牌 mark（点击展开） */
+          <button
+            className={styles.iconBtn}
+            onClick={props.onToggleCollapse}
+            title="Expand sidebar"
+            aria-label="Expand sidebar"
+          >
+            <BrandMark size={20} />
           </button>
         ) : (
           <>
             <Brand size={20} />
-            <button className={styles.iconBtn} onClick={props.onToggleCollapse} title="Collapse sidebar" aria-label="Collapse sidebar">
-              <PanelLeftClose size={18} strokeWidth={1.5} />
-            </button>
+            <IconButton
+              icon={PanelLeftClose}
+              onClick={props.onToggleCollapse}
+              title="Collapse sidebar"
+              aria-label="Collapse sidebar"
+            />
           </>
         )}
       </div>
@@ -60,10 +65,14 @@ export function Sidebar(props: SidebarProps) {
       {/* 项目/会话树 */}
       <nav className={styles.nav}>
         {c ? (
-          /* 收起态：只显示添加项目按钮 */
-          <button className={styles.iconBtn + ' ' + styles.collapsedAdd} onClick={props.onAddProject} title="Add project" aria-label="Add project">
-            <FolderPlus size={18} strokeWidth={1.5} />
-          </button>
+          /* 收起态：仅添加项目按钮 */
+          <IconButton
+            icon={FolderPlus}
+            className={styles.collapsedAdd}
+            onClick={props.onAddProject}
+            title="Add project"
+            aria-label="Add project"
+          />
         ) : (
           <>
             {projects.length === 0 ? (
@@ -98,14 +107,12 @@ export function Sidebar(props: SidebarProps) {
       {/* 底部：设置 + 主题 */}
       <div className={styles.bottom}>
         {c ? (
-          <>
-            <button className={styles.iconBtn} onClick={props.onOpenSettings} title="Settings" aria-label="Settings">
-              <SettingsIcon size={18} strokeWidth={1.5} />
-            </button>
-            <button className={styles.iconBtn} title="Theme" aria-label="Theme">
-              <Palette size={18} strokeWidth={1.5} />
-            </button>
-          </>
+          <IconButton
+            icon={SettingsIcon}
+            onClick={props.onOpenSettings}
+            title="Settings"
+            aria-label="Settings"
+          />
         ) : (
           <>
             <button className={styles.settingsBtn} onClick={props.onOpenSettings}>
@@ -157,8 +164,7 @@ function ProjectTree(props: {
         >
           {expanded
             ? <ChevronDown size={12} strokeWidth={2} />
-            : <ChevronRight size={12} strokeWidth={2} />
-          }
+            : <ChevronRight size={12} strokeWidth={2} />}
         </button>
         <FolderOpen size={14} strokeWidth={1.5} className={styles.projectIcon} />
         <span className={styles.projectName} title={props.cwd}>{props.name}</span>

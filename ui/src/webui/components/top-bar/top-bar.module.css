@@ -1,63 +1,79 @@
 .topBar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
+  gap: var(--sp-2);
+  height: var(--topbar-h);
+  padding: 0 var(--sp-4);
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
   grid-area: topbar;
-  min-height: 40px;
 }
 
 /* 运行指示器 */
 .runningIndicator {
   display: flex;
-  gap: 3px;
+  gap: var(--sp-1);
   align-items: center;
-  padding-right: 8px;
+  padding-right: var(--sp-2);
   border-right: 1px solid var(--color-border);
-  margin-right: 4px;
+  margin-right: var(--sp-1);
+  flex-shrink: 0;
 }
 
 .pulseDot {
-  width: 5px;
-  height: 5px;
+  width: var(--sp-1);
+  height: var(--sp-1);
   border-radius: 50%;
   background: var(--color-accent);
   display: inline-block;
+}
+
+.statusText {
+  font-size: var(--fs-xs);
+  color: var(--color-subtext);
+  font-family: var(--font-sans);
+  padding-right: var(--sp-2);
+  border-right: 1px solid var(--color-border);
+  margin-right: var(--sp-1);
+  flex-shrink: 0;
 }
 
 /* 模型信息 chip */
 .modelChip {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
+  gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-2);
   background: var(--color-surface-elevated);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   flex-shrink: 0;
 }
 
 .modelIcon {
   color: var(--color-subtext);
+  flex-shrink: 0;
 }
 
 .modelText {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   color: var(--color-text);
   font-family: var(--font-mono);
+  white-space: nowrap;
 }
 
 /* 工作目录 chip */
 .cwdChip {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
+  gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-2);
   background: transparent;
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  max-width: 300px;
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -67,10 +83,33 @@
 }
 
 .cwdText {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--color-subtext);
   font-family: var(--font-mono);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Cmd+K 按钮 */
+.cmdkBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-2);
+  margin-left: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-subtext);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color var(--t-fast) ease, color var(--t-fast) ease, border-color var(--t-fast) ease;
+}
+
+.cmdkBtn:hover {
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
 }

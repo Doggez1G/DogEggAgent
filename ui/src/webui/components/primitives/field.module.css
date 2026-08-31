@@ -1,0 +1,251 @@
+/* Field, SelectField, EditableField, Toggle, Badge, Tooltip — 统一表单样式。 */
+
+/* ── Field row layout (label + desc left, control right) ── */
+.fieldRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+.fieldInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex-shrink: 1;
+  min-width: 0;
+}
+.fieldLabel {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--color-text);
+}
+.fieldDesc {
+  font-size: var(--fs-xs);
+  color: var(--color-subtext);
+}
+
+/* ── Input ── */
+.input {
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  outline: none;
+  transition: border-color var(--t-fast) ease;
+}
+.input:focus {
+  border-color: var(--color-accent);
+}
+
+/* ── Textarea ── */
+.textarea {
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  line-height: 1.5;
+  outline: none;
+  resize: none;
+  transition: border-color var(--t-fast) ease;
+}
+.textarea:focus {
+  border-color: var(--color-accent);
+}
+.textarea::placeholder {
+  color: var(--color-subtext);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* ── Select ── */
+.selectWrap {
+  position: relative;
+  flex-shrink: 0;
+  min-width: 160px;
+}
+.select {
+  width: 100%;
+  padding: var(--sp-1) var(--sp-6) var(--sp-1) var(--sp-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: border-color var(--t-fast) ease;
+}
+.select:focus {
+  border-color: var(--color-accent);
+}
+.selectArrow {
+  position: absolute;
+  right: var(--sp-2);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-subtext);
+  pointer-events: none;
+}
+
+/* ── EditableField value button ── */
+.valueBtn {
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+  transition: border-color var(--t-fast) ease, color var(--t-fast) ease;
+}
+.valueBtn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* ── EditableField editing state ── */
+.inputGroup {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.inputGroup .input {
+  width: 160px;
+  border-color: var(--color-accent);
+}
+.iconSave {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-success);
+  color: #FFFFFF;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.iconCancel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-subtext);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.iconCancel:hover {
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+}
+
+/* ── Toggle ── */
+.toggle {
+  width: 34px;
+  height: 18px;
+  border: none;
+  border-radius: 9px;
+  background: var(--color-surface-elevated);
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  transition: background-color var(--t-normal) ease;
+}
+.toggleOn {
+  background: var(--color-accent);
+}
+.toggleKnob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-text);
+  transition: transform var(--t-normal) ease;
+}
+.toggleOn .toggleKnob {
+  transform: translateX(16px);
+  background: var(--color-bg);
+}
+
+/* ── Badge ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 1px var(--sp-1);
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+.badge_accent {
+  background: var(--color-accent);
+  color: var(--color-accent-fg);
+}
+.badge_warning {
+  background: var(--color-warning);
+  color: var(--color-bg);
+}
+.badge_success {
+  background: var(--color-success);
+  color: var(--color-bg);
+}
+.badge_danger {
+  background: var(--color-danger);
+  color: #FFFFFF;
+}
+.badge_neutral {
+  background: var(--color-surface-elevated);
+  color: var(--color-subtext);
+}
+
+/* ── Tooltip ── */
+.tooltipWrap {
+  position: relative;
+  display: inline-flex;
+}
+.tooltipText {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+  font-size: var(--fs-xs);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--t-fast) ease;
+  z-index: var(--z-overlay);
+}
+.tooltipWrap:hover .tooltipText {
+  opacity: 1;
+}

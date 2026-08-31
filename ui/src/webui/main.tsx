@@ -3,9 +3,9 @@ import { createRoot } from 'react-dom/client'
 import { App } from './app'
 import { createSseUiPort } from './channel'
 import './styles/global.css'
-import './theme/themes/catppuccin.css'
-import './theme/themes/ios-light.css'
-import './theme/themes/ios-dark.css'
+import './theme/themes/midnight.css'
+import './theme/themes/forest.css'
+import './theme/themes/dawn.css'
 import './theme/animations.css'
 
 // WebUI 入口：创建 SSE UiPort，渲染 App。

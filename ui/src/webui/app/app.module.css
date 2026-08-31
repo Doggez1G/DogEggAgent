@@ -1,31 +1,31 @@
 /* 单一布局：侧栏 + 顶栏 + 聊天 + 信息面板 + 输入区。 */
+/* 布局尺寸用 CSS 变量（消除 sidebar.module.css / app.module.css 两处硬编码）。 */
+
 .app {
   display: grid;
   height: 100vh;
   width: 100vw;
   overflow: hidden;
   background: var(--color-bg);
-  grid-template-columns: 260px 1fr 280px;
-  grid-template-rows: auto 1fr auto;
+  grid-template-columns: var(--sidebar-w) 1fr var(--info-w);
+  grid-template-rows: var(--topbar-h) 1fr auto;
   grid-template-areas:
     'sidebar topbar info'
     'sidebar main  info'
     'sidebar input info';
-  transition: grid-template-columns 200ms ease;
+  transition: grid-template-columns var(--t-normal) ease;
 }
 
-/* 侧栏收起 */
 .app[data-sidebar-collapsed='true'] {
-  grid-template-columns: 48px 1fr 280px;
+  grid-template-columns: var(--sidebar-collapsed-w) 1fr var(--info-w);
 }
 
-/* 信息面板收起 */
 .app[data-info-collapsed='true'] {
-  grid-template-columns: 260px 1fr 32px;
+  grid-template-columns: var(--sidebar-w) 1fr var(--info-collapsed-w);
 }
 
 .app[data-sidebar-collapsed='true'][data-info-collapsed='true'] {
-  grid-template-columns: 48px 1fr 32px;
+  grid-template-columns: var(--sidebar-collapsed-w) 1fr var(--info-collapsed-w);
 }
 
 .mainArea {
@@ -47,19 +47,20 @@
 .scrim {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(4px);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100;
+  z-index: var(--z-modal);
 }
 
 .modal {
-  background: var(--color-surface);
+  background: var(--color-card);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  padding: 24px;
+  padding: var(--sp-6);
   max-width: 560px;
   width: 90%;
   max-height: 80vh;
@@ -67,12 +68,11 @@
   box-shadow: var(--shadow-lg);
 }
 
-/* 设置弹窗：比普通 modal 更大 */
 .settingsModal {
-  background: var(--color-surface);
+  background: var(--color-card);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  max-width: 900px;
+  max-width: 720px;
   width: 90%;
   max-height: 85vh;
   overflow: hidden;
@@ -87,11 +87,20 @@
   display: flex;
 }
 
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-3);
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
 .modalTitle {
-  font-size: 16px;
+  font-size: var(--fs-md);
   font-weight: 600;
   color: var(--color-text);
-  margin-bottom: 0;
+  margin: 0;
 }
 
 .modalClose {
@@ -106,6 +115,7 @@
   color: var(--color-subtext);
   cursor: pointer;
   flex-shrink: 0;
+  transition: background-color var(--t-fast) ease, color var(--t-fast) ease;
 }
 
 .modalClose:hover {
@@ -113,87 +123,29 @@
   color: var(--color-text);
 }
 
-.fsModalHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-  padding: 0 0 12px;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.fsModalHeader .modalTitle {
-  margin-bottom: 0;
-}
-
 .modalMessage {
-  font-size: 14px;
+  font-size: var(--fs-sm);
   color: var(--color-subtext);
-  margin-bottom: 16px;
+  margin-bottom: var(--sp-4);
   line-height: 1.5;
 }
 
 .modalActions {
   display: flex;
-  gap: 8px;
+  gap: var(--sp-2);
   justify-content: flex-end;
-  margin-top: 16px;
+  margin-top: var(--sp-4);
 }
-
-.btnPrimary {
-  padding: 8px 16px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: var(--color-accent);
-  color: var(--color-bg);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  font-family: var(--font-sans);
-  transition: opacity 120ms ease;
-}
-
-.btnPrimary:hover { opacity: 0.9; }
-
-.btnSecondary {
-  padding: 8px 16px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  font-family: var(--font-sans);
-  transition: all 120ms ease;
-}
-
-.btnSecondary:hover { background: var(--color-surface-elevated); }
-
-.btnDanger {
-  padding: 8px 16px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: var(--color-danger);
-  color: var(--color-bg);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  font-family: var(--font-sans);
-  transition: opacity 120ms ease;
-}
-
-.btnDanger:hover { opacity: 0.9; }
 
 .diffPreview {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   line-height: 1.5;
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  padding: 12px;
-  margin-bottom: 16px;
+  padding: var(--sp-3);
+  margin-bottom: var(--sp-4);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 300px;
@@ -205,18 +157,18 @@
 .helpGrid {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 4px 16px;
+  gap: var(--sp-1) var(--sp-4);
 }
 
 .helpCmd {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--color-accent);
   font-weight: 500;
 }
 
 .helpDesc {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--color-subtext);
 }
 
@@ -224,14 +176,14 @@
 .fsBreadcrumb {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--sp-1);
   flex-wrap: wrap;
-  padding: 8px 12px;
+  padding: var(--sp-2) var(--sp-3);
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  margin-bottom: 12px;
-  font-size: 12px;
+  margin-bottom: var(--sp-3);
+  font-size: var(--fs-xs);
 }
 
 .fsBackBtn, .fsCrumbUp {
@@ -246,6 +198,7 @@
   color: var(--color-subtext);
   cursor: pointer;
   flex-shrink: 0;
+  transition: background-color var(--t-fast) ease, color var(--t-fast) ease;
 }
 
 .fsBackBtn:hover, .fsCrumbUp:hover {
@@ -262,42 +215,43 @@
   overflow-y: auto;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  margin-bottom: 12px;
+  margin-bottom: var(--sp-3);
 }
 
 .fsItem {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   width: 100%;
   text-align: left;
-  padding: 8px 12px;
+  padding: var(--sp-2) var(--sp-3);
   border: none;
   border-bottom: 1px solid var(--color-border);
   background: transparent;
   color: var(--color-text);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   cursor: pointer;
-  transition: background-color 80ms ease;
+  transition: background-color var(--t-fast) ease;
 }
 
 .fsItem:last-child { border-bottom: none; }
 .fsItem:hover { background: var(--color-surface-elevated); }
 .fsItemIcon { color: var(--color-accent); flex-shrink: 0; }
-.fsEmpty { padding: 24px; text-align: center; color: var(--color-subtext); font-size: 13px; }
-.fsManualRow { margin-bottom: 12px; }
+.fsEmpty { padding: var(--sp-6); text-align: center; color: var(--color-subtext); font-size: var(--fs-sm); }
+.fsManualRow { margin-bottom: var(--sp-3); }
 
 .fsInput {
   width: 100%;
-  padding: 8px 12px;
+  padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   outline: none;
+  transition: border-color var(--t-fast) ease;
 }
 
 .fsInput:focus { border-color: var(--color-accent); }

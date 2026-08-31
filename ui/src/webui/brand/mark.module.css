@@ -1,7 +1,7 @@
 .brand {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 
 .mark {
@@ -10,6 +10,11 @@
   align-items: center;
   justify-content: center;
   color: var(--color-accent);
+  transition: transform var(--t-normal) ease;
+}
+
+.mark:hover {
+  transform: translateY(-1px);
 }
 
 .egg {
@@ -19,18 +24,20 @@
 
 .paw {
   position: absolute;
-  top: 10%;
-  right: 5%;
+  top: 8%;
+  right: 8%;
   z-index: 2;
+  transition: transform var(--t-normal) ease;
+}
+
+.mark:hover .paw {
+  transform: translateY(-2px) rotate(-8deg);
 }
 
 .wordmark {
+  font-family: var(--font-display);
   font-weight: 600;
-  font-size: 14px;
+  font-size: var(--fs-md);
   color: var(--color-text);
   letter-spacing: -0.02em;
-}
-
-.highlight {
-  color: var(--color-accent);
 }

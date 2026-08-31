@@ -15,7 +15,7 @@ html, body, #root {
 
 body {
   font-family: var(--font-sans);
-  font-size: 15px;
+  font-size: var(--fs-base);
   line-height: 1.6;
   background-color: var(--color-bg);
   color: var(--color-text);
@@ -48,11 +48,11 @@ body {
 /* 代码块用等宽字体。 */
 code, pre {
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: var(--fs-base);
 }
 
 /* 选中文本颜色。 */
 ::selection {
   background: var(--color-accent);
-  color: var(--color-bg);
+  color: var(--color-accent-fg);
 }

@@ -1,105 +1,58 @@
-/* 全局动画定义。全部用 CSS @keyframes + transition，零运行时依赖。
-   遵循 ui-ux-pro-max 规则：只用 transform/opacity，不用 width/height。
-   每个动画表达因果关系（非装饰）。prefers-reduced-motion 全支持。 */
+/* 全局动画——所有 @keyframes 集中于此。组件通过 utility class 引用。 */
+/* 修复：reduced-motion 用通配选择器覆盖所有 animation/transition，不再逐类列举。 */
 
-/* ── 流式文本：新 token fade-in ── */
 @keyframes token-in {
-  from { opacity: 0; }
+  from { opacity: 0.6; }
   to { opacity: 1; }
 }
-.token-stream {
-  animation: token-in 80ms linear;
-}
 
-/* ── 消息块入场：slide-up + fade ── */
 @keyframes block-in {
-  from { opacity: 0; transform: translateY(12px); }
+  from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.block-enter {
-  animation: block-in 200ms ease-out;
-}
 
-/* ── 工具运行中：色条脉冲 ── */
-@keyframes pulse-bar {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 1; }
-}
-.pulse-bar {
-  animation: pulse-bar 1.5s ease-in-out infinite;
-}
-
-/* ── 思考/响应中：状态点脉冲（三点错峰） ── */
 @keyframes pulse-dot {
-  0%, 100% { transform: scale(0.8); opacity: 0.5; }
-  50% { transform: scale(1.2); opacity: 1; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
 }
-.pulse-dot {
-  animation: pulse-dot 1s ease-in-out infinite;
+
+@keyframes pulse-bar {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ── Utility classes ── */
+
+.token-stream { animation: token-in 60ms ease-out; }
+
+.block-enter { animation: block-in 200ms ease-out; }
+
+.pulse-bar { animation: pulse-bar 1.5s ease-in-out infinite; }
+
+.pulse-dot { animation: pulse-dot 1s ease-in-out infinite; }
 .pulse-dot:nth-child(2) { animation-delay: 0.15s; }
 .pulse-dot:nth-child(3) { animation-delay: 0.3s; }
 
-/* ── 面板切换：crossfade ── */
-@keyframes panel-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-.panel-enter {
-  animation: panel-fade 150ms ease;
-}
+.modal-enter { animation: modal-in 200ms ease-out; }
 
-/* ── 权限弹窗：scale + fade + backdrop ── */
-@keyframes modal-in {
-  from { opacity: 0; transform: scale(0.96); }
-  to { opacity: 1; transform: scale(1); }
-}
-.modal-enter {
-  animation: modal-in 200ms ease-out;
-}
+.spin { animation: spin 0.6s linear infinite; }
 
-/* ── 侧栏选中：background-color transition ── */
-.sidebar-item {
-  transition: background-color 120ms ease, color 120ms ease;
-}
-
-/* ── 通用 transition ── */
-.transition-color {
-  transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease;
-}
-
-/* ── 工具块展开：图标 scale 微弹 ── */
-@keyframes icon-bounce {
-  0% { transform: scale(0.9); }
-  100% { transform: scale(1); }
-}
-.icon-bounce {
-  animation: icon-bounce 80ms ease-out;
-}
-
-/* ── 思考块折叠：图标 rotate ── */
-@keyframes icon-rotate {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(90deg); }
-}
-.icon-rotate {
-  animation: icon-rotate 80ms ease-out;
-}
-
-/* ── prefers-reduced-motion：禁用循环和入场动画，保留即时状态变化 ── */
+/* ── Reduced motion ── */
+/* 通配选择器覆盖所有动画，不再遗漏组件级 transition/animation。 */
 @media (prefers-reduced-motion: reduce) {
-  .token-stream,
-  .block-enter,
-  .pulse-bar,
-  .pulse-dot,
-  .panel-enter,
-  .modal-enter,
-  .icon-bounce,
-  .icon-rotate {
-    animation: none !important;
-  }
-  .sidebar-item,
-  .transition-color {
-    transition: none !important;
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

@@ -1,0 +1,135 @@
+/* 命令面板：玻璃拟态遮罩 + 居中（略偏上）卡片。
+   尺寸用 CSS token；进入动画复用全局 .modal-enter（animations.css 的 modal-in 关键帧）。 */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  display: flex;
+  align-items: center;
+  /* 底部留白把卡片推到略偏上位置。 */
+  padding-bottom: 15vh;
+  z-index: var(--z-modal);
+}
+
+.palette {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: 90%;
+  max-width: 560px;
+  max-height: 70vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── 搜索行 ── */
+.searchRow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.searchIcon {
+  color: var(--color-subtext);
+  flex-shrink: 0;
+}
+
+.searchInput {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  outline: none;
+}
+
+.searchInput::placeholder {
+  color: var(--color-subtext);
+}
+
+/* ── 结果列表 ── */
+.results {
+  overflow-y: auto;
+  padding: var(--sp-2) 0;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+}
+
+.groupLabel {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-subtext);
+  padding: var(--sp-2) var(--sp-4) var(--sp-1);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  text-align: left;
+  padding: var(--sp-2) var(--sp-4);
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background-color var(--t-fast) ease;
+}
+
+.item:hover {
+  background: var(--color-surface-elevated);
+}
+
+.itemActive {
+  background: var(--color-surface-elevated);
+}
+
+.itemIcon {
+  color: var(--color-subtext);
+  flex-shrink: 0;
+}
+
+.itemActive .itemIcon {
+  color: var(--color-accent);
+}
+
+.itemLabel {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.itemDesc {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 45%;
+  font-size: var(--fs-xs);
+  color: var(--color-subtext);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.empty {
+  padding: var(--sp-6);
+  text-align: center;
+  color: var(--color-subtext);
+  font-size: var(--fs-sm);
+}

@@ -26,8 +26,8 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
   const handleSubmit = useCallback(() => {
     // 联想补全拦截：有匹配且选中了项时，补全到输入框而非提交。
     if (matches.length > 0 && suggestIdxRef.current !== null) {
-      setInput(matches[suggestIdxRef.current]!.cmd)
-      setSuggest(null)
+      const picked = matches[suggestIdxRef.current]
+      if (picked) { setInput(picked.cmd); setSuggest(null) }
       return
     }
 
@@ -38,7 +38,7 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
       port.post({ type: 'submit', text: result.text })
     } else if (result.kind === 'message') {
       // 命令消息
-      const cmd = input.trim().split(/\s+/)[0]!
+      const cmd = input.trim().split(/\s+/)[0] ?? ''
       // /clear 和 /quit 需确认弹窗
       if (result.msg.type === 'clear_history') { onClearHistory(); setInput(''); setSuggest(null); return }
       if (result.msg.type === 'quit') { onQuit(); setInput(''); setSuggest(null); return }
@@ -68,12 +68,15 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
       if (e.key === 'Tab') {
         e.preventDefault()
         const idx = suggestIdxRef.current ?? (matches.length === 1 ? 0 : null)
-        if (idx !== null) { setInput(matches[idx]!.cmd); setSuggest(null) }
+        if (idx !== null) {
+          const picked = matches[idx]
+          if (picked) { setInput(picked.cmd); setSuggest(null) }
+        }
         return
       }
       if (e.key === 'Escape') { setSuggest(null); return }
     }
-    // 多行输入：Ctrl+Enter 换行，Enter 提交
+    // 多行输入：Ctrl+Enter / Shift+Enter 换行，Enter 提交
     if (e.key === 'Enter' && !e.ctrlKey && !e.shiftKey) {
       e.preventDefault()
       handleSubmit()
@@ -89,7 +92,7 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
     <div className={styles.inputBar}>
       {matches.length > 0 && (
         <div className={styles.suggestions}>
-          {matches.map((m: { cmd: string; desc: string }, i: number) => (
+          {matches.map((m, i) => (
             <div
               key={m.cmd}
               className={`${styles.suggestItem} ${i === suggestIdx ? styles.suggestActive : ''}`}
@@ -113,9 +116,9 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
             e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px'
           }}
           onKeyDown={handleKeyDown}
-          placeholder={isRunning ? '' : 'Type a message or / for commands...'}
+          placeholder="Ask anything..."
           rows={1}
-          disabled={isRunning && !input}
+          disabled={isRunning}
         />
         {isRunning ? (
           <button className={styles.stopBtn} onClick={() => port.post({ type: 'cancel' })} aria-label="Stop">

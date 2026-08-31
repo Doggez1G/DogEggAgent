@@ -2,21 +2,18 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  width: var(--sidebar-w);
+  padding: var(--sp-2);
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
   grid-area: sidebar;
   overflow: hidden;
-  transition: width 200ms ease;
-}
-
-.sidebar {
-  width: 260px;
-  padding: 8px;
+  transition: width var(--t-normal) ease;
 }
 
 .collapsed {
-  width: 48px;
-  padding: 8px 4px;
+  width: var(--sidebar-collapsed-w);
+  padding: var(--sp-2) var(--sp-1);
   align-items: center;
 }
 
@@ -25,28 +22,28 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 4px 8px;
+  padding: var(--sp-1) var(--sp-1) var(--sp-2);
   flex-shrink: 0;
 }
 
 .collapsed .topBar {
   justify-content: center;
-  padding: 4px 0 8px;
+  padding: var(--sp-1) 0 var(--sp-2);
 }
 
 .iconBtn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: var(--sp-8);
+  height: var(--sp-8);
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-subtext);
   cursor: pointer;
-  transition: all 120ms ease;
   flex-shrink: 0;
+  transition: background-color var(--t-fast) ease, color var(--t-fast) ease;
 }
 
 .iconBtn:hover {
@@ -55,23 +52,23 @@
 }
 
 .collapsedAdd {
-  margin-bottom: 8px;
+  margin-bottom: var(--sp-2);
 }
 
 /* ── 导航/项目树 ── */
 .nav {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-1);
   flex: 1;
   overflow-y: auto;
 }
 
 .emptyProjects {
-  padding: 20px 8px;
+  padding: var(--sp-5) var(--sp-2);
   text-align: center;
   color: var(--color-subtext);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   line-height: 1.6;
 }
 
@@ -88,10 +85,10 @@
 .projectHeader {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 5px 4px;
+  gap: var(--sp-1);
+  padding: var(--sp-1);
   border-radius: var(--radius-sm);
-  transition: background-color 80ms ease;
+  transition: background-color var(--t-fast) ease;
 }
 
 .projectHeader:hover {
@@ -102,8 +99,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: var(--sp-4);
+  height: var(--sp-4);
   border: none;
   background: transparent;
   color: var(--color-subtext);
@@ -118,7 +115,7 @@
 
 .projectName {
   flex: 1;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--color-text);
   white-space: nowrap;
@@ -130,8 +127,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: var(--sp-5);
+  height: var(--sp-5);
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -139,7 +136,7 @@
   cursor: pointer;
   flex-shrink: 0;
   opacity: 0;
-  transition: opacity 120ms ease;
+  transition: opacity var(--t-fast) ease, background-color var(--t-fast) ease, color var(--t-fast) ease;
 }
 
 .projectHeader:hover .projectAdd,
@@ -167,17 +164,17 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
-  padding-left: 20px;
+  padding-left: var(--sp-5);
 }
 
 .sessionItem {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 8px;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background-color 80ms ease;
+  transition: background-color var(--t-fast) ease;
 }
 
 .sessionItem:hover {
@@ -204,7 +201,7 @@
 
 .sessionPreview {
   flex: 1;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--color-subtext);
   white-space: nowrap;
   overflow: hidden;
@@ -215,8 +212,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: var(--sp-4);
+  height: var(--sp-4);
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -224,7 +221,7 @@
   cursor: pointer;
   flex-shrink: 0;
   opacity: 0;
-  transition: opacity 120ms ease;
+  transition: opacity var(--t-fast) ease, background-color var(--t-fast) ease, color var(--t-fast) ease;
 }
 
 .sessionItem:hover .sessionDel {
@@ -237,9 +234,9 @@
 }
 
 .noSessions {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--color-subtext);
-  padding: 4px 8px;
+  padding: var(--sp-1) var(--sp-2);
   opacity: 0.6;
 }
 
@@ -247,17 +244,17 @@
 .addProjectBtn {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  margin-top: 4px;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  margin-top: var(--sp-1);
   border: 1px dashed var(--color-border);
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-subtext);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-family: var(--font-sans);
   cursor: pointer;
-  transition: all 120ms ease;
+  transition: background-color var(--t-fast) ease, border-color var(--t-fast) ease, color var(--t-fast) ease;
 }
 
 .addProjectBtn:hover {
@@ -271,30 +268,30 @@
 .bottom {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding-top: 8px;
+  gap: var(--sp-2);
+  padding-top: var(--sp-2);
   border-top: 1px solid var(--color-border);
   flex-shrink: 0;
 }
 
 .collapsed .bottom {
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 
 .settingsBtn {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-subtext);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-family: var(--font-sans);
   cursor: pointer;
-  transition: all 120ms ease;
+  transition: background-color var(--t-fast) ease, color var(--t-fast) ease;
 }
 
 .settingsBtn:hover {
@@ -304,21 +301,21 @@
 
 .themeRow {
   display: flex;
-  gap: 4px;
-  padding: 0 4px;
+  gap: var(--sp-1);
+  padding: 0 var(--sp-1);
 }
 
 .themeBtn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: var(--sp-5);
+  height: var(--sp-5);
   border: none;
   border-radius: 50%;
   background: transparent;
   cursor: pointer;
-  transition: all 120ms ease;
+  transition: background-color var(--t-fast) ease;
 }
 
 .themeBtn:hover {
@@ -326,14 +323,13 @@
 }
 
 .themeSwatch {
-  width: 12px;
-  height: 12px;
+  width: var(--sp-3);
+  height: var(--sp-3);
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--color-border);
+  box-sizing: border-box;
 }
 
 .themeActive .themeSwatch {
   border: 2px solid var(--color-text);
-  width: 14px;
-  height: 14px;
 }

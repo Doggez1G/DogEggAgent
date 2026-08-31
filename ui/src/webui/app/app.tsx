@@ -1,16 +1,16 @@
-import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { marked } from 'marked'
 import { ChevronRight, FolderClosed, FolderUp, ArrowLeft, X } from 'lucide-react'
 import type { AgentToUiMessage, Config, UiPort } from '@dogegg/bridge'
-import { Sidebar, TopBar, ChatView, InputBar, Settings, InfoPanel } from '../components'
+import { Sidebar, TopBar, ChatView, InputBar, Settings, InfoPanel, CommandPalette } from '../components'
+import { Button } from '../components/primitives'
 import { reducer, type ChatState } from '../../shared/reducer'
-import type { Block } from '../../shared/block'
-import type { SettingsTab, ThemeName, Modal, SessionItem } from './view-state'
+import type { ThemeName, Modal, SessionItem, FileTouched } from './view-state'
 import { COMMAND_TO_MODAL } from './view-state'
 import styles from './app.module.css'
 
-// App：单一布局——侧栏（项目/会话树）+ 顶栏 + 聊天 + 输入 + 右侧信息面板。
-// 设置通过 modal 弹窗呈现，不再切换 panel。
+// App：三栏布局——侧栏 + 顶栏 + 聊天 + 输入 + 右侧信息面板。
+// 设置/命令面板/权限等通过 modal 弹窗呈现。
 interface AppProps {
   port: UiPort
 }
@@ -21,7 +21,7 @@ marked.setOptions({ breaks: true, gfm: true })
 export function App({ port }: AppProps) {
   const [chat, dispatch] = useReducer(reducer, initialState)
   const [modal, setModal] = useState<Modal>({ kind: 'none' })
-  const [theme, setTheme] = useState<ThemeName>('catppuccin')
+  const [theme, setTheme] = useState<ThemeName>('midnight')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [infoCollapsed, setInfoCollapsed] = useState(false)
   const [config, setConfig] = useState<Config | null>(null)
@@ -34,8 +34,8 @@ export function App({ port }: AppProps) {
   const [systemState, setSystemState] = useState<{ path: string; content: string } | null>(null)
   const [logState, setLogState] = useState<{ path: string; tail: string } | null>(null)
   const [permissionsList, setPermissionsList] = useState<string[]>([])
-  // 工具调用追踪（右侧信息面板显示）。
   const [toolCalls, setToolCalls] = useState<{ id: string; name: string; status: 'running' | 'done' | 'error'; output?: string }[]>([])
+  const [filesTouched, setFilesTouched] = useState<FileTouched[]>([])
 
   const modalRef = useRef(modal)
   useEffect(() => { modalRef.current = modal }, [modal])
@@ -44,7 +44,6 @@ export function App({ port }: AppProps) {
     document.documentElement.setAttribute('data-theme', theme)
   }, [theme])
 
-  // 请求会话列表（侧栏需要）。
   const refreshSessions = useCallback(() => {
     port.post({ type: 'list_sessions' })
   }, [port])
@@ -60,6 +59,18 @@ export function App({ port }: AppProps) {
 
   const onQuit = useCallback(() => {
     setModal({ kind: 'confirm', title: 'Quit', message: 'Close the browser tab to quit DogEggAgent WebUI.', onConfirm: () => { setModal({ kind: 'none' }) } })
+  }, [])
+
+  // Cmd+K 命令面板。
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setModal((prev) => prev.kind === 'command-palette' ? { kind: 'none' } : { kind: 'command-palette' })
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
   }, [])
 
   useEffect(() => {
@@ -79,6 +90,7 @@ export function App({ port }: AppProps) {
         setSessions(msg.sessions)
       } else if (msg.type === 'session_ready') {
         setSessionId(msg.id)
+        setFilesTouched([])
         refreshSessions()
       } else if (msg.type === 'session_deleted') {
         setSessions((prev) => prev.filter((s) => s.id !== msg.id))
@@ -94,10 +106,25 @@ export function App({ port }: AppProps) {
         setPermissionsList(msg.tools)
       } else if (msg.type === 'tool_start') {
         setToolCalls((prev) => [...prev, { id: msg.id, name: msg.name, status: 'running' }])
+        // Files Touched：从 tool_start input 提取文件路径。
+        if ((msg.name === 'edit_file' || msg.name === 'write_file') && msg.input) {
+          const inp = msg.input as Record<string, unknown>
+          const path = String(inp.path ?? '')
+          if (path) {
+            setFilesTouched((prev) => [...prev, {
+              path,
+              action: msg.name === 'edit_file' ? 'edit' : 'write',
+              toolName: msg.name,
+              time: Date.now(),
+            }])
+          }
+        }
       } else if (msg.type === 'tool_end') {
         setToolCalls((prev) => prev.map((tc) =>
           tc.id === msg.id ? { ...tc, status: msg.error ? 'error' : 'done', output: msg.output } : tc
         ))
+      } else if (msg.type === 'history_cleared') {
+        setFilesTouched([])
       }
     })
     port.post({ type: 'config_request' })
@@ -106,21 +133,15 @@ export function App({ port }: AppProps) {
     return off
   }, [port, refreshSessions])
 
-  const isRunning = chat.status !== 'idle' && chat.status !== 'finished' && chat.status !== 'cancelled' && chat.status !== 'error'
+  const isRunning = useMemo(() =>
+    chat.status !== 'idle' && chat.status !== 'finished' && chat.status !== 'cancelled' && chat.status !== 'error',
+    [chat.status]
+  )
 
-  const renderBlocks = chat.blocks.map((b: Block) => ({
-    ...b,
-    html: b.kind === 'assistant' || b.kind === 'thinking' ? marked.parse(b.text) : b.text,
-    fullHtml: b.full !== undefined ? (b.kind === 'assistant' || b.kind === 'thinking' ? marked.parse(b.full) : b.full) : undefined,
-  }))
-  const partialHtml = chat.partial ? marked.parse(chat.partial.text) : null
-
-  // 删除会话确认。
   const handleDeleteSession = useCallback((id: string) => {
     setModal({ kind: 'confirm', title: 'Delete Session', message: 'Delete this session permanently? This cannot be undone.', onConfirm: () => { port.post({ type: 'delete_session', id }); setModal({ kind: 'none' }) } })
   }, [port])
 
-  // 删除项目确认（删除该 cwd 下所有会话）。
   const handleDeleteProject = useCallback((projectCwd: string) => {
     const count = sessions.filter((s) => (s.cwd || '(unknown)') === projectCwd).length
     setModal({ kind: 'confirm', title: 'Delete Project', message: `Delete project "${projectCwd.split(/[/\\]/).pop()}" and its ${count} session(s)? This cannot be undone.`, onConfirm: () => {
@@ -144,12 +165,19 @@ export function App({ port }: AppProps) {
         onDeleteSession={handleDeleteSession}
         onDeleteProject={handleDeleteProject}
         onAddProject={() => setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })}
-        onOpenSettings={() => setModal({ kind: 'settings', tab: 'general' })}
+        onOpenSettings={() => setModal({ kind: 'settings' })}
         onThemeChange={setTheme}
       />
-      <TopBar provider={statusBar.provider} model={statusBar.model} cwd={cwd} isRunning={isRunning} />
+      <TopBar
+        provider={statusBar.provider}
+        model={statusBar.model}
+        cwd={cwd}
+        isRunning={isRunning}
+        status={chat.status}
+        onOpenCommandPalette={() => setModal({ kind: 'command-palette' })}
+      />
       <div className={styles.mainArea}>
-        <ChatView chat={{ ...chat, blocks: renderBlocks as unknown as Block[], partial: chat.partial ? { ...chat.partial, html: partialHtml } : null } as unknown as ChatState} isRunning={isRunning} />
+        <ChatView chat={chat} isRunning={isRunning} />
       </div>
       <InfoPanel
         provider={statusBar.provider}
@@ -162,6 +190,7 @@ export function App({ port }: AppProps) {
         contextState={contextState}
         systemState={systemState}
         logState={logState}
+        filesTouched={filesTouched}
         collapsed={infoCollapsed}
         onToggleCollapse={() => setInfoCollapsed(!infoCollapsed)}
         port={port}
@@ -172,12 +201,20 @@ export function App({ port }: AppProps) {
 
       {/* 模态层 */}
       {modal.kind === 'settings' && (
-        <SettingsModal
-          tab={modal.tab}
-          config={config}
-          port={port}
-          onTabChange={(tab) => setModal({ kind: 'settings', tab })}
+        <SettingsModal config={config} port={port} onClose={() => setModal({ kind: 'none' })} />
+      )}
+      {modal.kind === 'command-palette' && (
+        <CommandPalette
+          sessions={sessions}
+          activeSessionId={sessionId}
+          theme={theme}
+          onThemeChange={setTheme}
+          onNewSession={(cwdArg) => port.post({ type: 'new_session', ...(cwdArg ? { cwd: cwdArg } : {}) })}
+          onResumeSession={(id) => port.post({ type: 'resume_session', id })}
+          onOpenSettings={() => setModal({ kind: 'settings' })}
+          onClearHistory={onClearHistory}
           onClose={() => setModal({ kind: 'none' })}
+          port={port}
         />
       )}
       {modal.kind === 'permission' && (
@@ -198,43 +235,30 @@ export function App({ port }: AppProps) {
   )
 }
 
-// ── 设置 Modal（scrim + 大弹窗，复用 Settings 组件逻辑）──
-function SettingsModal(props: {
-  tab: SettingsTab
-  config: Config | null
-  port: UiPort
-  onTabChange: (tab: SettingsTab) => void
-  onClose: () => void
-}) {
+// ── 设置 Modal ──
+function SettingsModal(props: { config: Config | null; port: UiPort; onClose: () => void }) {
   return (
     <div className={styles.scrim} onClick={props.onClose}>
       <div className={styles.settingsModal + ' modal-enter'} onClick={(e) => e.stopPropagation()}>
-        <div className={styles.fsModalHeader}>
+        <div className={styles.modalHeader}>
           <h2 className={styles.modalTitle}>Settings</h2>
           <button className={styles.modalClose} onClick={props.onClose} aria-label="Close"><X size={16} strokeWidth={2} /></button>
         </div>
         <div className={styles.settingsModalBody}>
-          <Settings
-            tab={props.tab}
-            config={props.config}
-            port={props.port}
-            onTabChange={props.onTabChange}
-            onBack={props.onClose}
-          />
+          <Settings config={props.config} port={props.port} onClose={props.onClose} />
         </div>
       </div>
     </div>
   )
 }
 
-// ── 其他模态组件 ──
-
+// ── 权限 Modal ──
 function PermissionModal(props: { id: string; tool: string; input: unknown; onDecision: (d: 'allow_once' | 'allow_always' | 'reject') => void; onClose: () => void }) {
   const inp = props.input as Record<string, unknown> | null
   return (
     <div className={styles.scrim} onClick={props.onClose}>
       <div className={styles.modal + ' modal-enter'} onClick={(e) => e.stopPropagation()}>
-        <div className={styles.fsModalHeader}>
+        <div className={styles.modalHeader}>
           <h2 className={styles.modalTitle}>Permission: {props.tool}</h2>
           <button className={styles.modalClose} onClick={props.onClose} aria-label="Close"><X size={16} strokeWidth={2} /></button>
         </div>
@@ -248,33 +272,35 @@ function PermissionModal(props: { id: string; tool: string; input: unknown; onDe
           <pre className={styles.diffPreview}>{String(inp.command ?? '')}</pre>
         )}
         <div className={styles.modalActions}>
-          <button className={styles.btnPrimary} onClick={() => props.onDecision('allow_once')}>Allow Once</button>
-          <button className={styles.btnSecondary} onClick={() => props.onDecision('allow_always')}>Allow Always</button>
-          <button className={styles.btnDanger} onClick={() => props.onDecision('reject')}>Reject</button>
+          <Button variant="primary" onClick={() => props.onDecision('allow_once')}>Allow Once</Button>
+          <Button variant="secondary" onClick={() => props.onDecision('allow_always')}>Allow Always</Button>
+          <Button variant="danger" onClick={() => props.onDecision('reject')}>Reject</Button>
         </div>
       </div>
     </div>
   )
 }
 
+// ── 确认 Modal ──
 function ConfirmModal(props: { title: string; message: string; onConfirm: () => void; onClose: () => void }) {
   return (
     <div className={styles.scrim} onClick={props.onClose}>
       <div className={styles.modal + ' modal-enter'} onClick={(e) => e.stopPropagation()}>
-        <div className={styles.fsModalHeader}>
+        <div className={styles.modalHeader}>
           <h2 className={styles.modalTitle}>{props.title}</h2>
           <button className={styles.modalClose} onClick={props.onClose} aria-label="Close"><X size={16} strokeWidth={2} /></button>
         </div>
         <p className={styles.modalMessage}>{props.message}</p>
         <div className={styles.modalActions}>
-          <button className={styles.btnPrimary} onClick={props.onConfirm}>Confirm</button>
-          <button className={styles.btnSecondary} onClick={props.onClose}>Cancel</button>
+          <Button variant="primary" onClick={props.onConfirm}>Confirm</Button>
+          <Button variant="secondary" onClick={props.onClose}>Cancel</Button>
         </div>
       </div>
     </div>
   )
 }
 
+// ── 帮助 Modal ──
 function HelpModal(props: { onClose: () => void }) {
   const commands = [
     ['/new', 'New session'], ['/session', 'List sessions'], ['/config', 'Settings'],
@@ -286,7 +312,7 @@ function HelpModal(props: { onClose: () => void }) {
   return (
     <div className={styles.scrim} onClick={props.onClose}>
       <div className={styles.modal + ' modal-enter'} onClick={(e) => e.stopPropagation()}>
-        <div className={styles.fsModalHeader}>
+        <div className={styles.modalHeader}>
           <h2 className={styles.modalTitle}>Commands</h2>
           <button className={styles.modalClose} onClick={props.onClose} aria-label="Close"><X size={16} strokeWidth={2} /></button>
         </div>
@@ -303,6 +329,7 @@ function HelpModal(props: { onClose: () => void }) {
   )
 }
 
+// ── 目录浏览器 Modal ──
 function FsBrowserModal(props: { onConfirm: (path: string) => void; onClose: () => void }) {
   const [current, setCurrent] = useState('')
   const [dirs, setDirs] = useState<string[]>([])
@@ -331,7 +358,7 @@ function FsBrowserModal(props: { onConfirm: (path: string) => void; onClose: () 
   return (
     <div className={styles.scrim} onClick={props.onClose}>
       <div className={styles.modal + ' modal-enter'} onClick={(e) => e.stopPropagation()}>
-        <div className={styles.fsModalHeader}>
+        <div className={styles.modalHeader}>
           <h2 className={styles.modalTitle}>Select Working Directory</h2>
           <button className={styles.modalClose} onClick={props.onClose} aria-label="Close"><X size={16} strokeWidth={2} /></button>
         </div>
@@ -354,8 +381,8 @@ function FsBrowserModal(props: { onConfirm: (path: string) => void; onClose: () 
           <input className={styles.fsInput} value={manualPath} onChange={(e) => setManualPath(e.target.value)} placeholder="/path/to/project" onKeyDown={(e) => { if (e.key === 'Enter') props.onConfirm(manualPath) }} />
         </div>
         <div className={styles.modalActions}>
-          <button className={styles.btnPrimary} onClick={() => props.onConfirm(manualPath)}>Select Directory</button>
-          <button className={styles.btnSecondary} onClick={props.onClose}>Cancel</button>
+          <Button variant="primary" onClick={() => props.onConfirm(manualPath)}>Select Directory</Button>
+          <Button variant="secondary" onClick={props.onClose}>Cancel</Button>
         </div>
       </div>
     </div>

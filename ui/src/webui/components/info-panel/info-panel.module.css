@@ -1,3 +1,7 @@
+/* Info Panel — 右侧实时信息面板。
+   折叠分区 chrome 由 primitives Section 提供，此处只定义面板外壳与内容样式。
+   不定义 @keyframes spin——运行中工具调用的旋转用全局 .spin 类（见 theme/animations.css）。 */
+
 .infoPanel {
   grid-area: info;
   display: flex;
@@ -7,20 +11,19 @@
   overflow: hidden;
 }
 
-/* 滚动区域——header 固定，内容可滚动 */
 .scrollArea {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
 }
 
-/* 收起态：只显示一个展开按钮 */
+/* 收起态：仅一个展开按钮，占满 info 网格列。 */
 .expandBtn {
   grid-area: info;
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding-top: 12px;
+  padding-top: var(--sp-3);
   width: 100%;
   height: 100%;
   border: none;
@@ -28,6 +31,7 @@
   background: var(--color-surface);
   color: var(--color-subtext);
   cursor: pointer;
+  transition: color var(--t-fast) ease, background-color var(--t-fast) ease;
 }
 
 .expandBtn:hover {
@@ -40,13 +44,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
+  padding: var(--sp-2) var(--sp-3);
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
 
 .headerTitle {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -57,13 +61,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: var(--sp-6);
+  height: var(--sp-6);
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-subtext);
   cursor: pointer;
+  transition: background-color var(--t-fast) ease, color var(--t-fast) ease;
 }
 
 .collapseBtn:hover {
@@ -71,54 +76,26 @@
   color: var(--color-text);
 }
 
-/* ── 分区（可折叠）── */
-.section {
-  border-bottom: 1px solid var(--color-border);
-}
-
-.section:last-child { border-bottom: none; }
-
-.sectionToggle {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  width: 100%;
-  padding: 8px 14px;
-  border: none;
-  background: transparent;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-subtext);
-  cursor: pointer;
-  transition: color 80ms ease;
-}
-
-.sectionToggle:hover { color: var(--color-text); }
-
-.sectionBody {
-  padding: 0 14px 10px;
-}
-
 /* ── 状态 ── */
 .statusRow {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 
 .statusDot {
-  width: 8px;
-  height: 8px;
+  width: var(--sp-2);
+  height: var(--sp-2);
   border-radius: 50%;
   background: var(--color-subtext);
   flex-shrink: 0;
 }
 
 .statusDot[data-status='idle'] { background: var(--color-subtext); }
-.statusDot[data-status='thinking'], .statusDot[data-status='responding'] { background: var(--color-accent); animation: pulse-dot 1s ease-in-out infinite; }
-.statusDot[data-status='executing'], .statusDot[data-status='tool_calling'] { background: var(--color-success); animation: pulse-dot 1s ease-in-out infinite; }
+.statusDot[data-status='thinking'],
+.statusDot[data-status='responding'] { background: var(--color-accent); animation: pulse-dot 1s ease-in-out infinite; }
+.statusDot[data-status='executing'],
+.statusDot[data-status='tool_calling'] { background: var(--color-success); animation: pulse-dot 1s ease-in-out infinite; }
 .statusDot[data-status='error'] { background: var(--color-danger); }
 .statusDot[data-status='compacting'] { background: var(--color-warning); animation: pulse-dot 1s ease-in-out infinite; }
 .statusDot[data-status='finished'] { background: var(--color-success); }
@@ -126,7 +103,7 @@
 .statusDot[data-status='waiting_permission'] { background: var(--color-warning); }
 
 .statusText {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   color: var(--color-text);
 }
@@ -135,17 +112,17 @@
 .modelRow {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--sp-1);
 }
 
 .modelProvider {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--color-subtext);
 }
 
 .modelName {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--color-text);
   font-weight: 500;
 }
@@ -153,18 +130,17 @@
 /* ── Token ── */
 .tokenBar {
   width: 100%;
-  height: 6px;
+  height: calc(var(--sp-3) / 2);
   background: var(--color-surface-elevated);
   border-radius: var(--radius-sm);
   overflow: hidden;
-  margin-bottom: 6px;
+  margin-bottom: var(--sp-1);
 }
 
 .tokenFill {
   height: 100%;
   background: var(--color-accent);
-  border-radius: var(--radius-sm);
-  transition: width 300ms ease;
+  transition: width var(--t-slow) ease;
 }
 
 .tokenFill[data-overload='true'] {
@@ -174,9 +150,9 @@
 .tokenNumbers {
   display: flex;
   align-items: baseline;
-  gap: 4px;
+  gap: var(--sp-1);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .tokenUsed {
@@ -203,25 +179,20 @@
 }
 
 /* ── 工具调用 ── */
-.toolSection {
-  flex: 1;
-  overflow-y: auto;
-}
-
 .toolList {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-1);
 }
 
 .toolItem {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 6px 8px;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
   border-radius: var(--radius-sm);
   background: var(--color-bg);
-  transition: background-color 80ms ease;
+  transition: background-color var(--t-fast) ease;
 }
 
 .toolItem:hover {
@@ -229,32 +200,23 @@
 }
 
 .toolIcon {
-  width: 16px;
-  height: 16px;
+  width: var(--sp-4);
+  height: var(--sp-4);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
+  color: var(--color-subtext);
 }
 
 .toolItem[data-status='done'] .toolIcon { color: var(--color-success); }
 .toolItem[data-status='error'] .toolIcon { color: var(--color-danger); }
-.toolItem[data-status='running'] .toolIcon { color: var(--color-accent); }
-
-.spinner {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border: 2px solid var(--color-border);
+.toolItem[data-status='running'] .toolIcon {
+  border: 1px solid var(--color-border);
   border-top-color: var(--color-accent);
   border-radius: 50%;
-  animation: spin 0.6s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 
 .toolInfo {
@@ -262,18 +224,18 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--sp-1);
 }
 
 .toolName {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--color-text);
   font-weight: 500;
 }
 
 .toolOutput {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--color-subtext);
   white-space: nowrap;
   overflow: hidden;
@@ -281,27 +243,60 @@
 }
 
 .emptyText {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--color-subtext);
-  padding: 4px 0;
+  padding: var(--sp-1) 0;
+}
+
+/* ── Files Touched ── */
+.fileItem {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+}
+
+.fileIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--color-subtext);
+}
+
+.fileName {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fileBadge {
+  flex-shrink: 0;
 }
 
 /* ── 可用工具列表 ── */
 .miniList {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--sp-1);
 }
 
 .miniItem {
-  padding: 3px 6px;
+  padding: var(--sp-1) var(--sp-2);
   border-radius: var(--radius-sm);
   background: var(--color-bg);
 }
 
 .miniName {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--color-accent);
   font-weight: 500;
 }
@@ -310,25 +305,25 @@
 .miniContent {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-1);
 }
 
 .miniPath {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   color: var(--color-subtext);
 }
 
 .miniPre {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   line-height: 1.4;
   background: var(--color-bg);
   border-radius: var(--radius-sm);
-  padding: 6px 8px;
+  padding: var(--sp-1) var(--sp-2);
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 120px;
+  max-height: calc(var(--sp-8) * 4);
   overflow-y: auto;
   color: var(--color-subtext);
   margin: 0;
