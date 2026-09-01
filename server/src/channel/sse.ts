@@ -2,6 +2,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AgentPort, UiPort } from '@dogegg/bridge'
 import type { AgentToUiMessage } from '@dogegg/bridge'
 import type { UiToAgentMessage } from '@dogegg/bridge'
+import { uiToAgentMessageSchema } from '@dogegg/bridge'
+
+// POST body 最大 1MB——防止恶意大 body 耗尽内存。
+const MAX_BODY_SIZE = 1024 * 1024
 
 // SSE 通道：实现 AgentPort / UiPort 接口，用 HTTP SSE 下行 + POST 上行。
 // agent 侧通过 agentPort 收 UI 消息（POST → onMessage 回调）、发 UI 消息（→ SSE 流）。
@@ -12,7 +16,7 @@ export function createSseChannel(): {
   uiPort: UiPort
   /** GET /api/events 的 HTTP handler——建立 SSE 连接，注册到活跃连接集合。 */
   sseHandler: (req: IncomingMessage, res: ServerResponse) => void
-  /** POST /api/message 的 HTTP handler——读取 body，解析为 UiToAgentMessage，触发 agentPort 回调。 */
+  /** POST /api/message 的 HTTP handler——读取 body，zod 校验，触发 agentPort 回调。 */
   postHandler: (req: IncomingMessage, res: ServerResponse) => void
 } {
   // agentPort 收到的 UI→agent 消息回调（由 postHandler 触发）。
@@ -37,11 +41,8 @@ export function createSseChannel(): {
   const uiPort: UiPort = {
     onMessage() {
       // SSE 通道不支持 uiPort.onMessage——UI 侧通过 sseHandler 直接消费 SSE 流。
-      // 此方法仅为满足 UiPort 接口形状（组合根不会调 uiPort.onMessage，而是调 sseHandler）。
       return () => {}
     },
-    // UI → agent：由 postHandler 间接调用——uiPort.post 不直接使用，
-    // 但保留接口形状。实际上行路径是 postHandler → agentListeners。
     post(msg: UiToAgentMessage) {
       agentListeners.forEach((l) => l(msg))
     },
@@ -53,33 +54,50 @@ export function createSseChannel(): {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
     })
-    // 立即发一个空 comment 行让浏览器尽快收到响应头（避免 EventSource 超时）。
     res.write(': connected\n\n')
     sseClients.add(res)
-
-    // 连接关闭时清理——从集合移除，避免后续 post 写入已关闭的 res。
     res.on('close', () => { sseClients.delete(res) })
   }
 
   const postHandler = (req: IncomingMessage, res: ServerResponse) => {
     let body = ''
-    req.on('data', (chunk: Buffer) => { body += chunk.toString() })
+    let tooLarge = false
+    req.on('data', (chunk: Buffer) => {
+      body += chunk.toString()
+      if (body.length > MAX_BODY_SIZE) {
+        tooLarge = true
+        req.destroy() // 停止读取
+      }
+    })
     req.on('end', () => {
+      if (tooLarge) {
+        res.writeHead(413, { 'Content-Type': 'text/plain' })
+        res.end('Request body too large')
+        return
+      }
       try {
-        const msg = JSON.parse(body) as UiToAgentMessage
-        agentListeners.forEach((l) => l(msg))
-        res.writeHead(200, { 'Access-Control-Allow-Origin': '*' })
+        const raw = JSON.parse(body)
+        // zod 校验——确保 POST body 是合法的 UiToAgentMessage。
+        const result = uiToAgentMessageSchema.safeParse(raw)
+        if (!result.success) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'Invalid message', details: result.error.issues }))
+          return
+        }
+        agentListeners.forEach((l) => l(result.data))
+        res.writeHead(200, { 'Content-Type': 'text/plain' })
         res.end('ok')
       } catch {
-        res.writeHead(400, { 'Access-Control-Allow-Origin': '*' })
+        res.writeHead(400, { 'Content-Type': 'text/plain' })
         res.end('invalid JSON')
       }
     })
     req.on('error', () => {
-      res.writeHead(400, { 'Access-Control-Allow-Origin': '*' })
-      res.end('request error')
+      if (!res.headersSent) {
+        res.writeHead(400, { 'Content-Type': 'text/plain' })
+        res.end('request error')
+      }
     })
   }
 

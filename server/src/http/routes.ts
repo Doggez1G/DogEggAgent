@@ -29,7 +29,7 @@ async function fsHandler(req: IncomingMessage, res: ServerResponse, url: URL): P
   }
   const includeFiles = url.searchParams.get('files') === 'true'
   const result = await listDirs(resolveFsPath(url.searchParams.get('path') ?? undefined), includeFiles)
-  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' })
+  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
   res.end(JSON.stringify(result))
   return true
 }
@@ -64,7 +64,7 @@ async function shellsHandler(req: IncomingMessage, res: ServerResponse): Promise
     res.writeHead(405); res.end('Method Not Allowed'); return true
   }
   const shells = detectShells()
-  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' })
+  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
   res.end(JSON.stringify(shells))
   return true
 }
@@ -129,10 +129,10 @@ export async function dispatchRequest(
   staticDir: string | null,
 ): Promise<void> {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
-  // CORS 预检：OPTIONS 直接放行。
+  // CORS 预检：仅允许 localhost 来源（防止其他网站跨站驱动 shell 执行）。
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': `http://${req.headers.host ?? 'localhost'}`,
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
     })
