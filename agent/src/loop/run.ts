@@ -1,7 +1,7 @@
 import type { Message, State } from '@dogegg/bridge'
 import type { AgentToUiMessage } from '@dogegg/bridge'
 import { transition, type TransitionInput } from '../core/state'
-import { estimateContextTokens, compactContext } from '../context'
+import { estimateContextTokens, compactContext, enforceContextLimit } from '../context'
 import { toolSchemas } from '../tools'
 import { executeOneTool } from './tool-calls'
 import { CancelledError } from '../shared/errors'
@@ -105,6 +105,19 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
           // 压缩失败（如 LLM 调用出错）——降级继续，模型仍可用未压缩 context 回答。
         }
         state = trans({ kind: 'compact_done', next: deps.reasoning ? 'thinking' : 'responding' })
+
+        // 硬上限兜底：压缩后仍超 80%（单条消息极大或压缩失败降级），从头部丢弃最旧消息。
+        // 被丢弃的消息在 history 中仍保留，只是不再发给模型。
+        const enforced = enforceContextLimit({
+          systemPrompt: deps.systemPrompt,
+          context,
+          tools: toolParams,
+          windowTokens: deps.windowTokens,
+        })
+        if (enforced.dropped > 0) {
+          context.length = 0
+          context.push(...enforced.context)
+        }
       }
 
       // 用外部传入的 signal（由 Agent 持有，cancel 时 abort），使取消能真正中断在飞的 fetch 与工具。
