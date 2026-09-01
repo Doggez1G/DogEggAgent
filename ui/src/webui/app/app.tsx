@@ -242,8 +242,8 @@ export function App({ port }: AppProps) {
     const projSessions = sessions.filter((s) => (s.cwd || '(unknown)') === projectCwd)
     const count = projSessions.length
     const msg = count > 0
-      ? `删除项目 "${projectCwd.split(/[/\\]/).pop()}" 将同时删除其下 ${count} 个会话。此操作不会删除磁盘上的实际文件。确定删除？`
-      : `从侧边栏移除项目 "${projectCwd.split(/[/\\]/).pop()}"？此操作不会删除磁盘上的实际文件。`
+      ? `删除项目 "${projectCwd.split(/[/\\]/).pop()}" 将删除其下 ${count} 个会话的记录。项目目录本身不会被删除，可随时重新添加。确定删除？`
+      : `从侧边栏移除项目 "${projectCwd.split(/[/\\]/).pop()}"？项目目录本身不会被删除，可随时重新添加。`
     setModal({ kind: 'confirm', title: count > 0 ? '删除项目' : '移除项目', message: msg, onConfirm: () => {
       projSessions.forEach((s) => port.post({ type: 'delete_session', id: s.id }))
       setKnownProjects((prev) => { const next = new Set(prev); next.delete(projectCwd); return next })
