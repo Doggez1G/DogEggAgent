@@ -17,6 +17,7 @@ interface SidebarProps {
   collapsed: boolean
   sessions: SessionItem[]
   activeSessionId: string
+  highlightSection?: string | null
   onToggleCollapse: () => void
   onNewSession: (cwd?: string) => void
   onResumeSession: (id: string) => void
@@ -42,7 +43,7 @@ function relTime(iso: string): string {
 export function Sidebar(props: SidebarProps) {
   const c = props.collapsed
   const [search, setSearch] = useState('')
-  const projects = groupByCwd(props.sessions, props.cwd)
+  const projects = groupByCwd(props.sessions)
 
   // 搜索过滤。
   const filteredProjects = search
@@ -81,7 +82,7 @@ export function Sidebar(props: SidebarProps) {
         </div>
       )}
 
-      <nav className={styles.nav}>
+      <nav className={`${styles.nav} ${props.highlightSection === 'sessions' ? styles.navHighlight : ''}`}>
         {c ? (
           <button className={styles.iconBtn + ' ' + styles.collapsedAdd} onClick={props.onAddProject} title="Add project" aria-label="Add project">
             <FolderPlus size={16} strokeWidth={1.5} />
@@ -198,9 +199,9 @@ function ProjectTree(props: {
   )
 }
 
-function groupByCwd(sessions: SessionItem[], currentCwd: string): { cwd: string; name: string; sessions: SessionItem[] }[] {
+// 按工作目录分组会话——只显示有会话的项目，不自动添加当前 cwd 为空项目。
+function groupByCwd(sessions: SessionItem[]): { cwd: string; name: string; sessions: SessionItem[] }[] {
   const map = new Map<string, SessionItem[]>()
-  if (currentCwd) map.set(currentCwd, [])
   for (const s of sessions) {
     const key = s.cwd || '(unknown)'
     if (!map.has(key)) map.set(key, [])

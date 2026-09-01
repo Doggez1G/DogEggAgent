@@ -17,6 +17,7 @@ interface CommandPaletteProps {
   onResumeSession: (id: string) => void
   onOpenSettings: () => void
   onClearHistory: () => void
+  onCommandFeedback?: (cmd: string) => void
   onClose: () => void
   port: UiPort
 }
@@ -36,7 +37,7 @@ const GROUPS = ['Commands', 'Sessions', 'Themes', 'Actions'] as const
 
 export function CommandPalette({
   sessions, activeSessionId, theme, onThemeChange,
-  onNewSession, onResumeSession, onOpenSettings, onClearHistory, onClose, port,
+  onNewSession, onResumeSession, onOpenSettings, onClearHistory, onCommandFeedback, onClose, port,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
@@ -54,7 +55,10 @@ export function CommandPalette({
         if (c.cmd === '/clear') { onClearHistory(); return }
         if (c.cmd === '/config' || c.cmd === '/model') { onOpenSettings(); return }
         const result = parseCommand(c.cmd)
-        if (result.kind === 'message') port.post(result.msg)
+        if (result.kind === 'message') {
+          onCommandFeedback?.(c.cmd)
+          port.post(result.msg)
+        }
         onClose()
       },
     })),

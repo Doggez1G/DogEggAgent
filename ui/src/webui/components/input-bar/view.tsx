@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react'
+import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { ArrowUp, Square, Slash, MoreHorizontal, Eraser, Archive, Plus, FolderPlus } from 'lucide-react'
 import { matchCommands, parseCommand } from '../../../shared/commands'
 import { COMMAND_TO_MODAL } from '../../app/view-state'
@@ -25,6 +25,19 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
   const [quickMenuOpen, setQuickMenuOpen] = useState(false)
   const suggestIdxRef = useRef<number | null>(null)
   const setSuggest = useCallback((i: number | null) => { suggestIdxRef.current = i; setSuggestIdx(i) }, [])
+  const quickMenuRef = useRef<HTMLDivElement>(null)
+
+  // 点击快捷菜单外部时收起。
+  useEffect(() => {
+    if (!quickMenuOpen) return
+    const handler = (e: MouseEvent) => {
+      if (quickMenuRef.current && !quickMenuRef.current.contains(e.target as Node)) {
+        setQuickMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [quickMenuOpen])
 
   const matches = input.startsWith('/') ? matchCommands(input) : []
 
@@ -131,7 +144,7 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
           disabled={isRunning}
         />
         <div className={styles.toolbar}>
-          <div className={styles.quickMenuWrap}>
+          <div className={styles.quickMenuWrap} ref={quickMenuRef}>
             <button className={styles.toolBtn} title="Quick actions" aria-label="Quick actions" onClick={() => setQuickMenuOpen(!quickMenuOpen)}>
               <MoreHorizontal size={13} strokeWidth={1.5} />
             </button>

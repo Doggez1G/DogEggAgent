@@ -246,6 +246,7 @@ export function App({ port }: AppProps) {
         collapsed={sidebarCollapsed}
         sessions={sessions}
         activeSessionId={sessionId}
+        highlightSection={highlightSection}
         onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
         onNewSession={(cwdArg) => port.post({ type: 'new_session', ...(cwdArg ? { cwd: cwdArg } : {}) })}
         onResumeSession={(id) => port.post({ type: 'resume_session', id })}
@@ -306,7 +307,7 @@ export function App({ port }: AppProps) {
           onAddProject={() => setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })}
           onCommandFeedback={(cmd) => {
             if (cmd === '/cd') setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'set_cwd', path }); setModal({ kind: 'none' }) } })
-            else if (cmd === '/session') { setSidebarCollapsed(false) }
+            else if (cmd === '/session') { setSidebarCollapsed(false); highlightInfoSection('sessions') }
             else if (cmd === '/status') highlightInfoSection('status')
             else if (cmd === '/context') highlightInfoSection('context')
             else if (cmd === '/tools') highlightInfoSection('tools')
@@ -331,6 +332,15 @@ export function App({ port }: AppProps) {
           onResumeSession={(id) => port.post({ type: 'resume_session', id })}
           onOpenSettings={() => setModal({ kind: 'settings' })}
           onClearHistory={onClearHistory}
+          onCommandFeedback={(cmd) => {
+            if (cmd === '/session') { setSidebarCollapsed(false); highlightInfoSection('sessions') }
+            else if (cmd === '/status') highlightInfoSection('status')
+            else if (cmd === '/context') highlightInfoSection('context')
+            else if (cmd === '/tools') highlightInfoSection('tools')
+            else if (cmd === '/system') highlightInfoSection('system')
+            else if (cmd === '/log') highlightInfoSection('log')
+            else if (cmd === '/permissions') highlightInfoSection('permissions')
+          }}
           onClose={() => setModal({ kind: 'none' })}
           port={port}
         />
@@ -356,7 +366,7 @@ export function App({ port }: AppProps) {
 // ── 设置 Modal ──
 function SettingsModal(props: { config: Config | null; port: UiPort; onClose: () => void }) {
   return (
-    <div className={styles.scrim} onClick={props.onClose}>
+    <div className={styles.scrim}>
       <div className={styles.settingsModal + ' modal-enter'} onClick={(e) => e.stopPropagation()}>
         <div className={styles.modalHeader}>
           <h2 className={styles.modalTitle}>Settings</h2>
