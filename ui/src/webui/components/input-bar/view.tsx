@@ -18,15 +18,22 @@ interface InputBarProps {
   onAddProject?: () => void
   onCommandFeedback?: (cmd: string, arg?: string) => void
   onPostError?: (error: Error) => void
+  /** 错误后自动回填到输入框的文本（来自 App 追踪上次提交） */
+  retryText?: string | null
+  /** 回填完成后通知 App 清除 retryText */
+  onRetryConsumed?: () => void
 }
 
-export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit, onUserSubmit, onNewSession, onCompact, onAddProject, onCommandFeedback, onPostError }: InputBarProps) {
+export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit, onUserSubmit, onNewSession, onCompact, onAddProject, onCommandFeedback, onPostError, retryText, onRetryConsumed }: InputBarProps) {
   const [input, setInput] = useState('')
   const [suggestIdx, setSuggestIdx] = useState<number | null>(null)
   const [quickMenuOpen, setQuickMenuOpen] = useState(false)
   const suggestIdxRef = useRef<number | null>(null)
   const setSuggest = useCallback((i: number | null) => { suggestIdxRef.current = i; setSuggestIdx(i) }, [])
   const quickMenuRef = useRef<HTMLDivElement>(null)
+  // 输入历史——ArrowUp/Down 在输入框为空时回溯历史输入（与 TUI 行为一致）。
+  const inputHistory = useRef<string[]>([])
+  const historyIdx = useRef<number>(-1) // -1 = 不在历史浏览模式
 
   // 点击快捷菜单外部时收起。
   useEffect(() => {
@@ -39,6 +46,14 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [quickMenuOpen])
+
+  // 错误自动重填——App 传入 retryText 时回填到输入框。
+  useEffect(() => {
+    if (retryText) {
+      setInput(retryText)
+      onRetryConsumed?.()
+    }
+  }, [retryText, onRetryConsumed])
 
   const matches = input.startsWith('/') ? matchCommands(input) : []
 
@@ -54,6 +69,10 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
       onUserSubmit(result.text)
       const r = port.post({ type: 'submit', text: result.text })
       if (r instanceof Promise) r.catch((e: Error) => onPostError?.(e))
+      // 记录到输入历史（最多 50 条）。
+      inputHistory.current.push(result.text)
+      if (inputHistory.current.length > 50) inputHistory.current.shift()
+      historyIdx.current = -1
     } else if (result.kind === 'help') {
       // /cd 无参数 → 打开文件选择器选目录（而非显示帮助）。
       // /help 或未知命令 → 打开帮助 modal。
@@ -103,6 +122,28 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
         return
       }
       if (e.key === 'Escape') { setSuggest(null); return }
+    }
+    // 输入历史回溯——只在无斜杠命令联想 + 输入框为空（或在行首）时触发。
+    if (e.key === 'ArrowUp' && inputHistory.current.length > 0 && (input === '' || historyIdx.current >= 0)) {
+      e.preventDefault()
+      const newIdx = historyIdx.current < 0
+        ? inputHistory.current.length - 1
+        : Math.max(0, historyIdx.current - 1)
+      historyIdx.current = newIdx
+      setInput(inputHistory.current[newIdx] ?? '')
+      return
+    }
+    if (e.key === 'ArrowDown' && historyIdx.current >= 0) {
+      e.preventDefault()
+      const newIdx = historyIdx.current + 1
+      if (newIdx >= inputHistory.current.length) {
+        historyIdx.current = -1
+        setInput('')
+      } else {
+        historyIdx.current = newIdx
+        setInput(inputHistory.current[newIdx] ?? '')
+      }
+      return
     }
     if (e.key === 'Enter' && !e.ctrlKey && !e.shiftKey) {
       e.preventDefault()

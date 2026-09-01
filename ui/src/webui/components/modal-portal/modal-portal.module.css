@@ -1,0 +1,12 @@
+/* ModalPortal scrim —— 与 app.module.css 的 .scrim 保持一致，但独立于此组件可复用。 */
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal);
+}

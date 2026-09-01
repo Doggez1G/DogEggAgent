@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { ChevronRight, FolderClosed, FolderUp, ArrowLeft, X } from 'lucide-react'
 import type { AgentToUiMessage, Config, UiPort, UiToAgentMessage } from '@dogegg/bridge'
-import { Sidebar, TopBar, ChatView, InputBar, Settings, InfoPanel, CommandPalette, ErrorBoundary } from '../components'
+import { Sidebar, TopBar, ChatView, InputBar, Settings, InfoPanel, CommandPalette, ErrorBoundary, ModalPortal } from '../components'
 import { Button } from '../components/primitives'
 import { reducer, type ChatState } from '../../shared/reducer'
 import type { ThemeName, Modal, SessionItem, FileTouched } from './view-state'
@@ -55,6 +55,9 @@ export function App({ port, connectionState }: AppProps) {
   const [pendingPermission, setPendingPermission] = useState<{ id: string; tool: string; input: unknown } | null>(null)
   const [highlightSection, setHighlightSection] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  // 错误自动重填——出错时把上次提交的文本回填到输入框，方便重试（与 TUI 行为一致）。
+  const [retryText, setRetryText] = useState<string | null>(null)
+  const lastSubmitText = useRef<string>('')
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const toolSeqRef = useRef(0)
@@ -115,6 +118,16 @@ export function App({ port, connectionState }: AppProps) {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
   }, [theme])
+
+  // 页面关闭 / 刷新时通知后端退出（清理资源），与 TUI 的 /quit 行为一致。
+  useEffect(() => {
+    const handler = () => {
+      // sendBeacon 不阻塞页面卸载，后端收到 quit 消息后 process.exit(0)。
+      navigator.sendBeacon('/api/message', JSON.stringify({ type: 'quit' }))
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [])
 
   const refreshSessions = useCallback(() => {
     port.post({ type: 'list_sessions' })
@@ -250,6 +263,10 @@ export function App({ port, connectionState }: AppProps) {
         refreshSessions()
         port.post({ type: 'context_request' })
         port.post({ type: 'log_request' })
+        // 出错时自动回填上次输入到输入框，方便重试（与 TUI 行为一致）。
+        if (msg.type === 'error' && lastSubmitText.current) {
+          setRetryText(lastSubmitText.current)
+        }
       }
     })
     port.post({ type: 'config_request' })
@@ -352,11 +369,13 @@ export function App({ port, connectionState }: AppProps) {
           onCommandNav={onCommandNav}
           onClearHistory={onClearHistory}
           onQuit={onQuit}
-          onUserSubmit={(text) => dispatch({ type: 'local_user', text })}
+          onUserSubmit={(text) => { lastSubmitText.current = text; dispatch({ type: 'local_user', text }) }}
           onNewSession={() => safePost({ type: 'new_session' }, true)}
           onCompact={() => safePost({ type: 'compact_request' }, true)}
           onAddProject={() => setModal({ kind: 'fs-browser', onConfirm: (path) => { safePost({ type: 'new_session', cwd: path }, true); setModal({ kind: 'none' }) } })}
           onPostError={(e) => showToast(`Failed to send: ${e.message}`)}
+          retryText={retryText}
+          onRetryConsumed={() => setRetryText(null)}
           onCommandFeedback={(cmd) => {
             if (cmd === '/cd') setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'set_cwd', path }); setModal({ kind: 'none' }) } })
             else if (cmd === '/session') { setSidebarCollapsed(false); highlightInfoSection('sessions') }
@@ -415,20 +434,18 @@ export function App({ port, connectionState }: AppProps) {
   )
 }
 
-// ── 设置 Modal ──
+// ── 设置 Modal ── closeOnScrim=false：只能用关闭按钮关闭 ──
 function SettingsModal(props: { config: Config | null; port: UiPort; onClose: () => void }) {
   return (
-    <div className={styles.scrim}>
-      <div className={styles.settingsModal + ' modal-enter'} onClick={(e) => e.stopPropagation()}>
-        <div className={styles.modalHeader}>
-          <h2 className={styles.modalTitle}>Settings</h2>
-          <button className={styles.modalClose} onClick={props.onClose} aria-label="Close"><X size={16} strokeWidth={2} /></button>
-        </div>
-        <div className={styles.settingsModalBody}>
-          <Settings config={props.config} port={props.port} onClose={props.onClose} />
-        </div>
+    <ModalPortal onClose={props.onClose} closeOnScrim={false} label="Settings" className={styles.settingsModal + ' modal-enter'}>
+      <div className={styles.modalHeader}>
+        <h2 className={styles.modalTitle}>Settings</h2>
+        <button className={styles.modalClose} onClick={props.onClose} aria-label="Close"><X size={16} strokeWidth={2} /></button>
       </div>
-    </div>
+      <div className={styles.settingsModalBody}>
+        <Settings config={props.config} port={props.port} onClose={props.onClose} />
+      </div>
+    </ModalPortal>
   )
 }
 
@@ -474,19 +491,17 @@ function PermissionBanner({ tool, input, onDecision }: { tool: string; input: un
 // ── 确认 Modal ──
 function ConfirmModal(props: { title: string; message: string; onConfirm: () => void; onClose: () => void }) {
   return (
-    <div className={styles.scrim} onClick={props.onClose}>
-      <div className={styles.modal + ' modal-enter'} onClick={(e) => e.stopPropagation()}>
-        <div className={styles.modalHeader}>
-          <h2 className={styles.modalTitle}>{props.title}</h2>
-          <button className={styles.modalClose} onClick={props.onClose} aria-label="Close"><X size={16} strokeWidth={2} /></button>
-        </div>
-        <p className={styles.modalMessage}>{props.message}</p>
-        <div className={styles.modalActions}>
-          <Button variant="primary" onClick={props.onConfirm}>Confirm</Button>
-          <Button variant="secondary" onClick={props.onClose}>Cancel</Button>
-        </div>
+    <ModalPortal onClose={props.onClose} label={props.title} className={styles.modal + ' modal-enter'}>
+      <div className={styles.modalHeader}>
+        <h2 className={styles.modalTitle}>{props.title}</h2>
+        <button className={styles.modalClose} onClick={props.onClose} aria-label="Close"><X size={16} strokeWidth={2} /></button>
       </div>
-    </div>
+      <p className={styles.modalMessage}>{props.message}</p>
+      <div className={styles.modalActions}>
+        <Button variant="primary" onClick={props.onConfirm}>Confirm</Button>
+        <Button variant="secondary" onClick={props.onClose}>Cancel</Button>
+      </div>
+    </ModalPortal>
   )
 }
 
@@ -500,22 +515,20 @@ function HelpModal(props: { onClose: () => void }) {
     ['/permissions', 'Session permissions'], ['/help', 'This help'],
   ]
   return (
-    <div className={styles.scrim} onClick={props.onClose}>
-      <div className={styles.modal + ' modal-enter'} onClick={(e) => e.stopPropagation()}>
-        <div className={styles.modalHeader}>
-          <h2 className={styles.modalTitle}>Commands</h2>
-          <button className={styles.modalClose} onClick={props.onClose} aria-label="Close"><X size={16} strokeWidth={2} /></button>
-        </div>
-        <div className={styles.helpGrid}>
-          {commands.map(([cmd, desc]) => (
-            <React.Fragment key={cmd}>
-              <code className={styles.helpCmd}>{cmd}</code>
-              <span className={styles.helpDesc}>{desc}</span>
-            </React.Fragment>
-          ))}
-        </div>
+    <ModalPortal onClose={props.onClose} label="Commands" className={styles.modal + ' modal-enter'}>
+      <div className={styles.modalHeader}>
+        <h2 className={styles.modalTitle}>Commands</h2>
+        <button className={styles.modalClose} onClick={props.onClose} aria-label="Close"><X size={16} strokeWidth={2} /></button>
       </div>
-    </div>
+      <div className={styles.helpGrid}>
+        {commands.map(([cmd, desc]) => (
+          <React.Fragment key={cmd}>
+            <code className={styles.helpCmd}>{cmd}</code>
+            <span className={styles.helpDesc}>{desc}</span>
+          </React.Fragment>
+        ))}
+      </div>
+    </ModalPortal>
   )
 }
 
@@ -546,35 +559,33 @@ function FsBrowserModal(props: { onConfirm: (path: string) => void; onClose: () 
   const breadcrumbs = current ? current.split(/[/\\]/).filter(Boolean) : []
 
   return (
-    <div className={styles.scrim} onClick={props.onClose}>
-      <div className={styles.modal + ' modal-enter'} onClick={(e) => e.stopPropagation()}>
-        <div className={styles.modalHeader}>
-          <h2 className={styles.modalTitle}>Select Working Directory</h2>
-          <button className={styles.modalClose} onClick={props.onClose} aria-label="Close"><X size={16} strokeWidth={2} /></button>
-        </div>
-        <div className={styles.fsBreadcrumb}>
-          {history.length > 0 && (<button className={styles.fsBackBtn} onClick={goBack} aria-label="Go back"><ArrowLeft size={14} strokeWidth={1.5} /></button>)}
-          {parent && (<button className={styles.fsCrumbUp} onClick={() => browse(parent)} title="Go up"><FolderUp size={14} strokeWidth={1.5} /></button>)}
-          {breadcrumbs.map((seg, i) => (
-            <React.Fragment key={i}>
-              {i > 0 && <ChevronRight size={10} strokeWidth={1.5} className={styles.fsCrumbSep} />}
-              <span className={i === breadcrumbs.length - 1 ? styles.fsCrumbActive : styles.fsCrumbItem}>{seg}</span>
-            </React.Fragment>
-          ))}
-        </div>
-        <div className={styles.fsList}>
-          {dirs.length === 0 ? (<p className={styles.fsEmpty}>No subdirectories</p>) : (
-            dirs.map((d) => (<button key={d} className={styles.fsItem} onClick={() => browse(current + '/' + d)}><FolderClosed size={15} strokeWidth={1.5} className={styles.fsItemIcon} /><span>{d}</span></button>))
-          )}
-        </div>
-        <div className={styles.fsManualRow}>
-          <input className={styles.fsInput} value={manualPath} onChange={(e) => setManualPath(e.target.value)} placeholder="/path/to/project" onKeyDown={(e) => { if (e.key === 'Enter') props.onConfirm(manualPath) }} />
-        </div>
-        <div className={styles.modalActions}>
-          <Button variant="primary" onClick={() => props.onConfirm(manualPath)}>Select Directory</Button>
-          <Button variant="secondary" onClick={props.onClose}>Cancel</Button>
-        </div>
+    <ModalPortal onClose={props.onClose} label="Select Working Directory" className={styles.modal + ' modal-enter'}>
+      <div className={styles.modalHeader}>
+        <h2 className={styles.modalTitle}>Select Working Directory</h2>
+        <button className={styles.modalClose} onClick={props.onClose} aria-label="Close"><X size={16} strokeWidth={2} /></button>
       </div>
-    </div>
+      <div className={styles.fsBreadcrumb}>
+        {history.length > 0 && (<button className={styles.fsBackBtn} onClick={goBack} aria-label="Go back"><ArrowLeft size={14} strokeWidth={1.5} /></button>)}
+        {parent && (<button className={styles.fsCrumbUp} onClick={() => browse(parent)} title="Go up"><FolderUp size={14} strokeWidth={1.5} /></button>)}
+        {breadcrumbs.map((seg, i) => (
+          <React.Fragment key={i}>
+            {i > 0 && <ChevronRight size={10} strokeWidth={1.5} className={styles.fsCrumbSep} />}
+            <span className={i === breadcrumbs.length - 1 ? styles.fsCrumbActive : styles.fsCrumbItem}>{seg}</span>
+          </React.Fragment>
+        ))}
+      </div>
+      <div className={styles.fsList}>
+        {dirs.length === 0 ? (<p className={styles.fsEmpty}>No subdirectories</p>) : (
+          dirs.map((d) => (<button key={d} className={styles.fsItem} onClick={() => browse(current + '/' + d)}><FolderClosed size={15} strokeWidth={1.5} className={styles.fsItemIcon} /><span>{d}</span></button>))
+        )}
+      </div>
+      <div className={styles.fsManualRow}>
+        <input className={styles.fsInput} value={manualPath} onChange={(e) => setManualPath(e.target.value)} placeholder="/path/to/project" onKeyDown={(e) => { if (e.key === 'Enter') props.onConfirm(manualPath) }} />
+      </div>
+      <div className={styles.modalActions}>
+        <Button variant="primary" onClick={() => props.onConfirm(manualPath)}>Select Directory</Button>
+        <Button variant="secondary" onClick={props.onClose}>Cancel</Button>
+      </div>
+    </ModalPortal>
   )
 }
