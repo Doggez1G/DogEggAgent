@@ -1,4 +1,4 @@
-# 01 · 整体架构与三包解耦
+# 01 · 整体架构与多包解耦
 
 ## 为什么需要解耦
 
@@ -9,31 +9,35 @@
 
 如果后端直接调前端的渲染函数、前端直接调后端的方法，两者就**耦合**了。换前端（比如将来加 WebUI）要改后端，换后端要改前端。
 
-DogEggAgent 的解耦方案：**后端和前端互不 import，都只依赖第三个包 `bridge`（契约 + 通道）**。
+DogEggAgent 的解耦方案：**后端和前端互不 import，都只依赖第三个包 `bridge`（契约 + 通道）**。WebUI 额外引入 `server` 包做网络传输，但 agent 和 ui 本身一行不改。
 
-## 三包结构
+## 四包结构
 
 ```
 DogEggAgent/
-├─ main.ts               # 组合根（唯一同时 import agent 与 ui 的地方）
-├─ package.json          # workspaces: ["agent","ui","bridge"]
+├─ main.ts               # TUI 组合根（唯一同时 import agent 与 ui 的地方）
+├─ main-web.ts           # WebUI 组合根（import agent + server + bridge）
+├─ package.json          # workspaces: ["agent","ui","bridge","server"]
 ├─ agent/                # @dogegg/agent：后端域
-├─ ui/                   # @dogegg/ui：前端域
-└─ bridge/               # @dogegg/bridge：契约 + 通道
+├─ ui/                   # @dogegg/ui：前端域（tui + webui + shared）
+├─ bridge/               # @dogegg/bridge：契约 + 通道
+└─ server/               # @dogegg/server：HTTP + SSE + REST（WebUI 用）
 ```
 
 - `@dogegg/bridge`：不依赖任何兄弟包。定义消息类型 + Config schema + Port 接口。
 - `@dogegg/agent`：依赖 `@dogegg/bridge`（只用它的类型和通道）。不依赖 `@dogegg/ui`。
 - `@dogegg/ui`：依赖 `@dogegg/bridge`。不依赖 `@dogegg/agent`。
-- 根 `main.ts`：同时 import agent 和 ui，把两者对接。
+- `@dogegg/server`：依赖 `@dogegg/agent` + `@dogegg/bridge`。实现 SSE channel + HTTP server + REST 端点。不 import `@dogegg/ui`（前端是静态文件被 serve）。
+- 根 `main.ts`：同时 import agent 和 ui，把两者对接。`main-web.ts`：import agent + server，server serve 静态前端。
 
 ### 架构测试强制
 
-这个规则不是口头约定——`bridge/test/architecture.test.ts` 扫描三个包的源码，断言：
+这个规则不是口头约定——`bridge/test/architecture.test.ts` 扫描各包源码，断言：
 
 1. `agent/src` 不得 import `@dogegg/ui`；`ui/src` 不得 import `@dogegg/agent`。
 2. `bridge/src` 不得 import `@dogegg/agent` 或 `@dogegg/ui`。
-3. `index.ts` 只允许 re-export，不允许 `export const/function/class` 实现声明。
+3. `server/src` 不得 import `@dogegg/ui`（前端是静态文件被 serve）。
+4. `index.ts` 只允许 re-export，不允许 `export const/function/class` 实现声明。
 
 > 详见 `bridge/test/architecture.test.ts`。
 
@@ -108,11 +112,11 @@ agentPort.post(msg) → uiListeners.forEach(l => l(msg))  // 同步扇出
 uiPort.post(msg)    → agentListeners.forEach(l => l(msg))
 ```
 
-将来接 WebUI 时，在 bridge 内新增 `sse-channel.ts`（SSE 下行 + POST 上行）实现同样的 Port 接口，agent 和 ui 一行不改。
+将来接 WebUI 时，在 server 包新增 `sse.ts`（SSE 下行 + POST 上行）实现同样的 Port 接口，agent 和 ui 一行不改。server 包归 server 域而非 bridge 契约域（ADR-0002）。
 
-## 组合根：main.ts
+## 组合根：main.ts / main-web.ts
 
-全项目唯一同时 import agent 和 ui 的文件，约 25 行：
+TUI 组合根（`main.ts`），全项目唯一同时 import agent 和 ui 的文件，约 25 行：
 
 ```ts
 // main.ts
@@ -121,6 +125,17 @@ const { agentPort, uiPort } = createChannelPair()  // @dogegg/bridge
 initLogger(join(homedir(), '.dogegg', 'logs'))     // @dogegg/agent
 new Agent(agentPort, config, process.cwd())        // 构造时自订阅 port
 renderTui(uiPort)                                  // @dogegg/ui
+```
+
+WebUI 组合根（`main-web.ts`），import agent + server（不 import ui——前端是静态文件）：
+
+```ts
+// main-web.ts
+const config = loadConfig()
+const { agentPort, uiPort, sseHandler, postHandler } = createSseChannel()  // @dogegg/server
+initLogger(join(homedir(), '.dogegg', 'logs'))
+new Agent(agentPort, config, process.cwd())
+startServer({ uiPort, sseHandler, postHandler, staticDir, port: 3000 })    // @dogegg/server
 ```
 
 组合根不含业务逻辑，只做接线。Agent 构造时 `this.port.onMessage(cb)` 自订阅——之后一切由 port 消息驱动。

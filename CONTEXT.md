@@ -15,7 +15,7 @@ Port 的具体实现。in-memory（同进程同步投递）或 sse（HTTP 下行
 _Avoid_: transport, adapter
 
 **组合根 (Composition Root)**:
-全项目唯一同时 import agent 与前端（tui 或 webui 静态资源）的地方。`main.ts`（TUI 模式）、`main-web.ts`（WebUI 模式）。持有"两端如何对接"的知识。
+全项目唯一同时 import agent 与前端的地方。`main.ts`（TUI 模式）、`main-web.ts`（WebUI 模式，import agent + server）。持有"两端如何对接"的知识。
 _Avoid_: entry, bootstrap
 
 **Bridge 契约 (Bridge Contract)**:
@@ -47,7 +47,7 @@ _Avoid_: color, palette, theme color
 ### Server 域
 
 **Server**:
-`@dogegg/server` 包。HTTP server + SSE channel 实现 + REST 端点（fs 浏览）+ 静态文件服务。不 import `@dogegg/ui`——前端是静态文件被 serve。
+`@dogegg/server` 包。HTTP server + SSE channel 实现 + REST 端点（fs 浏览 + shell 检测）+ 静态文件服务。不 import `@dogegg/ui`——前端是静态文件被 serve。是 WebUI 组合根（main-web.ts）的一部分。
 _Avoid_: backend server, api server
 
 **SSE Channel**:
@@ -75,12 +75,12 @@ _Avoid_: reasoning persistence, thought storage
 ### 前端交互域
 
 **双通道交互 (Dual-Channel Interaction)**:
-WebUI 的交互模型：侧栏点击导航 + 斜杠命令两个入口，两者发送相同的 `UiToAgentMessage`。侧栏点击切换主面板（持久），斜杠命令也导航到对应面板而非弹 overlay。
+WebUI 的交互模型：输入框斜杠命令 + Cmd+K 命令面板两个入口，两者发送相同的 `UiToAgentMessage`。纯呈现命令（/tools /system /log /permissions /context /status）通过 `onCommandFeedback` 高亮右侧信息面板对应 section，而非弹 toast。两者共享同一套反馈逻辑。
 _Avoid_: dual entry, two paths
 
-**Panel / Modal 正交**:
-WebUI 视图状态的两个独立维度：`panel`（侧栏选择，持久保留）+ `modal`（中断性弹窗，叠加在任意面板之上）。区别于 TUI 的单选一 View（聊天 XOR overlay）。
-_Avoid_: view, screen
+**Modal 叠加 (Modal Overlay)**:
+WebUI 的中断性弹窗：settings / command-palette / confirm / fs-browser / help。叠加在单一布局（侧栏 + 顶栏 + 聊天 + 信息面板 + 输入栏）之上。权限确认是内联 banner（非 modal），出现在输入框上方。设置 modal 不响应 scrim 点击外部关闭（只能用关闭按钮）。
+_Avoid_: view, screen, panel
 
 **Token Map**:
 各 UI theme 层的语义→视觉映射表。`kind → 图标`（TUI: emoji，WebUI: Lucide SVG）、`colorToken → 色值`（TUI: hex，WebUI: CSS variable）。Block 只携带语义信息，视觉映射归各 UI。

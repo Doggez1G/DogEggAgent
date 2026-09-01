@@ -7,7 +7,7 @@
 
 | 章节 | 标题 | 核心概念 |
 |---|---|---|
-| [01](./01-architecture.md) | 整体架构与三包解耦 | workspaces、bridge 契约、Port 通道、组合根 |
+| [01](./01-architecture.md) | 整体架构与多包解耦 | workspaces、bridge 契约、Port 通道、组合根 |
 | [02](./02-state-machine.md) | 10 态状态机 | 纯函数迁移、VALID_FROM 守卫、迁移事件 |
 | [03](./03-agent-loop.md) | Agent Loop 核心循环 | 问模型→串行工具→回填→再问、中断保存、自动压缩 |
 | [04](./04-tools.md) | 工具系统 | 双 schema、串行执行、权限分支、取消三件套 |
@@ -20,7 +20,7 @@
 
 ## 项目定位
 
-DogEggAgent 是一个自研的**代码编辑型 agent**，第一目标是**学习并理解 agent 的实现**。技术栈：TypeScript / Node.js ≥ 20，npm workspaces 三包，Ink TUI，zod 校验，JSON 持久化，原生 `fetch` + 手写 SSE。
+DogEggAgent 是一个自研的**代码编辑型 agent**，第一目标是**学习并理解 agent 的实现**。技术栈：TypeScript / Node.js ≥ 20，npm workspaces 四包，Ink TUI + React DOM WebUI，zod 校验，JSON 持久化，原生 `fetch` + 手写 SSE。
 
 核心问题：**一个 code agent 是怎么工作的？**
 

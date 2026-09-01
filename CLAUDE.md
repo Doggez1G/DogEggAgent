@@ -4,21 +4,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概览
 
-DogEggAgent 是一个自研的**代码编辑型 agent**，第一目标是学习并理解 agent 的实现。技术栈：TypeScript / Node.js ≥ 20，npm workspaces 三包（`agent` / `ui` / `bridge`），Ink TUI，zod 校验，JSON 持久化，原生 `fetch` + 手写 SSE。
+DogEggAgent 是一个自研的**代码编辑型 agent**，第一目标是学习并理解 agent 的实现。技术栈：TypeScript / Node.js ≥ 20，npm workspaces 四包（`agent` / `ui` / `bridge` / `server`），Ink TUI + React DOM WebUI 双前端，zod 校验，JSON 持久化，原生 `fetch` + 手写 SSE。
 
-核心架构原则：**后端（agent）与前端（ui）完全解耦，仅通过 `bridge/` 的消息契约 + Port 通道关联**。agent 与 ui 互不 import，都只依赖 `@dogegg/bridge`；唯一同时 import 两者的是根 `main.ts`（组合根）。此规则由 `bridge/test/architecture.test.ts` 强制。
+核心架构原则：**后端（agent）与前端（ui）完全解耦，仅通过 `bridge/` 的消息契约 + Port 通道关联**。agent 与 ui 互不 import，都只依赖 `@dogegg/bridge`；唯一同时 import agent 与前端的是根 `main.ts`（TUI）或 `main-web.ts`（WebUI，组合根）。此规则由 `bridge/test/architecture.test.ts` 强制。
 
 ## 包结构
 
 ```
 DogEggAgent/
-├─ main.ts               # 组合根（唯一同时 import agent 与 ui）
-├─ package.json          # workspaces: ["agent","ui","bridge"]
+├─ main.ts               # TUI 组合根（唯一同时 import agent 与 ui）
+├─ main-web.ts           # WebUI 组合根（import agent + server + bridge）
+├─ package.json          # workspaces: ["agent","ui","bridge","server"]
 ├─ tsconfig.base.json    # 共享 compilerOptions
-├─ build.mjs             # esbuild（@dogegg/* 解析插件）
+├─ build.mjs             # esbuild（TUI，@dogegg/* 解析插件）
+├─ build-web.mjs         # esbuild（WebUI server bundle）
+├─ vite.config.ts        # Vite 构建配置（WebUI 前端入口）
 ├─ agent/                # @dogegg/agent：后端域（core/loop/context/llm/tools/session/permission/config/shared）
-├─ ui/                   # @dogegg/ui：前端域（tui/app/chat/input/overlays/components/theme/markdown）
-└─ bridge/               # @dogegg/bridge：契约（消息+Config schema+isConfigured）+ 通道（Port+in-memory）
+├─ ui/                   # @dogegg/ui：前端域（tui + webui + shared）
+│  ├─ src/tui/           #   TUI（Ink v7 + React）
+│  ├─ src/webui/         #   WebUI（React DOM + Vite + CSS Modules + Lucide）
+│  └─ src/shared/        #   平台无关前端逻辑（reducer / block / commands / config）
+├─ bridge/               # @dogegg/bridge：契约（消息+Config schema+isConfigured）+ 通道（Port+in-memory）
+└─ server/               # @dogegg/server：HTTP server + SSE channel + REST 端点（fs/shells）+ 静态文件
 ```
 
 模块 = 文件夹，`index.ts` 是唯一对外脸面（仅 re-export，不写实现）；实现写在兄弟文件。跨模块 import 只指向 index。
@@ -27,6 +34,7 @@ DogEggAgent/
 
 - 需求：`docs/superpowers/specs/2026-08-26-dog-egg-agent-design.md`（需求清单、状态机、权限模型、消息契约、配置 schema、History/Context 双持久化、运行中命令分类、TUI 设计、视觉系统）
 - 重构设计：`docs/superpowers/specs/2026-08-27-modular-refactor-design.md`（包结构、依赖图、agent/ui 拆分、架构测试、迁移映射）
+- WebUI 设计：`docs/superpowers/specs/2026-08-29-webui-design.md`（三主题、Primitives、Cmd+K 命令面板、8 section 信息面板、权限内联 banner）
 - 实施计划：`docs/plans/2026-08-28-modular-refactor.md`
 
 实现任何功能前先读对应章节；下文规范若与之冲突，以设计文档为准。
@@ -49,12 +57,15 @@ DogEggAgent/
 ## 构建 / 测试
 
 - `npm install`：安装依赖 + 链接 workspace 符号链接
-- `npm run typecheck`：四路 tsc（root + agent + ui + bridge）
-- `npm run test:run`（或 `npm test`）：Vitest 跑三包 test/
-- `npm run build`：esbuild 打包到 `dist/index.js`（@dogegg/* 经插件内联，npm 依赖 external）
+- `npm run typecheck`：五路 tsc（root + agent + ui + bridge + server）
+- `npm run test:run`（或 `npm test`）：Vitest 跑四包 test/
+- `npm run build`：esbuild 打包到 `dist/index.js`（TUI，@dogegg/* 经插件内联，npm 依赖 external）
 - `npm run start`：`node dist/index.js`；`npm run dev` = build + start
+- `npm run dev:web`：concurrently 跑 Vite dev server（HMR）+ tsx 跑 main-web.ts
+- `npm run build:web`：Vite build → `dist/web/`（静态前端）+ esbuild → `dist/server.js`（server bundle）
+- `npm run start:web`：`node dist/server.js`，serve dist/web/ 静态文件 + 跑 agent
 
-> 说明：TUI 用 Ink v7，其依赖 `yoga-layout` 含 top-level await，`tsx` 的 CJS 转换会报错；故运行改用 esbuild 打包（`--format=esm --packages=external`）+ node 原生运行，非 `tsx`。
+> 说明：TUI 用 Ink v7，其依赖 `yoga-layout` 含 top-level await，`tsx` 的 CJS 转换会报错；故运行改用 esbuild 打包（`--format=esm --packages=external`）+ node 原生运行，非 `tsx`。WebUI 用 React DOM + Vite，开发时 `dev:web` 用 tsx 跑 main-web.ts + Vite dev server 代理 `/api`。
 
 ## Agent skills
 

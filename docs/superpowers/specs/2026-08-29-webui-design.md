@@ -1,6 +1,6 @@
 # DogEggAgent WebUI 设计与实现 Spec
 
-> 日期：2026-08-29（最后更新：2026-08-31）
+> 日期：2026-08-29（最后更新：2026-09-01）
 > 状态：已实施
 > 关联 ADR：0001 (SSE+POST)、0002 (SSE channel 归 server)、0003 (Block 语义化重构)、0004 (set_cwd 运行时)、0005 (单会话模式)、0006 (会话 cwd 持久化)、0007 (思考内容持久化)
 > 关联文档：`docs/superpowers/specs/2026-08-26-dog-egg-agent-design.md`（原始设计）、`docs/superpowers/specs/2026-08-27-modular-refactor-design.md`（模块化重构设计）
@@ -19,14 +19,24 @@ DogEggAgent 当前有 TUI（Ink v7）+ WebUI（React DOM + Vite）双前端。We
 
 ## 1.1 实施后变更记录
 
-- **单一布局**（非三布局）：删除 focus/workspace/zen 三布局系统，改为单一 grid（260px + 1fr + 280px）。侧栏可收起为 48px 图标条。右侧信息面板可收起为 32px。
-- **项目/会话树侧栏**：按 cwd 分组会话为项目，每个项目可折叠/展开，有添加会话和删除按钮。底部 Add Project 打开目录选择器。
-- **设置改为 modal**：不再切换 panel，/config 等命令打开 scrim + 大弹窗。General 标签页用 Select 下拉框 + EditableInput，Models 标签页用 Toggle 开关。
-- **右侧信息面板**：状态指示器 + 模型信息 + Token 进度条 + 工具调用列表（带 spinner）。
+**v1 初版**：
+- **单一布局**（非三布局）：删除 focus/workspace/zen 三布局系统，改为单一 grid（`var(--sidebar-w)` + 1fr + `var(--info-w)`）。侧栏可收起为 `var(--sidebar-collapsed-w)` = 48px 图标条。右侧信息面板可收起为 `var(--info-collapsed-w)` = 32px。
+- **项目/会话树侧栏**：按 cwd 分组会话为项目，每个项目可折叠/展开，有添加会话和删除按钮。底部 Add Project 打开目录选择器。项目在所有会话删除后仍保留显示（knownProjects 状态），直到用户显式删除项目。
+- **设置改为 modal**：不再切换 panel，/config 等命令打开 scrim + 大弹窗。IDE 风格左导航 + 右内容区（General / Models / Permissions 三区）。
+- **右侧信息面板**：8 个可折叠 InfoCard section（Status+Model / Context / Tool Calls / Files Touched / Available Tools / Session Permissions / System Prompt / Log Tail）。
 - **思考内容持久化**（ADR-0007）：reasoning 内容存入 session JSON 的 thinking 字段，resume 后恢复思考块。parser 累积 reasoning → loop 返回 thinking → agent 持久化 → session_ready 携带 → reducer 重建思考块。
-- **会话删除**（ADR-0006）：deleteSession + delete_session 消息 + session_deleted 回传。侧栏会话项和项目级删除按钮（确认弹窗）。
+- **会话删除**（ADR-0006）：deleteSession + delete_session 消息 + session_deleted 回传。侧栏会话项和项目级删除按钮（确认弹窗）。删除项目仅删除会话记录和侧栏显示，不触碰项目目录本身。
 - **会话 cwd 持久化**（ADR-0006）：session 存 cwd，resume 恢复 this.cwd。new_session 可选传 cwd。session_list 带 cwd?。
 - **创建会话即时刷新**：new_session 立即保存空会话到磁盘，list_sessions 返回新会话，侧栏即时显示。
+
+**v2 重新设计（2026-09-01）**：
+- **三主题重命名**：catppuccin → Midnight（Zinc + Indigo），ios-dark → Forest（Slate + Green），ios-light → Dawn（亮色中性 + Indigo）。每个主题定义完整的 token 体系：颜色 / soft 色（8 个低透明度变量）/ 圆角 / 间距 / 字号 / 字体 / 阴影 / z-index / 动画时长 / 毛玻璃 / 布局尺寸 / token 间接层映射。
+- **Primitives 组件层**：新增 `components/primitives/`（Button / IconButton / Input / Textarea / SelectField / EditableField / Toggle / Badge / Tooltip / Card / Section），统一基础组件样式。
+- **Cmd+K 命令面板**：新增 `components/command-palette/`，glassmorphism 浮层 + 模糊搜索（命令 / 会话 / 主题 / 动作）+ 键盘导航。
+- **权限确认改为内联 banner**：不再弹窗，改为输入框上方内联 PermissionBanner（tool 名 + diff 预览 + 3 按钮）。
+- **纯呈现命令高亮**：/tools /system /log /permissions /context /status 通过 `highlightInfoSection` 高亮右侧面板对应 InfoCard（accent 边框 + soft 色光晕），不弹 toast。/session 高亮侧栏 nav 区域。
+- **tool_calls 权限快照**：执行时记录 configPerm + decision 快照，不随后续设置变化。tool_end 保留 tool_start 时的 decision。
+- **实时刷新**：allow_always 决策后自动 permissions_request 刷新 Session Permissions；finished/error 后自动 log_request 刷新日志。
 
 ## 2. 架构总览
 
@@ -210,14 +220,22 @@ export function createSseChannel(): {
 
 `server/src/fs/browse.ts`:
 ```ts
-export function listDirs(path: string): { current: string; dirs: string[]; parent: string | null }
+export async function listDirs(path: string, includeFiles = false): Promise<{ current: string; dirs: string[]; files: string[]; parent: string | null }>
 ```
-- 用 `fs.readdir(path, { withFileTypes: true })` 只返回目录（`dirent.isDirectory()`），不返回文件（安全）。
-- 返回 `parent`（上级目录路径）供 UI 向上导航。
+- 用 `fs.readdir(path, { withFileTypes: true })` 返回目录列表；`includeFiles=true` 时也返回文件名（供 system prompt 文件选择器用）。
+- 返回 `parent`（上级目录路径或 null）供 UI 向上导航。
 
-路由：`GET /api/fs?path=/some/dir` → JSON 响应。
+路由：
+- `GET /api/fs?path=/some/dir` → JSON（仅目录）
+- `GET /api/fs?path=/some/dir&files=true` → JSON（目录 + 文件）
 
-### 6.4 静态文件服务
+### 6.4 Shell 检测端点
+
+`server/src/http/routes.ts` 新增 `GET /api/shells`：
+- `detectShells()` 检测系统可用的 shell 程序（powershell / pwsh / cmd / bash / zsh / sh）。
+- 返回 `{ value, label }[]` 供设置面板的 Shell Program 下拉框使用。
+
+### 6.5 静态文件服务
 
 `startServer` 启动时检查 `dist/web/` 是否存在，存在则 serve。开发模式下由 Vite dev server 代理，不依赖 `dist/web/`。
 
@@ -251,57 +269,42 @@ startServer({
 
 ```
 ui/src/webui/
-├─ index.html                    # Vite 入口 HTML
-├─ main.tsx                      # React DOM render 入口
+├─ index.html                    # Vite 入口 HTML，<html data-theme="midnight">
+├─ main.tsx                      # React DOM render 入口（import global.css + 三主题 + animations）
 ├─ app/
 │  ├─ index.ts                   # re-export
-│  ├─ app.tsx                    # App 根组件：port + state + panel/modal 路由
-│  └─ view-state.ts             # WebViewState：panel + modal 双维度
+│  ├─ app.tsx                    # App 根组件：grid 布局 + state + onMessage + 模态层
+│  └─ view-state.ts             # ThemeName + Modal 类型 + COMMAND_TO_MODAL + SessionItem + FileTouched
 ├─ components/
-│  ├─ index.ts                   # re-export
-│  ├─ sidebar/                   # 侧栏（聊天/文件/会话/设置 + 布局切换 + 品牌标识）
-│  ├─ top-bar/                   # 顶栏（provider/model + cwd + 状态指示）
-│  ├─ chat-view/                 # 聊天视口（消息列表 + 流式块）
-│  ├─ message-block/            # 单条消息块（色条 + 标签 + Lucide 图标 + 动画）
-│  ├─ input-bar/                 # 输入栏（TextInput + 斜杠命令联想 + 发送/停止）
-│  ├─ status-bar/                # 状态栏（状态点脉冲 + token 计量）
-│  ├─ overlay/                   # 模态层容器
-│  │  ├─ permission/             # 权限弹窗 + diff 预览
-│  │  ├─ confirm/                # 危险操作确认弹窗
-│  │  └─ fs-browser/            # 目录选择器
-│  ├─ settings/                  # 设置面板（二级导航 + 各子面板）
-│  │  ├─ general/                # 通用设置
-│  │  ├─ models/                 # 模型配置（provider/model 列表 + 编辑）
-│  │  ├─ permissions/            # 权限管理（allow_always 列表 + 撤销）
-│  │  ├─ tools/                  # 工具列表
-│  │  ├─ context/                # 上下文占用
-│  │  ├─ system-prompt/          # 系统提示词查看
-│  │  └─ logs/                   # 调试日志
-│  └── sessions/                 # 会话列表 + resume
+│  ├─ index.ts                   # barrel export
+│  ├─ sidebar/                   # 侧栏（品牌 + 搜索 + 项目/会话树 + 设置 + 主题切换）
+│  ├─ top-bar/                   # 顶栏（运行状态 + 模型 chip + cwd chip + Cmd+K 入口）
+│  ├─ chat-view/                 # 聊天视口（消息列表 + marked 渲染 + 空状态 + 自动滚动）
+│  ├─ message-block/            # 单条消息块（kind 分化渲染：user/assistant/thinking/tool/error/notice）
+│  ├─ input-bar/                 # 输入栏（textarea auto-grow + 斜杠命令联想 + 快捷操作菜单 + 发送/停止）
+│  ├─ settings/                  # 设置面板（IDE 风格左导航 + 右内容区：General / Models / Permissions）
+│  ├─ info-panel/                # 右侧信息面板（8 个可折叠 InfoCard + 数据请求 + 高亮）
+│  ├─ command-palette/           # Cmd+K 命令面板（glassmorphism + 模糊搜索 + 键盘导航）
+│  └─ primitives/                # 基础组件层（Button / IconButton / Input / Textarea / SelectField / EditableField / Toggle / Badge / Tooltip / Card / Section）
 ├─ theme/
-│  ├─ index.ts                   # re-export
+│  ├─ index.ts                   # re-export KIND_ICON / TOKEN_CSS_VAR / KIND_LABEL
 │  ├─ token-map.ts               # kind→Lucide icon, colorToken→CSS var 映射
 │  ├─ themes/
-│  │  ├─ catppuccin.css          # [data-theme="catppuccin"] 变量
-│  │  ├─ ios-light.css           # [data-theme="ios-light"] 变量
-│  │  └─ ios-dark.css            # [data-theme="ios-dark"] 变量
-│  ├─ layouts/
-│  │  ├─ focus.css               # [data-layout="focus"] grid 模板
-│  │  ├─ workspace.css           # [data-layout="workspace"] grid 模板
-│  │  └─ zen.css                 # [data-layout="zen"] grid 模板
-│  └─ animations.css             # @keyframes + transition 定义
+│  │  ├─ midnight.css           # [data-theme="midnight"] + :root fallback
+│  │  ├─ forest.css             # [data-theme="forest"]
+│  │  └─ dawn.css                # [data-theme="dawn"]
+│  └─ animations.css             # @keyframes + transition + reduced-motion
 ├─ styles/
-│  ├─ global.css                 # reset + body + font imports
-│  └─ *.module.css               # 各组件的 CSS Modules
+│  └─ global.css                 # reset + Google Fonts import + body + scrollbar + focus-visible
 ├─ channel/
 │  ├─ index.ts                   # re-export
 │  └─ sse-client.ts              # createSseUiPort()：EventSource + fetch POST 封装为 UiPort
 └─ brand/
-   ├─ index.ts                   # re-export
-   └─ mark.tsx                   # Egg + PawPrint 组合 + DoggEgg wordmark
+   ├─ index.ts                   # re-export BrandMark / Wordmark / Brand
+   └─ mark.tsx                   # Egg + PawPrint 组合 mark + DogEgg wordmark
 ```
 
-每个组件遵循 module=folder 约定（`index.tsx` 导出 + `view.tsx` 实现 + `*.module.css` 样式）。
+每个组件遵循 module=folder 约定（`view.tsx` 实现 + `*.module.css` 样式 + `index.ts` re-export）。
 
 ### 8.2 SSE 客户端
 
@@ -325,140 +328,214 @@ export function createSseUiPort(): UiPort {
 
 ```ts
 // ui/src/webui/app/view-state.ts
-interface WebViewState {
-  panel: 'chat' | 'sessions' | 'settings'  // 侧栏选择
-  settingsTab: 'general' | 'models' | 'permissions' | 'tools'
-             | 'context' | 'system-prompt' | 'logs'  // 设置面板内二级导航
-  modal: { kind: 'none' }
-       | { kind: 'permission'; id: string; tool: string; input: unknown }
-       | { kind: 'confirm'; title: string; onConfirm: () => void }
-       | { kind: 'fs-browser' }
-       | { kind: 'help' }
-  theme: 'catppuccin' | 'ios-light' | 'ios-dark'
-  layout: 'focus' | 'workspace' | 'zen'
+export type ThemeName = 'midnight' | 'forest' | 'dawn'
+
+export type Modal =
+  | { kind: 'none' }
+  | { kind: 'settings' }
+  | { kind: 'command-palette' }
+  | { kind: 'confirm'; title: string; message: string; onConfirm: () => void }
+  | { kind: 'fs-browser'; onConfirm: (path: string) => void }
+  | { kind: 'help' }
+
+export const COMMAND_TO_MODAL: Record<string, { modal: ... }> = {
+  '/config': { modal: { kind: 'settings' } },
+  '/model': { modal: { kind: 'settings' } },
+  '/help': { modal: { kind: 'help' } },
 }
 ```
 
-**关键区别于 TUI**：TUI 的 View 是单选一（聊天 XOR overlay）。WebUI 的 `panel` 持久（侧栏选择保留），`modal` 独立叠加（权限弹窗出现在任何面板之上）。`view-state.ts` 不共享——各 UI 管自己的视图状态。
+**与 TUI 的区别**：TUI 的 View 是单选一（聊天 XOR overlay）。WebUI 是单一布局（侧栏 + 顶栏 + 聊天 + 信息面板 + 输入栏，始终全显示），模态层（settings / command-palette / confirm / fs-browser / help）叠加在上。无 panel 切换维度。权限确认是内联 banner（非 modal），出现在输入框上方。
 
-### 8.4 斜杠命令 → 面板导航映射
+### 8.4 斜杠命令行为映射
 
 | 命令 | 行为 |
 |---|---|
-| `/config` | panel='settings', settingsTab='general' |
-| `/model` | panel='settings', settingsTab='models' |
-| `/permissions` | panel='settings', settingsTab='permissions' |
-| `/tools` | panel='settings', settingsTab='tools' |
-| `/context` | panel='settings', settingsTab='context' |
-| `/system` | panel='settings', settingsTab='system-prompt' |
-| `/log` | panel='settings', settingsTab='logs' |
-| `/status` | modal='help'（或顶栏点击弹出状态卡片） |
-| `/help` | modal='help' |
-| `/session` | panel='sessions' |
+| `/config` `/model` | modal='settings'（IDE 风格设置弹窗） |
+| `/help` | modal='help'（命令列表 grid） |
 | `/new` | 发 new_session（动作） |
-| `/clear` | modal='confirm' |
+| `/clear` | modal='confirm'（确认后 clear_history） |
 | `/compact` | 发 compact_request（动作） |
-| `/cd` | modal='fs-browser' |
+| `/cd` | 有参数→发 set_cwd；无参数→modal='fs-browser' |
+| `/session` | 发 list_sessions + 展开侧栏 + 高亮侧栏 nav |
+| `/status` | 发 status_request + 高亮 InfoPanel "Status & Model" |
+| `/context` | 发 context_request + 高亮 InfoPanel "Context" |
+| `/tools` | 发 tools_request + 高亮 InfoPanel "Available Tools" |
+| `/system` | 发 system_request + 高亮 InfoPanel "System Prompt" |
+| `/log` | 发 log_request + 高亮 InfoPanel "Log Tail" |
+| `/permissions` | 发 permissions_request + 高亮 InfoPanel "Session Permissions" |
 | `/quit` | WebUI 不联想（关闭标签页即退出） |
 
-侧栏点击同样发对应的 `UiToAgentMessage`——与斜杠命令完全一致。`commands.ts`（shared）的 `matchCommands` 用于输入框联想（去掉 `/quit`）。
+纯呈现命令（/tools /system /log /permissions /context /status）通过 `onCommandFeedback` 高亮右侧面板对应 InfoCard（accent 边框 + soft 色光晕 + 自动展开），不弹 toast。命令面板（Cmd+K）点击命令时同样触发 `onCommandFeedback`。
+
+### 8.5 布局
+
+```css
+.app {
+  display: grid;
+  height: 100vh;
+  grid-template-columns: var(--sidebar-w) 1fr var(--info-w);
+  grid-template-rows: var(--topbar-h) 1fr auto;
+  grid-template-areas:
+    'sidebar topbar info'
+    'sidebar main  info'
+    'sidebar input info';
+}
+```
+
+侧栏收起（`data-sidebar-collapsed="true"`）：grid-template-columns 改为 `var(--sidebar-collapsed-w) 1fr var(--info-w)`。
+信息面板收起（`data-info-collapsed="true"`）：改为 `var(--sidebar-w) 1fr var(--info-collapsed-w)`。
 
 ## 9. 设计系统
 
 ### 9.1 三主题色彩
 
-| Token | Catppuccin Dark | iOS Light | iOS Dark |
+| Token | Midnight (暗) | Forest (暗) | Dawn (亮) |
 |---|---|---|---|
-| `--color-bg` | `#1E1E2E` | `#F2F2F7` | `#000000` |
-| `--color-surface` | `#313244` | `#FFFFFF` | `#1C1C1E` |
-| `--color-surface-elevated` | `#45475A` | `#FFFFFF` + shadow | `#2C2C2E` |
-| `--color-text` | `#CDD6F4` | `#1C1C1E` | `#FFFFFF` |
-| `--color-subtext` | `#A6ADC8` | `#8E8E93` | `#8E8E93` |
-| `--color-accent` | `#89B4FA` | `#007AFF` | `#0A84FF` |
-| `--color-success` | `#A6E3A1` | `#34C759` | `#30D158` |
-| `--color-warning` | `#F9E2AF` | `#FFCC00` | `#FFD60A` |
-| `--color-danger` | `#F38BA8` | `#FF3B30` | `#FF453A` |
-| `--color-border` | `#45475A` | `#E5E5EA` | `#38383A` |
+| `--color-bg` | `#09090B` | `#0F172A` | `#FAFAFA` |
+| `--color-surface` | `#18181B` | `#1E293B` | `#FFFFFF` |
+| `--color-surface-elevated` | `#27272A` | `#272F42` | `#F4F4F5` |
+| `--color-card` | `#1C1C1F` | `#1B2336` | `#FFFFFF` |
+| `--color-text` | `#F4F4F5` | `#F8FAFC` | `#18181B` |
+| `--color-subtext` | `#A1A1AA` | `#94A3B8` | `#71717A` |
+| `--color-accent` | `#6366F1` (Indigo) | `#22C55E` (Green) | `#6366F1` (Indigo) |
+| `--color-success` | `#22C55E` | `#22C55E` | `#16A34A` |
+| `--color-warning` | `#FBBF24` | `#FBBF24` | `#D97706` |
+| `--color-danger` | `#EF4444` | `#EF4444` | `#DC2626` |
+| `--color-border` | `#27272A` | `#2D3A4F` | `#E5E5E5` |
 
-Catppuccin 偏方正（radius-sm 6px），iOS 偏圆润（radius-sm 8px）。
+每个主题还定义 8 个 soft 色变量（低透明度版本，用于 badge/pill/highlight 背景）：
 
-### 9.2 字体
+| Soft Token | Midnight | Forest | Dawn |
+|---|---|---|---|
+| `--color-accent-soft` | `rgba(99,102,241,0.15)` | `rgba(34,197,94,0.15)` | `rgba(99,102,241,0.10)` |
+| `--color-success-soft` | `rgba(34,197,94,0.15)` | `rgba(34,197,94,0.15)` | `rgba(22,163,74,0.10)` |
+| `--color-warning-soft` | `rgba(251,191,36,0.15)` | `rgba(251,191,36,0.15)` | `rgba(217,119,6,0.12)` |
+| `--color-danger-soft` | `rgba(239,68,68,0.15)` | `rgba(239,68,68,0.15)` | `rgba(220,38,38,0.10)` |
+| `--color-subtext-soft` | `rgba(161,161,170,0.12)` | `rgba(148,163,184,0.12)` | `rgba(113,113,122,0.10)` |
+
+Midnight.css 包含 `:root` fallback 块（CSS 级安全网，JS 未执行时仍可用）。
+
+### 9.2 Token 体系
+
+每个主题 CSS 定义完整的 token 体系（非仅颜色）：
+
+- **圆角**：`--radius-sm` 4px / `--radius-md` 6px / `--radius-lg` 8px / `--radius-full` 9999px
+- **间距**：`--sp-1` 4px → `--sp-8` 32px（8px 基数）
+- **字号**：`--fs-xs` 12px → `--fs-2xl` 32px
+- **字体**：`--font-sans` (Inter) / `--font-mono` (JetBrains Mono) / `--font-display` (Space Grotesk)
+- **阴影**：`--shadow-sm` / `--shadow-md` / `--shadow-lg`
+- **z-index**：`--z-base` 0 / `--z-sticky` 10 / `--z-overlay` 50 / `--z-modal` 100
+- **动画时长**：`--t-fast` 120ms / `--t-normal` 200ms / `--t-slow` 300ms
+- **毛玻璃**：`--glass-bg` (rgba 0.85) + `--glass-blur` 8px
+- **布局尺寸**：`--sidebar-w` 240px / `--sidebar-collapsed-w` 48px / `--info-w` 280px / `--info-collapsed-w` 32px / `--topbar-h` 40px
+- **token 间接层**：`--color-token-accent` / `--color-token-text` / `--color-token-cyan` / `--color-token-yellow` / `--color-token-red` / `--color-token-subtext`（保留给 `token-map.ts`）
+
+### 9.3 字体
 
 - **UI sans**：Inter（界面文字，中性高可读）
 - **Mono**：JetBrains Mono（代码块、工具输出、diff、shell 命令）
-- **Wordmark**：Space Grotesk（仅品牌标识，display face used with restraint）
+- **Wordmark**：Space Grotesk（仅品牌标识，`--font-display` 变量）
 
-### 9.3 图标
+通过 `global.css` 的 Google Fonts `@import` 加载。
+
+### 9.4 图标
 
 Lucide React（SVG，1.5px 描边）。零 emoji。
 
 | 位置 | 图标 |
 |---|---|
-| 侧栏·聊天 | `MessageSquare` |
-| 侧栏·文件 | `FolderOpen` |
-| 侧栏·会话 | `History` |
+| 侧栏·项目 | `FolderOpen` |
 | 侧栏·设置 | `Settings` |
+| 侧栏·添加项目 | `FolderPlus` |
+| 顶栏·模型 | `Cpu` |
+| 顶栏·目录 | `FolderClosed` |
+| 信息面板·状态 | `Activity` |
+| 信息面板·上下文 | `Gauge` |
+| 信息面板·工具调用 | `Wrench` |
+| 信息面板·文件 | `FileEdit` / `FilePlus` |
+| 信息面板·权限 | `ShieldCheck` |
+| 信息面板·系统提示 | `Terminal` |
+| 信息面板·日志 | `ScrollText` |
 | 设置·通用 | `SlidersHorizontal` |
 | 设置·模型 | `Cpu` |
 | 设置·权限 | `ShieldCheck` |
-| 设置·工具 | `Wrench` |
-| 设置·上下文 | `Gauge` |
-| 设置·系统提示 | `Terminal` |
-| 设置·日志 | `ScrollText` |
 | 新建会话 | `Plus` |
-| 压缩 | `Minimize2` |
-| 清空 | `Trash2` |
+| 压缩 | `Archive` |
+| 清空 | `Eraser` |
 | 发送 | `ArrowUp` |
 | 停止 | `Square` |
+| 命令面板 | `Search` |
 | 消息角色·user | `User` |
 | 消息角色·assistant | `Bot` |
 | 消息角色·thinking | `Brain` |
 | 消息角色·tool | `Wrench` |
 | 消息角色·error | `AlertCircle` |
-| 布局·focus | `Square` |
-| 布局·workspace | `Columns3` |
-| 布局·zen | `Maximize` |
 
-### 9.4 品牌标识
+### 9.5 品牌标识
 
-**Mark**：Lucide `Egg` 图标为主体，Lucide `PawPrint` 缩小叠在蛋右上区域。两个图标单色描边，跟随 `--color-accent`。
+**Mark**：Lucide `Egg` 图标为主体，Lucide `PawPrint` 缩小至 0.35 比例叠在蛋右上区域。两个图标单色描边，跟随 `--color-accent`。Hover 微动效：paw 轻微弹跳（`translateY(-1px)` + transition），尊重 reduced-motion。
 
-**Wordmark**："DoggEgg" 用 Space Grotesk 600。两个 "gg"（Dogg 的尾 gg + Egg 的首 gg）用 `--color-accent`，其余字母用 `--color-text`。
+**Wordmark**："DogEgg" 用 Space Grotesk（`--font-display` 变量），统一字体颜色，不再拆分字母高亮。
 
-侧栏顶部：mark（24px）+ wordmark（14px）。favicon 用 mark 单独。
+侧栏顶部：mark + wordmark。收起态仅显示 mark。
 
-### 9.5 三布局
+### 9.6 Primitives 组件层
 
-**Focus（默认）**：窄侧栏（240px）+ 全宽聊天。
-**Workspace**：侧栏 + 聊天 + 右侧详情面板（点击工具块在右侧展开完整输出）。
-**Zen**：无侧栏，全宽聊天，侧栏通过按钮呼出为浮动抽屉。
+`components/primitives/` 提供统一基础组件，消除各处手写样式不一致：
 
-切换：侧栏底部按钮组 + 快捷键。`data-layout` 属性控制容器 CSS grid 模板。
+| 组件 | 说明 |
+|---|---|
+| `Button` | variant: primary/secondary/danger/ghost，size: sm/md |
+| `IconButton` | 统一 32×32 方形按钮，hover surface-elevated |
+| `Input` / `Textarea` | 统一 border + focus(border-accent) 样式 |
+| `SelectField` | label + desc + select 下拉框 |
+| `EditableField` | 可编辑字段（blurred 提交） |
+| `Toggle` | 统一开关组件 |
+| `Badge` | variant: accent/warning/success/danger/neutral |
+| `Tooltip` | CSS-only tooltip（hover 显示） |
+| `Card` / `Section` | 统一 card bg + border + radius 布局 |
 
-### 9.6 动画
+### 9.7 动画
 
 | 场景 | 动画 | 时长 | 缓动 |
 |---|---|---|---|
-| 流式文本 | 新 token fade-in | 80ms | linear |
-| 消息块入场 | slide-up + fade | 200ms | ease-out |
-| 工具运行中 | 色条脉冲循环 | 1.5s loop | ease-in-out |
-| 思考/响应中 | 状态点脉冲（三点错峰） | 1s loop | ease-in-out |
-| 面板切换 | crossfade | 150ms | ease |
-| 权限弹窗 | scale + fade + backdrop blur | 200ms | ease-out |
-| 侧栏选中 | background-color transition | 120ms | ease |
-| 布局切换 | grid 过渡 / crossfade | 200ms | ease |
-| 工具块展开 | 图标 scale 0.9→1 微弹 | 80ms | ease-out |
-| 思考块折叠 | 图标 rotate 0→90° | 80ms | ease-out |
+| 消息块入场 | slide-up + fade (`block-in`) | 200ms | ease-out |
+| Modal 入场 | scale + fade (`modal-enter`) | 200ms | ease-out |
+| 工具运行中 | spinner 旋转 (`spin`) | — | linear loop |
+| 思考/响应中 | 状态点脉冲 (`pulse-dot`) | 1s loop | ease-in-out |
+| 命令面板高亮 | accent 边框 + soft 色光晕 | 300ms | ease |
 
-全部 CSS `@keyframes` + `transition`，零运行时依赖。`prefers-reduced-motion: reduce` 禁用循环和入场动画，保留即时状态变化。
+全部 CSS `@keyframes` + `transition`，零运行时依赖。`prefers-reduced-motion: reduce` 用通配 `*` 选择器覆盖所有 animation/transition，禁用循环和入场动画。
 
-### 9.7 消息块视觉
+### 9.8 信息面板 8 section
 
-每条消息用色条 + 标签 + Lucide 图标标识角色：
-- 左侧 3px 竖条（颜色 = `--color-{token}`）+ 角色标签 + Lucide 图标
-- 思考块/工具块可折叠（默认折叠，点击展开）
-- 工具运行中：色条脉冲动画替代 spinner
-- markdown 用 DOM 渲染（`marked` 已在依赖中，输出 HTML 即可）
+右侧信息面板包含 8 个可折叠 `InfoCard`（默认折叠的标注）：
+
+| Section | 默认 | 内容 | 高亮 key |
+|---|---|---|---|
+| Status & Model | 展开 | STATUS_CONFIG 图标+色+文字 + provider/model | `status` |
+| Context | 展开 | 进度条 + token 数字 | `context` |
+| Tool Calls | 展开 | 工具调用列表（seq + 状态图标 + 权限标签） | `toolcalls` |
+| Files Touched | 折叠 | 从 tool_start input.path 提取的文件列表 | `files` |
+| Available Tools | 折叠 | 工具列表 + config 权限标签 | `tools` |
+| Session Permissions | 折叠 | allow_always 授权列表 + 撤销按钮 | `permissions` |
+| System Prompt | 折叠 | 路径 + 内容预览 | `system` |
+| Log Tail | 折叠 | 日志尾部 | `log` |
+
+`InfoCard` 的 `highlight` prop 触发 accent 边框 + soft 色光晕 + 自动展开。
+
+### 9.9 消息块视觉
+
+按 kind 分化渲染（不再统一色条）：
+- **UserBlock**：右对齐气泡（accent-soft 背景）
+- **AssistantBlock**：头像 + markdown body
+- **ThinkingBlock**：warning 卡片（warning-soft 背景 + 左 3px 边框 + mono body）
+- **ToolBlock**：状态卡片（20px 图标框 + 工具名 + 状态图标 done/running/error）
+- **ErrorBlock**：danger 卡片
+- **NoticeBlock**：subtext 提示
+
+markdown 用 `marked` 渲染（`dangerouslySetInnerHTML`），`:global` CSS 规则统一（含 table/th/td）。
 
 ## 10. 构建与开发
 
@@ -524,9 +601,9 @@ esbuild 打包 main-web.ts → `dist/server.js`，与现有 `build.mjs` 同模�
 | **P0** | bridge 契约加 set_cwd；agent setCwd 实现；/cd 命令 | typecheck + TUI 测 /cd |
 | **P1** | shared 重构：block/reducer/commands/config 移到 shared + 语义化；TUI token-map 适配 | typecheck + TUI 全功能回归 |
 | **P2** | server 包：SSE channel + HTTP server + fs 端点 + 组合根 main-web.ts | typecheck + 手测 SSE 连通 |
-| **P3** | WebUI 骨架：App + SSE client + 侧栏 + 聊天视口 + 消息块 + 输入栏 + 状态栏 | 浏览器打开能看到消息流 |
-| **P4** | WebUI 完整面板：设置面板（7 子项）+ 会话面板 + 权限弹窗 + 确认弹窗 + fs-browser | 全功能对等验证 |
-| **P5** | 设计系统：三主题 + 三布局 + 动画 + 品牌标识 + Lucide 图标 | 视觉 gate（judge） |
+| **P3** | WebUI 骨架：App + SSE client + 侧栏 + 聊天视口 + 消息块 + 输入栏 + 顶栏 | 浏览器打开能看到消息流 |
+| **P4** | WebUI 完整面板：信息面板（8 section）+ 设置面板（IDE 风格）+ 命令面板（Cmd+K）+ 权限 banner + 确认弹窗 + fs-browser | 全功能对等验证 |
+| **P5** | 设计系统：三主题 + Primitives 组件层 + 动画 + 品牌标识 + Lucide 图标 | 视觉 gate（judge） |
 | **P6** | 构建流水线：vite.config + build-web.mjs + dev:web/start:web 脚本 + 架构测试扩展 | typecheck + test + build:web + start:web |
 
 ## 13. 不做（v1 范围外）

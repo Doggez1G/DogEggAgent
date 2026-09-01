@@ -1,12 +1,13 @@
 # DogEggAgent 模块化重构设计文档
 
-> 状态：已确认，待进入实施计划
+> 状态：已实施（后续新增 server 包，见 WebUI 设计 spec）
 > 日期：2026-08-27
 > 前置：基于 `2026-08-26-dog-egg-agent-design.md`（下称「原设计」）的 v0.1.0 实现现状
+> 更新：2026-09-01 — 三包扩展为四包（新增 `@dogegg/server`），见 `2026-08-29-webui-design.md`
 
 ## 1. 目标与范围
 
-将 DogEggAgent 从「单一 `src/` 目录 + 域内平铺文件」重构为 **npm workspaces 真多包** 的模块化架构，三个顶层包 `agent` / `ui` / `bridge`，各自拥有独立的 `src/` 与 `test/`、独立 `package.json`、独立 `tsconfig.json`。
+将 DogEggAgent 从「单一 `src/` 目录 + 域内平铺文件」重构为 **npm workspaces 真多包** 的模块化架构，四个顶层包 `agent` / `ui` / `bridge` / `server`，各自拥有独立的 `src/` 与 `test/`、独立 `package.json`、独立 `tsconfig.json`。
 
 **硬约束**：
 
@@ -19,37 +20,45 @@
 ## 2. 依赖图
 
 ```
-                    ┌─────────┐
-                    │ main.ts │  组合根（根目录薄文件，~25 行）
-                    └────┬────┘
+                    ┌─────────────┐
+                    │ main.ts     │  TUI 组合根（根目录薄文件）
+                    │ main-web.ts │  WebUI 组合根（import agent + server）
+                    └──────┬──────┘
                  装配 ↓  ↓ 装配
               ┌────────┐        ┌────────┐
               │ agent  │ ⇄消息⇄ │   ui   │
               └───┬────┘        └───┬────┘
                   └──────┬──────────┘
-                    ┌────┴─────┐
-                    │  bridge  │  契约 + 通道
-                    └──────────┘
+              ┌──────────┴──────────┐
+              │      bridge         │  契约 + 通道
+              └──────────┬──────────┘
+                    ┌─────┴──────┐
+                    │   server   │  HTTP + SSE + REST（WebUI 用）
+                    └────────────┘
 ```
 
-`agent` 与 `ui` 通过 `bridge` 里的消息契约 + 同进程通道（Port）互通，互不 import。只有组合根持有「两边如何对接」的知识。
+`agent` 与 `ui` 通过 `bridge` 里的消息契约 + 通道（Port）互通，互不 import。TUI 组合根（`main.ts`）同时 import agent 与 ui；WebUI 组合根（`main-web.ts`）import agent + server，前端是静态文件被 server serve。server 实现 SSE channel 完成 bridge Port 接口的网络传输。
 
 ## 3. 顶层形态：npm workspaces 真多包
 
 ```
 DogEggAgent/
-├─ package.json          # workspaces: ["agent","ui","bridge"]；根持有 typecheck/test/build 脚本
+├─ package.json          # workspaces: ["agent","ui","bridge","server"]；根持有 typecheck/test/build 脚本
 ├─ tsconfig.base.json    # 共享 compilerOptions（strict / moduleResolution: bundler 等）
-├─ tsconfig.json         # 根：extends base，只含 main.ts
-├─ vitest.config.ts      # include 三个包的 test/
-├─ build.mjs             # esbuild 构建（含 @dogegg/* 解析插件，见 §8）
-├─ main.ts               # 组合根（见 §6）
+├─ tsconfig.json         # 根：extends base，含 main.ts + main-web.ts
+├─ vitest.config.ts      # include 四个包的 test/
+├─ build.mjs             # esbuild 构建（TUI，含 @dogegg/* 解析插件，见 §8）
+├─ build-web.mjs         # esbuild 构建（WebUI server bundle）
+├─ vite.config.ts        # Vite 构建配置（WebUI 前端入口）
+├─ main.ts               # TUI 组合根（见 §6）
+├─ main-web.ts           # WebUI 组合根（import agent + server + bridge）
 ├─ agent/                # @dogegg/agent
 ├─ ui/                   # @dogegg/ui
-└─ bridge/               # @dogegg/bridge
+├─ bridge/               # @dogegg/bridge
+└─ server/               # @dogegg/server（HTTP + SSE + REST + 静态文件）
 ```
 
-每个包的 `package.json` 为 `"type": "module"`，`exports` 直接指向 TS 源码（`./src/index.ts`）——**包不单独构建**，类型检查、测试、打包由根一次完成。这是 workspace 的「内部包」模式：获得真包名 import 与独立包清单的收益，又不引入三套构建流水线。
+每个包的 `package.json` 为 `"type": "module"`，`exports` 直接指向 TS 源码（`./src/index.ts`）——**包不单独构建**，类型检查、测试、打包由根一次完成。这是 workspace 的「内部包」模式：获得真包名 import 与独立包清单的收益，又不引入多套构建流水线。
 
 各包依赖（依赖表即文档）：
 
@@ -57,8 +66,9 @@ DogEggAgent/
 |---|---|---|---|
 | `@dogegg/bridge` | `zod` | — | 契约含 Config 的 zod schema；无运行时依赖内聚 |
 | `@dogegg/agent` | `zod`, `@dogegg/bridge` | — | |
-| `@dogegg/ui` | `ink`, `react`, `ink-text-input`, `marked`, `@dogegg/bridge` | `@types/react`, `@types/node` | 仅此包开 `jsx: react-jsx` |
-| 根 `dogegg-agent` | `@dogegg/agent`, `@dogegg/ui`, `@dogegg/bridge` | `esbuild`, `typescript`, `vitest`, `@types/node` 等 | main.ts 的依赖 |
+| `@dogegg/ui` | `ink`, `react`, `ink-text-input`, `marked`, `lucide-react`, `@dogegg/bridge` | `@types/react`, `@types/node`, `vite`, `@vitejs/plugin-react` | 仅此包开 `jsx: react-jsx`；webui 用 React DOM + Vite + CSS Modules |
+| `@dogegg/server` | `@dogegg/agent`, `@dogegg/bridge` | `@types/node` | SSE channel + HTTP server + REST 端点；不 import ui |
+| 根 `dogegg-agent` | `@dogegg/agent`, `@dogegg/ui`, `@dogegg/bridge`, `@dogegg/server` | `esbuild`, `typescript`, `vitest`, `concurrently`, `@types/node` 等 | main.ts / main-web.ts 的依赖 |
 
 ## 4. bridge 包：契约 + 通道
 
