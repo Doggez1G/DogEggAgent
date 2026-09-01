@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { marked } from 'marked'
 import { ChevronRight, FolderClosed, FolderUp, ArrowLeft, X } from 'lucide-react'
 import type { AgentToUiMessage, Config, UiPort } from '@dogegg/bridge'
 import { Sidebar, TopBar, ChatView, InputBar, Settings, InfoPanel, CommandPalette } from '../components'
@@ -16,7 +15,6 @@ interface AppProps {
 }
 
 const initialState: ChatState = { blocks: [], status: 'idle', partial: null }
-marked.setOptions({ breaks: true, gfm: true })
 
 // 获取工具的配置权限（快照）——从 config.permission 的 allow/reject/ask 桶判断。
 function getToolConfigPerm(toolName: string, config: Config | null): string {

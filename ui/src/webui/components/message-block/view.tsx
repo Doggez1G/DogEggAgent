@@ -1,30 +1,30 @@
 import { useState } from 'react'
-import { KIND_ICON, KIND_LABEL, TOKEN_CSS_VAR } from '../../theme/token-map'
+import { KIND_ICON, KIND_LABEL } from '../../theme/token-map'
 import { Egg, User, ChevronDown, Wrench, Check, X, Loader2 } from 'lucide-react'
+import { MarkdownRenderer } from '../markdown'
 import type { BlockKind, ColorToken } from '../../../shared/block'
 import { isExpandable } from '../../../shared/block'
 import styles from './message-block.module.css'
 
 // 消息块：按 kind 分化渲染——每种类型有完全不同的视觉结构。
 // user → 右对齐气泡；assistant → avatar + 正文；thinking → warning 卡片；tool → 状态卡片。
+// markdown 渲染统一用 MarkdownRenderer（react-markdown 组件式，不走 dangerouslySetInnerHTML）。
 interface MessageBlockProps {
   kind: BlockKind
   color: ColorToken
   text: string
   full?: string
-  html?: string
-  fullHtml?: string
   isRunning?: boolean
 }
 
-export function MessageBlock({ kind, color, text, full, html, fullHtml, isRunning }: MessageBlockProps) {
+export function MessageBlock({ kind, color, text, full, isRunning }: MessageBlockProps) {
   switch (kind) {
     case 'user':
       return <UserBlock text={text} />
     case 'assistant':
-      return <AssistantBlock text={text} html={html} />
+      return <AssistantBlock text={text} />
     case 'thinking':
-      return <ThinkingBlock text={text} full={full} html={html} fullHtml={fullHtml} />
+      return <ThinkingBlock text={text} full={full} />
     case 'tool':
       return <ToolBlock text={text} full={full} isRunning={isRunning} />
     case 'error':
@@ -47,7 +47,7 @@ function UserBlock({ text }: { text: string }) {
 }
 
 // ── 助手消息：avatar + 角色标签 + markdown 正文 ──
-function AssistantBlock({ text, html }: { text: string; html?: string }) {
+function AssistantBlock({ text }: { text: string }) {
   return (
     <div className={styles.assistantRow}>
       <div className={styles.assistantAvatar}>
@@ -56,11 +56,7 @@ function AssistantBlock({ text, html }: { text: string; html?: string }) {
       <div className={styles.assistantContent}>
         <span className={styles.roleLabel}>DogEgg</span>
         <div className={styles.assistantBody}>
-          {html ? (
-            <div className={styles.htmlContent} dangerouslySetInnerHTML={{ __html: html }} />
-          ) : (
-            <p>{text}</p>
-          )}
+          <MarkdownRenderer content={text} />
         </div>
       </div>
     </div>
@@ -68,11 +64,10 @@ function AssistantBlock({ text, html }: { text: string; html?: string }) {
 }
 
 // ── 思考块：warning 色调卡片，可折叠 ──
-function ThinkingBlock({ text, full, html, fullHtml }: { text: string; full?: string; html?: string; fullHtml?: string }) {
+function ThinkingBlock({ text, full }: { text: string; full?: string }) {
   const [expanded, setExpanded] = useState(false)
   const expandable = full !== undefined
-  const showHtml = expandable && expanded ? fullHtml : html
-  const showText = expandable && expanded ? (full ?? text) : text
+  const showContent = expandable && expanded ? (full ?? text) : text
   return (
     <div className={`${styles.thinkingCard} ${expanded ? '' : styles.collapsedCard}`}>
       <button className={styles.thinkingHeader} onClick={() => expandable && setExpanded(!expanded)}>
@@ -81,11 +76,7 @@ function ThinkingBlock({ text, full, html, fullHtml }: { text: string; full?: st
       </button>
       {expanded && (
         <div className={styles.thinkingBody}>
-          {showHtml ? (
-            <div className={styles.htmlContent} dangerouslySetInnerHTML={{ __html: showHtml }} />
-          ) : (
-            <pre className={styles.monoText}>{showText}</pre>
-          )}
+          <MarkdownRenderer content={showContent} />
         </div>
       )}
     </div>

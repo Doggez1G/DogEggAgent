@@ -1,0 +1,121 @@
+/* Markdown 渲染样式——统一在 MarkdownRenderer 使用，消除 chat-view/message-block 两处重复。 */
+.markdown {
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  line-height: 1.7;
+  color: var(--color-text);
+  word-break: break-word;
+}
+
+.markdown :global(p) { margin: var(--sp-1) 0; }
+.markdown :global(code) {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  background: var(--color-surface-elevated);
+  padding: 1px var(--sp-1);
+  border-radius: var(--radius-sm);
+}
+.markdown :global(pre) {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-3);
+  overflow-x: auto;
+  margin: 0;
+}
+.markdown :global(pre code) {
+  background: none;
+  padding: 0;
+  font-size: var(--fs-xs);
+}
+.markdown :global(ul), .markdown :global(ol) {
+  margin: var(--sp-1) 0;
+  padding-left: var(--sp-5);
+}
+.markdown :global(li) { margin: 2px 0; }
+.markdown :global(h1), .markdown :global(h2), .markdown :global(h3) {
+  margin: var(--sp-3) 0 var(--sp-2);
+  font-weight: 600;
+}
+.markdown :global(h1) { font-size: var(--fs-lg); }
+.markdown :global(h2) { font-size: var(--fs-md); }
+.markdown :global(h3) { font-size: var(--fs-base); }
+.markdown :global(a) {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+.markdown :global(a:hover) { text-decoration: underline; }
+.markdown :global(blockquote) {
+  border-left: 2px solid var(--color-border);
+  padding-left: var(--sp-3);
+  margin: var(--sp-2) 0;
+  color: var(--color-subtext);
+}
+.markdown :global(table) {
+  border-collapse: collapse;
+  margin: var(--sp-2) 0;
+  font-size: var(--fs-sm);
+  width: 100%;
+}
+.markdown :global(th), .markdown :global(td) {
+  border: 1px solid var(--color-border);
+  padding: var(--sp-1) var(--sp-3);
+  text-align: left;
+}
+.markdown :global(th) {
+  background: var(--color-surface-elevated);
+  font-weight: 600;
+}
+.markdown :global(hr) {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: var(--sp-3) 0;
+}
+.markdown :global(img) {
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+}
+
+/* highlight.js 语法高亮——使用 CSS 变量适配主题 */
+.markdown :global(.hljs) { color: var(--color-text); background: transparent; }
+.markdown :global(.hljs-comment), .markdown :global(.hljs-quote) { color: var(--color-subtext); font-style: italic; }
+.markdown :global(.hljs-keyword), .markdown :global(.hljs-selector-tag), .markdown :global(.hljs-built_in) { color: var(--color-accent); }
+.markdown :global(.hljs-string), .markdown :global(.hljs-attr) { color: var(--color-success); }
+.markdown :global(.hljs-number), .markdown :global(.hljs-literal) { color: var(--color-warning); }
+.markdown :global(.hljs-title), .markdown :global(.hljs-section), .markdown :global(.hljs-name) { color: var(--color-token-cyan, var(--color-accent)); }
+.markdown :global(.hljs-type), .markdown :global(.hljs-class .hljs-title) { color: var(--color-warning); }
+.markdown :global(.hljs-tag) { color: var(--color-subtext); }
+.markdown :global(.hljs-attribute) { color: var(--color-token-yellow, var(--color-warning)); }
+.markdown :global(.hljs-regexp), .markdown :global(.hljs-link) { color: var(--color-token-cyan, var(--color-accent)); }
+.markdown :global(.hljs-emphasis) { font-style: italic; }
+.markdown :global(.hljs-strong) { font-weight: bold; }
+.markdown :global(.hljs-deletion) { color: var(--color-danger); }
+.markdown :global(.hljs-addition) { color: var(--color-success); }
+
+/* 代码块容器 + hover 复制按钮 */
+.codeBlockWrap {
+  position: relative;
+  margin: var(--sp-2) 0;
+}
+.copyBtn {
+  position: absolute;
+  top: var(--sp-2);
+  right: var(--sp-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-elevated);
+  color: var(--color-subtext);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--t-fast) ease, color var(--t-fast) ease;
+  z-index: 1;
+}
+.codeBlockWrap:hover .copyBtn { opacity: 1; }
+.copyBtn:hover { color: var(--color-text); background: var(--color-surface); }

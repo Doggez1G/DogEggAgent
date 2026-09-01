@@ -146,30 +146,3 @@
   color: var(--color-text);
   margin: 0;
 }
-
-/* ── markdown HTML（streaming 用）── */
-.htmlContent {
-  font-family: var(--font-sans);
-  font-size: var(--fs-base);
-  line-height: 1.7;
-  color: var(--color-text);
-  word-break: break-word;
-}
-.htmlContent :global(p) { margin: var(--sp-1) 0; }
-.htmlContent :global(code) {
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  background: var(--color-surface-elevated);
-  padding: 1px var(--sp-1);
-  border-radius: var(--radius-sm);
-}
-.htmlContent :global(pre) {
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--sp-3);
-  overflow-x: auto;
-  margin: var(--sp-2) 0;
-}

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef } from 'react'
-import { marked } from 'marked'
+import { useEffect, useRef } from 'react'
 import { Egg, Loader2 } from 'lucide-react'
 import { MessageBlock } from '../message-block'
+import { MarkdownRenderer } from '../markdown'
 import type { ChatState } from '../../../shared/reducer'
 import type { Block } from '../../../shared/block'
 import styles from './chat-view.module.css'
@@ -12,23 +12,8 @@ interface ChatViewProps {
   isRunning: boolean
 }
 
-type RenderedBlock = Block & { html?: string; fullHtml?: string }
-
 export function ChatView({ chat, isRunning }: ChatViewProps) {
   const endRef = useRef<HTMLDivElement>(null)
-
-  const renderedBlocks = useMemo<RenderedBlock[]>(
-    () =>
-      chat.blocks.map((b) => ({
-        ...b,
-        html: b.kind === 'assistant' || b.kind === 'thinking' ? (marked.parse(b.text) as string) : undefined,
-        fullHtml:
-          b.full !== undefined && (b.kind === 'assistant' || b.kind === 'thinking')
-            ? (marked.parse(b.full) as string)
-            : undefined,
-      })),
-    [chat.blocks],
-  )
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -48,15 +33,13 @@ export function ChatView({ chat, isRunning }: ChatViewProps) {
         </div>
       ) : (
         <div className={styles.messages}>
-          {renderedBlocks.map((b, i) => (
+          {chat.blocks.map((b, i) => (
             <MessageBlock
               key={i}
               kind={b.kind}
               color={b.color}
               text={b.text}
               full={b.full}
-              html={b.html}
-              fullHtml={b.fullHtml}
             />
           ))}
 
@@ -64,7 +47,6 @@ export function ChatView({ chat, isRunning }: ChatViewProps) {
             <StreamingBlock
               kind={chat.partial.kind}
               text={chat.partial.text}
-              html={marked.parse(chat.partial.text) as string}
             />
           )}
 
@@ -104,7 +86,7 @@ export function ChatView({ chat, isRunning }: ChatViewProps) {
 }
 
 // 流式 partial 块：avatar + 实时显示正在生成的文本。
-function StreamingBlock({ kind, text, html }: { kind: 'assistant' | 'thinking'; text: string; html?: string }) {
+function StreamingBlock({ kind, text }: { kind: 'assistant' | 'thinking'; text: string }) {
   if (kind === 'thinking') {
     return (
       <div className={styles.streamingThinking}>
@@ -126,10 +108,10 @@ function StreamingBlock({ kind, text, html }: { kind: 'assistant' | 'thinking'; 
       <div className={styles.assistantContent}>
         <span className={styles.roleLabel}>DogEgg</span>
         <div className={styles.assistantBody}>
-          {html ? (
-            <div className={styles.htmlContent + ' token-stream'} dangerouslySetInnerHTML={{ __html: html }} />
+          {text ? (
+            <MarkdownRenderer content={text} className="token-stream" />
           ) : (
-            <pre className={styles.monoText + ' token-stream'}>{text}</pre>
+            <pre className={styles.monoText + ' token-stream'}></pre>
           )}
         </div>
       </div>
