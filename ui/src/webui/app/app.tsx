@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { ChevronRight, FolderClosed, FolderUp, ArrowLeft, X } from 'lucide-react'
-import type { AgentToUiMessage, Config, UiPort } from '@dogegg/bridge'
-import { Sidebar, TopBar, ChatView, InputBar, Settings, InfoPanel, CommandPalette } from '../components'
+import type { AgentToUiMessage, Config, UiPort, UiToAgentMessage } from '@dogegg/bridge'
+import { Sidebar, TopBar, ChatView, InputBar, Settings, InfoPanel, CommandPalette, ErrorBoundary } from '../components'
 import { Button } from '../components/primitives'
 import { reducer, type ChatState } from '../../shared/reducer'
 import type { ThemeName, Modal, SessionItem, FileTouched } from './view-state'
@@ -12,6 +12,7 @@ import styles from './app.module.css'
 // 设置/命令面板/权限等通过 modal 弹窗呈现。
 interface AppProps {
   port: UiPort
+  connectionState?: 'connected' | 'reconnecting' | 'disconnected'
 }
 
 const initialState: ChatState = { blocks: [], status: 'idle', partial: null }
@@ -24,7 +25,7 @@ function getToolConfigPerm(toolName: string, config: Config | null): string {
   return 'ask'
 }
 
-export function App({ port }: AppProps) {
+export function App({ port, connectionState }: AppProps) {
   const [chat, dispatch] = useReducer(reducer, initialState)
   const [modal, setModal] = useState<Modal>({ kind: 'none' })
   const [theme, setTheme] = useState<ThemeName>('midnight')
@@ -55,6 +56,7 @@ export function App({ port }: AppProps) {
   const [highlightSection, setHighlightSection] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const toolSeqRef = useRef(0)
   // 追踪最新 config——onMessage 闭包不能直接读 config state（不在 effect deps 中）。
   const configRef = useRef<Config | null>(null)
@@ -62,6 +64,8 @@ export function App({ port }: AppProps) {
   // 记录 permission_decision 的 toolName→decision 映射，供 tool_start 时关联决策标签。
   // permission_request.id 与 tool_start.id 不同（后端分别生成），无法按 id 匹配，改用 toolName。
   const permissionDecisions = useRef<Map<string, 'allow_once' | 'allow_always' | 'reject'>>(new Map())
+  // 连接状态——首次从 connected 变为非 connected 时 toast 提醒。
+  const prevConnState = useRef<'connected' | 'reconnecting' | 'disconnected'>('reconnecting')
 
   // 显示 toast 提示——3 秒后自动消失。
   const showToast = useCallback((msg: string) => {
@@ -71,15 +75,42 @@ export function App({ port }: AppProps) {
   }, [])
 
   // 高亮右侧面板某个 section——展开面板 + 设置高亮 key，3 秒后消失。
+  // 独立 timer，不与 toast 共用（修复之前共享 toastTimer 导致 toast 不消失的 bug）。
   const highlightInfoSection = useCallback((section: string) => {
     setInfoCollapsed(false)
     setHighlightSection(section)
-    if (toastTimer.current) clearTimeout(toastTimer.current)
-    toastTimer.current = setTimeout(() => setHighlightSection(null), 3000)
+    if (highlightTimer.current) clearTimeout(highlightTimer.current)
+    highlightTimer.current = setTimeout(() => setHighlightSection(null), 3000)
   }, [])
+
+  // 连接状态变化——首次断连时 toast 提醒，重连后也提示。
+  useEffect(() => {
+    const prev = prevConnState.current
+    if (prev !== 'connected' && connectionState === 'connected') {
+      if (prev === 'disconnected' || prev === 'reconnecting') showToast('Reconnected')
+    } else if (prev === 'connected' && connectionState !== 'connected') {
+      showToast(connectionState === 'disconnected' ? 'Connection lost' : 'Reconnecting...')
+    }
+    prevConnState.current = connectionState ?? 'reconnecting'
+  }, [connectionState, showToast])
 
   const modalRef = useRef(modal)
   useEffect(() => { modalRef.current = modal }, [modal])
+
+  // 安全 POST——捕获网络错误 + HTTP 错误，用户操作（submit/new/resume 等）失败时 toast 提示。
+  // 后台刷新请求（context_request/log_request 等）失败时静默，不打扰用户。
+  const safePost = useCallback((msg: UiToAgentMessage, isUserAction = false) => {
+    try {
+      const result = port.post(msg)
+      if (result instanceof Promise) {
+        result.catch((e: unknown) => {
+          if (isUserAction) showToast(`Failed: ${e instanceof Error ? e.message : 'network error'}`)
+        })
+      }
+    } catch (e) {
+      if (isUserAction) showToast(`Failed: ${e instanceof Error ? e.message : 'error'}`)
+    }
+  }, [port, showToast])
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -251,55 +282,62 @@ export function App({ port }: AppProps) {
 
   return (
     <div className={styles.app} data-sidebar-collapsed={sidebarCollapsed} data-info-collapsed={infoCollapsed}>
-      <Sidebar
-        cwd={cwd}
-        isRunning={isRunning}
-        theme={theme}
-        collapsed={sidebarCollapsed}
-        sessions={sessions}
-        knownProjects={knownProjects}
-        activeSessionId={sessionId}
-        highlightSection={highlightSection}
-        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
-        onNewSession={(cwdArg) => port.post({ type: 'new_session', ...(cwdArg ? { cwd: cwdArg } : {}) })}
-        onResumeSession={(id) => port.post({ type: 'resume_session', id })}
-        onDeleteSession={handleDeleteSession}
-        onDeleteProject={handleDeleteProject}
-        onAddProject={() => setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })}
-        onOpenSettings={() => setModal({ kind: 'settings' })}
-        onThemeChange={setTheme}
-      />
+      <ErrorBoundary area="Sidebar">
+        <Sidebar
+          cwd={cwd}
+          isRunning={isRunning}
+          theme={theme}
+          collapsed={sidebarCollapsed}
+          sessions={sessions}
+          knownProjects={knownProjects}
+          activeSessionId={sessionId}
+          highlightSection={highlightSection}
+          onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+          onNewSession={(cwdArg) => safePost({ type: 'new_session', ...(cwdArg ? { cwd: cwdArg } : {}) }, true)}
+          onResumeSession={(id) => safePost({ type: 'resume_session', id }, true)}
+          onDeleteSession={handleDeleteSession}
+          onDeleteProject={handleDeleteProject}
+          onAddProject={() => setModal({ kind: 'fs-browser', onConfirm: (path) => { safePost({ type: 'new_session', cwd: path }, true); setModal({ kind: 'none' }) } })}
+          onOpenSettings={() => setModal({ kind: 'settings' })}
+          onThemeChange={setTheme}
+        />
+      </ErrorBoundary>
       <TopBar
         provider={statusBar.provider}
         model={statusBar.model}
         cwd={cwd}
         isRunning={isRunning}
         status={chat.status}
+        connectionState={connectionState}
         onOpenCommandPalette={() => setModal({ kind: 'command-palette' })}
       />
       <div className={styles.mainArea}>
-        <ChatView chat={chat} isRunning={isRunning} />
+        <ErrorBoundary area="Chat">
+          <ChatView chat={chat} isRunning={isRunning} />
+        </ErrorBoundary>
       </div>
-      <InfoPanel
-        sessionId={sessionId}
-        provider={statusBar.provider}
-        model={statusBar.model}
-        status={chat.status}
-        tokens={statusBar.tokens}
-        windowTokens={statusBar.windowTokens}
-        toolCalls={toolCalls}
-        toolsList={toolsList}
-        contextState={contextState}
-        systemState={systemState}
-        logState={logState}
-        filesTouched={filesTouched}
-        permissionsList={permissionsList}
-        config={config}
-        highlightSection={highlightSection}
-        collapsed={infoCollapsed}
-        onToggleCollapse={() => setInfoCollapsed(!infoCollapsed)}
-        port={port}
-      />
+      <ErrorBoundary area="Info Panel">
+        <InfoPanel
+          sessionId={sessionId}
+          provider={statusBar.provider}
+          model={statusBar.model}
+          status={chat.status}
+          tokens={statusBar.tokens}
+          windowTokens={statusBar.windowTokens}
+          toolCalls={toolCalls}
+          toolsList={toolsList}
+          contextState={contextState}
+          systemState={systemState}
+          logState={logState}
+          filesTouched={filesTouched}
+          permissionsList={permissionsList}
+          config={config}
+          highlightSection={highlightSection}
+          collapsed={infoCollapsed}
+          onToggleCollapse={() => setInfoCollapsed(!infoCollapsed)}
+          port={port}
+        />
+      </ErrorBoundary>
       <div className={styles.inputArea}>
         {pendingPermission && (
           <PermissionBanner
@@ -315,9 +353,10 @@ export function App({ port }: AppProps) {
           onClearHistory={onClearHistory}
           onQuit={onQuit}
           onUserSubmit={(text) => dispatch({ type: 'local_user', text })}
-          onNewSession={() => port.post({ type: 'new_session' })}
-          onCompact={() => port.post({ type: 'compact_request' })}
-          onAddProject={() => setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'new_session', cwd: path }); setModal({ kind: 'none' }) } })}
+          onNewSession={() => safePost({ type: 'new_session' }, true)}
+          onCompact={() => safePost({ type: 'compact_request' }, true)}
+          onAddProject={() => setModal({ kind: 'fs-browser', onConfirm: (path) => { safePost({ type: 'new_session', cwd: path }, true); setModal({ kind: 'none' }) } })}
+          onPostError={(e) => showToast(`Failed to send: ${e.message}`)}
           onCommandFeedback={(cmd) => {
             if (cmd === '/cd') setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'set_cwd', path }); setModal({ kind: 'none' }) } })
             else if (cmd === '/session') { setSidebarCollapsed(false); highlightInfoSection('sessions') }

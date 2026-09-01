@@ -1,1 +1,1 @@
-export { createSseUiPort } from './sse-client'
+export { createSseUiPort, type ConnectionState } from './sse-client'

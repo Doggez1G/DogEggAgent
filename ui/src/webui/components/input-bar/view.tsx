@@ -17,9 +17,10 @@ interface InputBarProps {
   onCompact?: () => void
   onAddProject?: () => void
   onCommandFeedback?: (cmd: string, arg?: string) => void
+  onPostError?: (error: Error) => void
 }
 
-export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit, onUserSubmit, onNewSession, onCompact, onAddProject, onCommandFeedback }: InputBarProps) {
+export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit, onUserSubmit, onNewSession, onCompact, onAddProject, onCommandFeedback, onPostError }: InputBarProps) {
   const [input, setInput] = useState('')
   const [suggestIdx, setSuggestIdx] = useState<number | null>(null)
   const [quickMenuOpen, setQuickMenuOpen] = useState(false)
@@ -51,7 +52,8 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
     if (result.kind === 'user' && !result.text) return
     if (result.kind === 'user') {
       onUserSubmit(result.text)
-      port.post({ type: 'submit', text: result.text })
+      const r = port.post({ type: 'submit', text: result.text })
+      if (r instanceof Promise) r.catch((e: Error) => onPostError?.(e))
     } else if (result.kind === 'help') {
       // /cd 无参数 → 打开文件选择器选目录（而非显示帮助）。
       // /help 或未知命令 → 打开帮助 modal。

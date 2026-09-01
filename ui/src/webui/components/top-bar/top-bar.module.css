@@ -46,6 +46,29 @@
   flex-shrink: 0;
 }
 
+/* ── 连接状态 pill（仅在非 connected 时显示）── */
+.connPill {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 2px var(--sp-2);
+  border-radius: var(--radius-full);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.connPill[data-conn='reconnecting'] { background: var(--color-warning-soft); color: var(--color-warning); }
+.connPill[data-conn='disconnected'] { background: var(--color-danger-soft); color: var(--color-danger); }
+
+.connDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.connDot[data-conn='reconnecting'] { animation: pulse-dot 1s ease-in-out infinite; }
+
 /* ── 模型 chip ── */
 .modelChip {
   display: flex;

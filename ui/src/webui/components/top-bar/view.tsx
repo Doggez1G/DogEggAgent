@@ -2,13 +2,14 @@ import React from 'react'
 import { Cpu, FolderClosed, Search } from 'lucide-react'
 import styles from './top-bar.module.css'
 
-// 顶栏：状态 pill + 模型/cwd + Cmd+K 搜索框样式按钮。
+// 顶栏：状态 pill + 模型/cwd + 连接状态 + Cmd+K 搜索框样式按钮。
 interface TopBarProps {
   provider: string | undefined
   model: string | undefined
   cwd: string
   isRunning: boolean
   status: string
+  connectionState?: 'connected' | 'reconnecting' | 'disconnected'
   onOpenCommandPalette: () => void
 }
 
@@ -19,9 +20,17 @@ const STATUS_LABELS: Record<string, string> = {
   error: 'Error', compacting: 'Compacting',
 }
 
-export function TopBar({ provider, model, cwd, isRunning, status, onOpenCommandPalette }: TopBarProps) {
+const CONN_LABELS: Record<string, string> = {
+  connected: 'Connected',
+  reconnecting: 'Reconnecting...',
+  disconnected: 'Disconnected',
+}
+
+export function TopBar({ provider, model, cwd, isRunning, status, connectionState, onOpenCommandPalette }: TopBarProps) {
   const cwdLabel = cwd.split(/[/\\]/).pop() || cwd
   const statusLabel = STATUS_LABELS[status] ?? status
+  const showConn = connectionState && connectionState !== 'connected'
+  const connLabel = connectionState ? CONN_LABELS[connectionState] ?? '' : ''
 
   return (
     <header className={styles.topBar}>
@@ -30,6 +39,16 @@ export function TopBar({ provider, model, cwd, isRunning, status, onOpenCommandP
         <span className={styles.statusDot} data-status={status} />
         <span>{statusLabel}</span>
       </div>
+
+      {showConn && (
+        <>
+          <div className={styles.sep} />
+          <div className={styles.connPill} data-conn={connectionState}>
+            <span className={styles.connDot} data-conn={connectionState} />
+            <span>{connLabel}</span>
+          </div>
+        </>
+      )}
 
       <div className={styles.sep} />
 
