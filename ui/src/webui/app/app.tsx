@@ -239,9 +239,13 @@ export function App({ port }: AppProps) {
   }, [port])
 
   const handleDeleteProject = useCallback((projectCwd: string) => {
-    const count = sessions.filter((s) => (s.cwd || '(unknown)') === projectCwd).length
-    setModal({ kind: 'confirm', title: 'Delete Project', message: `Remove project "${projectCwd.split(/[/\\]/).pop()}" from the sidebar? This deletes ${count} session(s) but does NOT delete any files on disk.`, onConfirm: () => {
-      sessions.filter((s) => (s.cwd || '(unknown)') === projectCwd).forEach((s) => port.post({ type: 'delete_session', id: s.id }))
+    const projSessions = sessions.filter((s) => (s.cwd || '(unknown)') === projectCwd)
+    const count = projSessions.length
+    const msg = count > 0
+      ? `删除项目 "${projectCwd.split(/[/\\]/).pop()}" 将同时删除其下 ${count} 个会话。此操作不会删除磁盘上的实际文件。确定删除？`
+      : `从侧边栏移除项目 "${projectCwd.split(/[/\\]/).pop()}"？此操作不会删除磁盘上的实际文件。`
+    setModal({ kind: 'confirm', title: count > 0 ? '删除项目' : '移除项目', message: msg, onConfirm: () => {
+      projSessions.forEach((s) => port.post({ type: 'delete_session', id: s.id }))
       setKnownProjects((prev) => { const next = new Set(prev); next.delete(projectCwd); return next })
       setModal({ kind: 'none' })
     } })
