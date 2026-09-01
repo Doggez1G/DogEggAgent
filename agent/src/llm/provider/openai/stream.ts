@@ -2,13 +2,35 @@ import type { Message } from '@dogegg/bridge'
 import type { LlmStreamEvent, ChatRequest } from '../../types'
 import { createOpenAiStreamParser } from '../../streaming/openai'
 import { buildRequest } from './request'
+import { HttpError, NetworkError, StreamTimeoutError } from './errors'
+
+// 流式超时常量：绝对超时 120s（兜底极端情况），空闲超时 15s（单次 chunk 读取无数据则中止）。
+const ABSOLUTE_TIMEOUT_MS = 120_000
+const IDLE_TIMEOUT_MS = 15_000
 
 // 单次流式请求：fetch → 逐行读 SSE 流 → 喂 parser → 累积最终 message + reasoning。
-// 不做重试（重试在 adapter 层）。HTTP 错误 / 流中断 / 无最终消息均抛错。
+// 不做重试（重试在 adapter 层）。HTTP 错误 / 流中断 / 超时 / 无最终消息均抛错。
+// 错误类型分类（HttpError / NetworkError / StreamTimeoutError），供 retry 层判断可重试性。
 export async function streamOnce(req: ChatRequest, signal: AbortSignal, emit: (e: LlmStreamEvent) => void): Promise<{ message: Message; reasoning?: string }> {
   const { url, init } = buildRequest(req)
-  const res = await fetch(url, { ...init, signal })
-  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+
+  let res: Response
+  try {
+    res = await fetch(url, { ...init, signal })
+  } catch (e) {
+    // fetch reject：网络错误（DNS 失败、连接拒绝、ECONNRESET 等），可重试。
+    if ((e as Error).name === 'AbortError') throw e
+    throw new NetworkError(e)
+  }
+
+  if (!res.ok || !res.body) {
+    const retryAfter = res.headers.get('retry-after')
+    throw new HttpError(
+      res.status,
+      `HTTP ${res.status}`,
+      retryAfter ? parseRetryAfter(retryAfter) : undefined,
+    )
+  }
 
   const parser = createOpenAiStreamParser()
   const reader = res.body.getReader()
@@ -16,28 +38,71 @@ export async function streamOnce(req: ChatRequest, signal: AbortSignal, emit: (e
   let buf = ''
   let finalMessage: Message | null = null
   let finalReasoning: string | undefined
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buf += decoder.decode(value, { stream: true })
-    // SSE 以换行分隔，逐行喂 parser；行可能跨 chunk，用 buf 缓冲未完整的尾行。
-    let nl: number
-    while ((nl = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, nl).trimEnd()
-      buf = buf.slice(nl + 1)
-      for (const e of parser.feed(line)) {
+
+  // 绝对超时计时器——从请求开始算，超过 ABSOLUTE_TIMEOUT_MS 则中止。
+  const absoluteTimer = setTimeout(
+    () => reader.cancel(new StreamTimeoutError('absolute')).catch(() => {}),
+    ABSOLUTE_TIMEOUT_MS,
+  )
+
+  try {
+    for (;;) {
+      // 空闲超时：每次 read 最多等 IDLE_TIMEOUT_MS，超时则中止。
+      const idleTimer = setTimeout(
+        () => reader.cancel(new StreamTimeoutError('idle')).catch(() => {}),
+        IDLE_TIMEOUT_MS,
+      )
+
+      let done: boolean
+      let value: Uint8Array | undefined
+      try {
+        const result = await reader.read()
+        done = result.done
+        value = result.value
+      } catch (e) {
+        // reader.read reject：可能是 cancel 导致的（超时/外部 abort），区分类型。
+        if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+        if (e instanceof StreamTimeoutError) throw e
+        throw new NetworkError(e)
+      } finally {
+        clearTimeout(idleTimer)
+      }
+
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      // SSE 以换行分隔，逐行喂 parser；行可能跨 chunk，用 buf 缓冲未完整的尾行。
+      let nl: number
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trimEnd()
+        buf = buf.slice(nl + 1)
+        for (const e of parser.feed(line)) {
+          if (e.type === 'done') { finalMessage = e.message; finalReasoning = e.reasoning }
+          else emit(e)
+        }
+      }
+    }
+
+    // 处理残余行：连接关闭时最后一批字节可能没有尾随换行。
+    if (buf.trim()) {
+      for (const e of parser.feed(buf.trim())) {
         if (e.type === 'done') { finalMessage = e.message; finalReasoning = e.reasoning }
         else emit(e)
       }
     }
+  } finally {
+    clearTimeout(absoluteTimer)
   }
-  // 处理残余行：连接关闭时最后一批字节可能没有尾随换行。
-  if (buf.trim()) {
-    for (const e of parser.feed(buf.trim())) {
-      if (e.type === 'done') { finalMessage = e.message; finalReasoning = e.reasoning }
-      else emit(e)
-    }
-  }
+
   if (!finalMessage) throw new Error('流未产生最终消息')
   return { message: finalMessage, reasoning: finalReasoning }
+}
+
+// 解析 Retry-After header：支持秒数（"120"）和 HTTP-date 两种格式。
+function parseRetryAfter(value: string): number | undefined {
+  const seconds = Number(value)
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000
+  const date = new Date(value)
+  const diff = date.getTime() - Date.now()
+  if (Number.isFinite(diff) && diff > 0) return diff
+  return undefined
 }
