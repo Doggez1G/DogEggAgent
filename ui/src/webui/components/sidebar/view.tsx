@@ -16,6 +16,7 @@ interface SidebarProps {
   theme: ThemeName
   collapsed: boolean
   sessions: SessionItem[]
+  knownProjects: Set<string>
   activeSessionId: string
   highlightSection?: string | null
   onToggleCollapse: () => void
@@ -43,7 +44,7 @@ function relTime(iso: string): string {
 export function Sidebar(props: SidebarProps) {
   const c = props.collapsed
   const [search, setSearch] = useState('')
-  const projects = groupByCwd(props.sessions)
+  const projects = groupByCwd(props.sessions, props.knownProjects)
 
   // 搜索过滤。
   const filteredProjects = search
@@ -199,9 +200,11 @@ function ProjectTree(props: {
   )
 }
 
-// 按工作目录分组会话——只显示有会话的项目，不自动添加当前 cwd 为空项目。
-function groupByCwd(sessions: SessionItem[]): { cwd: string; name: string; sessions: SessionItem[] }[] {
+// 按工作目录分组会话。已知项目（即使 0 会话）仍保留显示，直到显式删除。
+function groupByCwd(sessions: SessionItem[], knownProjects: Set<string>): { cwd: string; name: string; sessions: SessionItem[] }[] {
   const map = new Map<string, SessionItem[]>()
+  // 先注入已知项目——保证即使 0 会话也显示（带删除按钮）。
+  for (const cwd of knownProjects) map.set(cwd, [])
   for (const s of sessions) {
     const key = s.cwd || '(unknown)'
     if (!map.has(key)) map.set(key, [])

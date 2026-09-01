@@ -37,6 +37,15 @@ export function App({ port }: AppProps) {
   const [sessionId, setSessionId] = useState('')
   const [statusBar, setStatusBar] = useState<{ provider?: string; model?: string; tokens?: number; windowTokens?: number }>({})
   const [sessions, setSessions] = useState<SessionItem[]>([])
+  // 已知项目 cwd 集合——即使所有会话被删除，项目仍保留显示，直到用户显式删除。
+  const [knownProjects, setKnownProjects] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    setKnownProjects((prev) => {
+      const next = new Set(prev)
+      for (const s of sessions) { if (s.cwd) next.add(s.cwd) }
+      return next
+    })
+  }, [sessions])
   const [toolsList, setToolsList] = useState<{ name: string; description: string }[]>([])
   const [contextState, setContextState] = useState<{ estimatedTokens: number; windowTokens: number; percent: number } | null>(null)
   const [systemState, setSystemState] = useState<{ path: string; content: string } | null>(null)
@@ -231,8 +240,9 @@ export function App({ port }: AppProps) {
 
   const handleDeleteProject = useCallback((projectCwd: string) => {
     const count = sessions.filter((s) => (s.cwd || '(unknown)') === projectCwd).length
-    setModal({ kind: 'confirm', title: 'Delete Project', message: `Delete project "${projectCwd.split(/[/\\]/).pop()}" and its ${count} session(s)? This cannot be undone.`, onConfirm: () => {
+    setModal({ kind: 'confirm', title: 'Delete Project', message: `Remove project "${projectCwd.split(/[/\\]/).pop()}" from the sidebar? This deletes ${count} session(s) but does NOT delete any files on disk.`, onConfirm: () => {
       sessions.filter((s) => (s.cwd || '(unknown)') === projectCwd).forEach((s) => port.post({ type: 'delete_session', id: s.id }))
+      setKnownProjects((prev) => { const next = new Set(prev); next.delete(projectCwd); return next })
       setModal({ kind: 'none' })
     } })
   }, [port, sessions])
@@ -245,6 +255,7 @@ export function App({ port }: AppProps) {
         theme={theme}
         collapsed={sidebarCollapsed}
         sessions={sessions}
+        knownProjects={knownProjects}
         activeSessionId={sessionId}
         highlightSection={highlightSection}
         onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}

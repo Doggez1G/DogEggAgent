@@ -76,13 +76,15 @@
   transition: box-shadow var(--t-normal) ease;
 }
 .navHighlight {
-  box-shadow: inset 2px 0 0 0 var(--color-accent), 0 0 0 0 var(--color-accent-soft);
-  animation: nav-pulse 1.5s ease-out;
+  background: var(--color-accent-soft);
+  box-shadow: inset 3px 0 0 0 var(--color-accent);
 }
 @keyframes nav-pulse {
-  0% { box-shadow: inset 2px 0 0 0 var(--color-accent), 0 0 8px 2px var(--color-accent-soft); }
-  100% { box-shadow: inset 2px 0 0 0 var(--color-accent), 0 0 0 0 var(--color-accent-soft); }
+  0% { box-shadow: inset 3px 0 0 0 var(--color-accent), 0 0 12px 4px var(--color-accent-soft); }
+  50% { box-shadow: inset 3px 0 0 0 var(--color-accent), 0 0 6px 2px var(--color-accent-soft); }
+  100% { box-shadow: inset 3px 0 0 0 var(--color-accent), 0 0 0 0 transparent; }
 }
+.navHighlight { animation: nav-pulse 2s ease-out; }
 .navLabel {
   font-size: 10px;
   font-weight: 600;
