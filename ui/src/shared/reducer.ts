@@ -40,8 +40,8 @@ function flush(state: ChatState): ChatState {
 // 遍历消息：assistant 带 tool_calls 时暂存（按 tool_call_id 索引）；tool 消息用 tool_call_id
 // 找到对应的 tool_call，组成完整工具块（工具名+参数+结果摘要/全文）。
 // assistant 的正文（content）单独成块；纯 tool_calls 的 assistant（content 为 null）不产生块。
-// thinking 数组按轮次对应——每轮 LLM 调用产生一个 thinking 条目（可能为空），
-// 与该轮的 assistant 消息顺序对齐。空 thinking 跳过（不显示思考块）。
+// thinking 数组只存有实际 reasoning 内容的条目（run.ts 中 if(result.reasoning) 才 push）。
+// 按顺序消费——遇到有正文的 assistant 时尝试消费下一个 thinking 条目，匹配上就插入思考块。
 function rebuildBlocksFromHistory(messages: Message[], thinking: { text: string }[] = []): Block[] {
   const pendingCalls = new Map<string, ToolCall>()
   const blocks: Block[] = []
@@ -52,22 +52,19 @@ function rebuildBlocksFromHistory(messages: Message[], thinking: { text: string 
     } else if (m.role === 'assistant') {
       // 暂存 tool_calls 供后续 tool 消息配对。
       if (m.tool_calls) for (const tc of m.tool_calls) pendingCalls.set(tc.id, tc)
-      // 有正文的 assistant：先插入对应的 thinking 块（如果有），再插入 assistant 块。
-      if (m.content) {
-        // 消费一条 thinking（按轮次对应）——思考块在 assistant 回复之前显示。
-        // 空文本的 thinking 条目跳过（非推理模型或不产生思考的轮次）。
-        if (thinkingIdx < thinking.length) {
-          const t = thinking[thinkingIdx]!
-          if (t.text) {
-            const summary = t.text.split('\n').slice(0, 3).join('\n') + (t.text.split('\n').length > 3 ? '\n…（展开查看完整思考）' : '')
-            blocks.push({ kind: 'thinking', color: 'yellow', text: summary, full: t.text })
-          }
+      // 有正文的 assistant：尝试消费下一个 thinking 条目（如果有且未用完）。
+      // thinking 只存有内容的条目，所以这里不需要判断 text 是否为空——能消费到的都有内容。
+      if (m.content && thinkingIdx < thinking.length) {
+        const t = thinking[thinkingIdx]!
+        if (t.text) {
+          const summary = t.text.split('\n').slice(0, 3).join('\n') + (t.text.split('\n').length > 3 ? '\n…（展开查看完整思考）' : '')
+          blocks.push({ kind: 'thinking', color: 'yellow', text: summary, full: t.text })
+          thinkingIdx++
         }
+      }
+      if (m.content) {
         blocks.push({ kind: 'assistant', color: 'text', text: m.content })
       }
-      // 每轮 assistant 消息（无论是否有 content）都消费一个 thinking 条目——
-      // thinking 是按 LLM 调用轮次存储的，一轮可能产生多个 assistant 消息（tool_calls + 最终回复）。
-      thinkingIdx++
     } else if (m.role === 'tool') {
       // 用 tool_call_id 找到对应的 tool_call，提取工具名+参数。
       const call = pendingCalls.get(m.tool_call_id)

@@ -169,10 +169,7 @@ export class Agent {
           // 恢复该会话的 allow_always 授权（resume 不清空，保留之前设置的授权）。
           this.permission.reset()
           for (const t of s.allowedTools) this.permission.apply(t, 'allow_always')
-          // 只有当前配置的模型开启了 reasoning 时才发送 thinking 数据——
-          // 避免非推理模型加载历史会话时显示无关的思考气泡。
-          const sendThinking = isConfigured(this.config) && this.current().reasoning && this.thinking.length > 0
-          this.emit({ type: 'session_ready', id: s.id, messages: this.history, ...(sendThinking ? { thinking: this.thinking } : {}) })
+          this.emit({ type: 'session_ready', id: s.id, messages: this.history, ...(this.thinking.length ? { thinking: this.thinking } : {}) })
         } catch {
           this.emit({ type: 'notice', text: `会话 ${cmd.id} 加载失败（文件不存在或已损坏）` })
         }
