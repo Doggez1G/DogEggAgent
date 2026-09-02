@@ -119,16 +119,6 @@ export function App({ port, connectionState }: AppProps) {
     document.documentElement.setAttribute('data-theme', theme)
   }, [theme])
 
-  // 页面关闭 / 刷新时通知后端退出（清理资源），与 TUI 的 /quit 行为一致。
-  useEffect(() => {
-    const handler = () => {
-      // sendBeacon 不阻塞页面卸载，后端收到 quit 消息后 process.exit(0)。
-      navigator.sendBeacon('/api/message', JSON.stringify({ type: 'quit' }))
-    }
-    window.addEventListener('beforeunload', handler)
-    return () => window.removeEventListener('beforeunload', handler)
-  }, [])
-
   const refreshSessions = useCallback(() => {
     port.post({ type: 'list_sessions' })
   }, [port])
