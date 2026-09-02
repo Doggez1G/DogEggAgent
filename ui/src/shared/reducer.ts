@@ -40,8 +40,9 @@ function flush(state: ChatState): ChatState {
 // 遍历消息：assistant 带 tool_calls 时暂存（按 tool_call_id 索引）；tool 消息用 tool_call_id
 // 找到对应的 tool_call，组成完整工具块（工具名+参数+结果摘要/全文）。
 // assistant 的正文（content）单独成块；纯 tool_calls 的 assistant（content 为 null）不产生块。
-// thinking 数组只存有实际 reasoning 内容的条目（run.ts 中 if(result.reasoning) 才 push）。
-// 按顺序消费——遇到有正文的 assistant 时尝试消费下一个 thinking 条目，匹配上就插入思考块。
+// thinking 数组按轮次一一对应——每轮 LLM 调用产生一个 thinking 条目（有内容或空字符串）。
+// 每条 assistant 消息消费一个 thinking 条目（含 content=null 的 tool_calls 消息），保证对齐。
+// 空字符串条目跳过（不显示思考块）——这轮没开思考或模型没返回 reasoning。
 function rebuildBlocksFromHistory(messages: Message[], thinking: { text: string }[] = []): Block[] {
   const pendingCalls = new Map<string, ToolCall>()
   const blocks: Block[] = []
@@ -52,16 +53,16 @@ function rebuildBlocksFromHistory(messages: Message[], thinking: { text: string 
     } else if (m.role === 'assistant') {
       // 暂存 tool_calls 供后续 tool 消息配对。
       if (m.tool_calls) for (const tc of m.tool_calls) pendingCalls.set(tc.id, tc)
-      // 有正文的 assistant：尝试消费下一个 thinking 条目（如果有且未用完）。
-      // thinking 只存有内容的条目，所以这里不需要判断 text 是否为空——能消费到的都有内容。
-      if (m.content && thinkingIdx < thinking.length) {
+      // 消费一个 thinking 条目——与这条 assistant 消息一一对应。
+      if (thinkingIdx < thinking.length) {
         const t = thinking[thinkingIdx]!
+        // 空字符串 = 这轮没开思考或没产生 reasoning，跳过不显示。
         if (t.text) {
           const summary = t.text.split('\n').slice(0, 3).join('\n') + (t.text.split('\n').length > 3 ? '\n…（展开查看完整思考）' : '')
           blocks.push({ kind: 'thinking', color: 'yellow', text: summary, full: t.text })
-          thinkingIdx++
         }
       }
+      thinkingIdx++
       if (m.content) {
         blocks.push({ kind: 'assistant', color: 'text', text: m.content })
       }
@@ -162,15 +163,15 @@ export function reducer(state: ChatState, msg: Action): ChatState {
     case 'notice':
       return { ...state, blocks: [...state.blocks, { kind: 'notice', color: 'subtext', text: msg.text }] }
     case 'session_ready':
-      // session_ready 带的是 history（完整原文）+ thinking（推理内容）+ reasoning（当前模型是否开启思考）。
-      // reasoning=false 时跳过 thinking 数据——当前模型未开启思考，不应显示历史思考气泡。
-      // resume 重建块时，从 assistant.tool_calls 提取工具名+参数，与后续 tool 消息配对。
+      // session_ready 带的是 history（完整原文）+ thinking（每轮的推理内容，空字符串表示该轮无思考）。
+      // rebuildBlocksFromHistory 按序一一对应 assistant 消息和 thinking 条目。
+      // 空字符串的 thinking 条目被跳过——不显示思考气泡。
       // 清空 partial——否则切换会话时旧会话的流式文本残留显示。
       return {
         ...state,
         status: 'idle',
         partial: null,
-        blocks: rebuildBlocksFromHistory(msg.messages, msg.reasoning ? msg.thinking : undefined),
+        blocks: rebuildBlocksFromHistory(msg.messages, msg.thinking),
       }
     case 'compaction':
       // 压缩（手动或自动）都在对话面板插入一条提示块。

@@ -156,8 +156,10 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
       }
 
       const assistant = result.message
-      // 捕获推理内容——不进 context/history，单独收集供持久化。
-      if (result.reasoning) thinking.push({ text: result.reasoning })
+      // 每轮 LLM 调用都 push 一个 thinking 条目——有 reasoning 内容则存文本，否则存空字符串。
+      // 这样 thinking 数组长度 = assistant 消息数，reducer 重建历史时按序一一对应，不会错位。
+      // 空字符串条目在 rebuildBlocksFromHistory 中被跳过（不显示思考气泡）。
+      thinking.push({ text: result.reasoning ?? '' })
 
       if (assistant.role !== 'assistant') throw new Error('模型未返回 assistant 消息')
       // 推理模型只返回 tool_calls 而无 text_delta 时，此处补上 thinking → responding 的收尾。

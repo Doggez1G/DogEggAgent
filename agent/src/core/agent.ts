@@ -153,7 +153,7 @@ export class Agent {
         this.permission.reset() // 会话隔离：allow_always 只对当前会话生效
         // 立即保存空会话——让 list_sessions 能返回新会话（侧栏即时显示）。
         try { saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed(), defaultSessionsDir(), this.cwd, this.thinking) } catch { /* 磁盘错误忽略 */ }
-        this.emit({ type: 'session_ready', id: this.sessionId, messages: this.history, reasoning: isConfigured(this.config) && this.current().reasoning })
+        this.emit({ type: 'session_ready', id: this.sessionId, messages: this.history })
         break
       }
       case 'resume_session': {
@@ -169,10 +169,7 @@ export class Agent {
           // 恢复该会话的 allow_always 授权（resume 不清空，保留之前设置的授权）。
           this.permission.reset()
           for (const t of s.allowedTools) this.permission.apply(t, 'allow_always')
-          // reasoning 标志告诉前端当前模型是否开启思考——前端据此决定是否显示 thinking 块。
-          // thinking 数据仍然发送（保存了历史思考内容），但前端在 reasoning=false 时不渲染。
-          const curReasoning = isConfigured(this.config) && this.current().reasoning
-          this.emit({ type: 'session_ready', id: s.id, messages: this.history, ...(this.thinking.length ? { thinking: this.thinking } : {}), reasoning: curReasoning })
+          this.emit({ type: 'session_ready', id: s.id, messages: this.history, ...(this.thinking.length ? { thinking: this.thinking } : {}) })
         } catch {
           this.emit({ type: 'notice', text: `会话 ${cmd.id} 加载失败（文件不存在或已损坏）` })
         }
