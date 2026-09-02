@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DogEggAgent 架构审查报告</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+<style>
+  body { font-family: 'Inter', system-ui, sans-serif; }
+  .badge-strong { background: #dc2626; color: white; padding: 2px 10px; border-radius: 9999px; font-size: 12px; font-weight: 600; }
+  .badge-explore { background: #f59e0b; color: white; padding: 2px 10px; border-radius: 9999px; font-size: 12px; font-weight: 600; }
+  .badge-spec { background: #6b7280; color: white; padding: 2px 10px; border-radius: 9999px; font-size: 12px; font-weight: 600; }
+  .deep-box { border: 2px solid #22c55e; border-radius: 8px; }
+  .shallow-box { border: 2px solid #ef4444; border-radius: 8px; }
+</style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+
+<div class="max-w-5xl mx-auto p-8 space-y-8">
+
+  <div class="text-center border-b pb-6">
+    <h1 class="text-3xl font-bold">DogEggAgent 架构审查报告</h1>
+    <p class="text-gray-500 mt-2">基于 improve-codebase-architecture skill 分析 · 2026-09-01</p>
+  </div>
+
+  <!-- 概览 -->
+  <div class="bg-white rounded-xl shadow p-6">
+    <h2 class="text-xl font-bold mb-4">总览</h2>
+    <p class="text-gray-700 leading-relaxed">
+      四包解耦架构在<strong>包边界层面是干净的</strong>——依赖方向由架构测试强制，纯函数核心（状态机、流式解析器、压缩逻辑、配置编辑器）提取良好且有测试覆盖。
+      摩擦集中在两个接缝：<strong>agent.ts ↔ loop ↔ UI reducer 编排层</strong>（"可测试"的 reducer 从未被测试，thinking 对齐 bug 反复出现），以及
+      <strong>WebUI app.tsx</strong>（581 行未测试的"上帝组件"，~15 个 useState 堆在 shared reducer 之上）。
+    </p>
+    <div class="mt-4 grid grid-cols-2 gap-4">
+      <div class="bg-green-50 rounded-lg p-4">
+        <h3 class="font-semibold text-green-800">做得好的</h3>
+        <ul class="text-sm text-green-700 mt-2 space-y-1">
+          <li>✓ 包边界清晰且有测试强制</li>
+          <li>✓ 10 态状态机纯函数 + 完整测试</li>
+          <li>✓ History/Context 双持久化分离</li>
+          <li>✓ 流式解析器 line-driven 可单测</li>
+          <li>✓ 三桶权限模型 + 会话隔离</li>
+          <li>✓ zod POST 校验 + 错误分类</li>
+        </ul>
+      </div>
+      <div class="bg-red-50 rounded-lg p-4">
+        <h3 class="font-semibold text-red-800">需要改进的</h3>
+        <ul class="text-sm text-red-700 mt-2 space-y-1">
+          <li>✗ reducer.ts 标记可测但从未测试</li>
+          <li>✗ app.tsx 581 行上帝组件</li>
+          <li>✗ LoopDeps 21 字段回调包耦合</li>
+          <li>✗ barrel import 规则未强制</li>
+          <li>✗ 逻辑重复（权限分类、状态标签）</li>
+          <li>✗ SSE uiPort 死代码</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- 依赖图 -->
+  <div class="bg-white rounded-xl shadow p-6">
+    <h2 class="text-xl font-bold mb-4">当前依赖结构</h2>
+    <div class="mermaid">
+graph TD
+    A["main.ts<br/>TUI 组合根"] --> AGENT
+    A --> UI_TUI
+    B["main-web.ts<br/>WebUI 组合根"] --> AGENT
+    B --> SERVER
+    UI_WEB["webui/ (Vite)"] -.->|SSE+POST| SERVER
+    UI_WEB --> BRIDGE
+    UI_TUI["tui/ (Ink)"] --> SHARED["shared/"]
+    UI_WEB --> SHARED
+    AGENT --> BRIDGE
+    SERVER --> BRIDGE
+    SERVER --> AGENT
+    BRIDGE["bridge/"]
+    style BRIDGE fill:#dbeafe,stroke:#3b82f6
+    style SHARED fill:#fef3c7,stroke:#f59e0b
+    style UI_WEB fill:#fce7f3,stroke:#ec4899
+    style AGENT fill:#dcfce7,stroke:#22c55e
+    style SERVER fill:#f3e8ff,stroke:#a855f7
+    </div>
+  </div>
+
+  <!-- 候选 1 -->
+  <div class="bg-white rounded-xl shadow p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-xl font-bold">候选 1：拆分 app.tsx 上帝组件</h2>
+      <span class="badge-strong">Strong</span>
+    </div>
+    <div class="space-y-3">
+      <div><h3 class="font-semibold text-gray-700">涉及文件</h3>
+      <p class="text-sm text-gray-600"><code>ui/src/webui/app/app.tsx</code> (581 行，6 个内联组件 + ~15 个 useState + 110 行 onMessage if 链)</p></div>
+      <div><h3 class="font-semibold text-gray-700">问题</h3>
+      <p class="text-sm text-gray-600">app.tsx 违反项目其他所有组件遵循的 module=folder 约定。内联了 SettingsModal、PermissionBanner、ConfirmModal、HelpModal、FsBrowserModal 五个组件。onMessage effect 是 ~110 行 if 链管理 ~15 个 useState，与 shared reducer 平行但不可测。这是项目中最大的未测试逻辑集中点。</p></div>
+      <div><h3 class="font-semibold text-gray-700">方案</h3>
+      <p class="text-sm text-gray-600">5 个内联 modal 各拆为独立组件文件夹。面板状态管理抽取为 custom hook（如 <code>usePanelState</code>），把 contextState/systemState/logState/toolCalls/filesTouched 的设置和请求逻辑集中到可测试函数中。App 只负责布局组合和顶层状态。</p></div>
+      <div><h3 class="font-semibold text-gray-700">收益</h3>
+      <ul class="text-sm text-gray-600 list-disc list-inside">
+        <li><strong>Locality</strong>：面板状态集中到 hook，修改不需要在 110 行 if 链里找</li>
+        <li><strong>Leverage</strong>：usePanelState 可独立测试</li>
+        <li><strong>一致性</strong>：所有组件遵循 module=folder 约定</li>
+      </ul></div>
+      <div class="grid grid-cols-2 gap-4 mt-4">
+        <div class="shallow-box p-3">
+          <h4 class="text-sm font-bold text-red-600 mb-2">Before: app.tsx 上帝组件</h4>
+          <pre class="text-xs text-gray-600">app.tsx (581 行)
+├─ App()
+│  ├─ 15 × useState
+│  ├─ onMessage (110行 if 链)
+│  ├─ Sidebar / TopBar / ChatView
+│  ├─ InfoPanel / InputBar
+│  └─ PermissionBanner (内联)
+├─ SettingsModal (内联)
+├─ ConfirmModal (内联)
+├─ HelpModal (内联)
+└─ FsBrowserModal (内联)</pre>
+        </div>
+        <div class="deep-box p-3">
+          <h4 class="text-sm font-bold text-green-600 mb-2">After: 拆分后</h4>
+          <pre class="text-xs text-gray-600">app/
+├─ app.tsx (布局组合 ~80行)
+├─ view-state.ts
+├─ use-panel-state.ts (状态管理 hook)
+└─ modals/
+   ├─ settings-modal/
+   ├─ confirm-modal/
+   ├─ help-modal/
+   ├─ fs-browser-modal/
+   └─ permission-banner/</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 候选 2 -->
+  <div class="bg-white rounded-xl shadow p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-xl font-bold">候选 2：为 reducer.ts 补测试</h2>
+      <span class="badge-strong">Strong</span>
+    </div>
+    <div class="space-y-3">
+      <div><h3 class="font-semibold text-gray-700">涉及文件</h3>
+      <p class="text-sm text-gray-600"><code>ui/src/shared/reducer.ts</code> (195 行，标记 ★可单测，零测试)</p></div>
+      <div><h3 class="font-semibold text-gray-700">问题</h3>
+      <p class="text-sm text-gray-600">reducer 是 shared 重构核心——把 AgentToUiMessage 转换为 UI Block，包括流式文本累积、思考块落盘、工具块配对、历史重建。重构设计文档明确承诺测试但从未实现。最近 8 次提交中 6 次修 thinking 对齐 bug——全部发生在这个从未测试的纯函数里。</p></div>
+      <div><h3 class="font-semibold text-gray-700">方案</h3>
+      <p class="text-sm text-gray-600">编写 <code>ui/test/shared/reducer.test.ts</code>，覆盖：text_delta/thought_delta 流式累积与 flush、tool_start+tool_end 配对、session_ready 重建（含 thinking 对齐：空/非空/混合）、compaction 通知块、error/cancelled 时 flush partial、history_cleared 清空。纯函数，零 mock。</p></div>
+      <div><h3 class="font-semibold text-gray-700">收益</h3>
+      <ul class="text-sm text-gray-600 list-disc list-inside">
+        <li><strong>Leverage</strong>：reducer 的 interface 就是测试面——测试穿越同一个 seam</li>
+        <li><strong>Locality</strong>：thinking 对齐 bug 集中在一个可测函数里，修一次测一次</li>
+        <li><strong>回归保护</strong>：未来修改有测试网兜底</li>
+      </ul></div>
+    </div>
+  </div>
+
+  <!-- 候选 3 -->
+  <div class="bg-white rounded-xl shadow p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-xl font-bold">候选 3：LoopDeps 回调包耦合</h2>
+      <span class="badge-explore">Worth exploring</span>
+    </div>
+    <div class="space-y-3">
+      <div><h3 class="font-semibold text-gray-700">涉及文件</h3>
+      <p class="text-sm text-gray-600"><code>agent/src/loop/types.ts</code> (LoopDeps 21 字段) · <code>agent/src/core/agent.ts</code> · <code>agent/src/loop/run.ts</code></p></div>
+      <div><h3 class="font-semibold text-gray-700">问题</h3>
+      <p class="text-sm text-gray-600">LoopDeps 是 21 字段结构体，包含 trans/emit/requestPermission/checkCancelled/summarize 等 agent 方法作为回调。这是重构设计文档预警过的"thin scattered context object"——loop 不和 agent 解耦，只是通过 struct 传递方法。修改 agent 方法签名都要同步改 LoopDeps。测试 runLoop 需要构造完整 21 字段 mock。</p></div>
+      <div><h3 class="font-semibold text-gray-700">方案</h3>
+      <p class="text-sm text-gray-600"><strong>设计文档明确选择不拆 agent.ts，预警了这个权衡。</strong>可考虑将 LoopDeps 回调分组为更少接口（如 LoopCallbacks { trans, emit } + LoopServices { requestPermission, checkCancelled, summarize }），或保持现状但加 JSDoc。不建议大改。</p></div>
+    </div>
+  </div>
+
+  <!-- 候选 4 -->
+  <div class="bg-white rounded-xl shadow p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-xl font-bold">候选 4：强制 barrel import 规则</h2>
+      <span class="badge-explore">Worth exploring</span>
+    </div>
+    <div class="space-y-3">
+      <div><h3 class="font-semibold text-gray-700">涉及文件</h3>
+      <p class="text-sm text-gray-600"><code>bridge/test/architecture.test.ts</code> · <code>agent/src/loop/run.ts</code> (违规 import <code>../shared/errors</code>) · <code>agent/src/core/agent.ts</code> (违规 import <code>../shared/id</code>)</p></div>
+      <div><h3 class="font-semibold text-gray-700">问题</h3>
+      <p class="text-sm text-gray-600">设计文档 §9 承诺"跨模块 import 只指向 index.ts"，但架构测试未强制。已有两处违规：run.ts 直接 import <code>../shared/errors</code>，agent.ts 直接 import <code>../shared/id</code>，绕过 barrel。</p></div>
+      <div><h3 class="font-semibold text-gray-700">方案</h3>
+      <p class="text-sm text-gray-600">(1) architecture.test.ts 新增规则：import 路径指向非 index.ts 的相对路径则失败。(2) 修正现有违规。(3) 确保 shared/index.ts 导出 errors 和 id。</p></div>
+    </div>
+  </div>
+
+  <!-- 候选 5 -->
+  <div class="bg-white rounded-xl shadow p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-xl font-bold">候选 5：移除 SSE uiPort 死代码</h2>
+      <span class="badge-spec">Speculative</span>
+    </div>
+    <div class="space-y-3">
+      <div><h3 class="font-semibold text-gray-700">涉及文件</h3>
+      <p class="text-sm text-gray-600"><code>server/src/channel/sse.ts</code> (uiPort 返回但无人使用)</p></div>
+      <div><h3 class="font-semibold text-gray-700">问题</h3>
+      <p class="text-sm text-gray-600">createSseChannel() 返回 { agentPort, uiPort, sseHandler, postHandler }，但 main-web.ts 只解构 { agentPort, sseHandler, postHandler }，startServer 不接受 uiPort。uiPort.onMessage 是空函数，uiPort.post 复制了 postHandler 逻辑。SSE 传输天生不对称，不存在对称 uiPort。</p></div>
+      <div><h3 class="font-semibold text-gray-700">方案</h3>
+      <p class="text-sm text-gray-600">从 createSseChannel() 返回类型中移除 uiPort。</p></div>
+    </div>
+  </div>
+
+  <!-- 候选 6 -->
+  <div class="bg-white rounded-xl shadow p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-xl font-bold">候选 6：消除跨 UI 逻辑重复</h2>
+      <span class="badge-spec">Speculative</span>
+    </div>
+    <div class="space-y-3">
+      <div><h3 class="font-semibold text-gray-700">涉及文件</h3>
+      <p class="text-sm text-gray-600">getToolConfigPerm (app.tsx) · getToolPermission (info-panel) · onCommandFeedback (InputBar + CommandPalette 各一份) · STATUS_LABELS (top-bar / info-panel / TUI 三份)</p></div>
+      <div><h3 class="font-semibold text-gray-700">问题</h3>
+      <p class="text-sm text-gray-600">权限分类逻辑在 agent 端和 WebUI 端各实现一份（不能跨包 import 是被迫的）。但 WebUI 内部两份完全相同可合并。STATUS_LABELS 和 onCommandFeedback 也是纯展示逻辑重复——shared 重构的目标是消除重复，但这些留在 shared 之外。</p></div>
+      <div><h3 class="font-semibold text-gray-700">方案</h3>
+      <p class="text-sm text-gray-600">将 getToolConfigPerm、STATUS_LABELS、onCommandFeedback 映射移到 ui/src/shared/ 中作为纯函数/常量，WebUI 和 TUI 都从 shared 导入。</p></div>
+    </div>
+  </div>
+
+  <!-- Top Recommendation -->
+  <div class="bg-blue-50 rounded-xl shadow p-6 border-2 border-blue-200">
+    <h2 class="text-xl font-bold text-blue-900 mb-3">首要推荐</h2>
+    <p class="text-gray-700 leading-relaxed">
+      <strong>候选 2（为 reducer.ts 补测试）最高优先级。</strong>纯函数、零 mock、投入产出比极高。最近 8 次提交 6 次修这里的 thinking 对齐 bug。有了测试后候选 1 的拆分也有了回归保护。
+    </p>
+    <p class="text-gray-700 leading-relaxed mt-2">
+      <strong>候选 1（拆分 app.tsx）第二优先级。</strong>项目中最大的未测试逻辑集中点。
+    </p>
+    <p class="text-gray-700 leading-relaxed mt-2">
+      <strong>候选 4（强制 barrel import）成本最低。</strong>加一条测试规则 + 修两处违规即可。
+    </p>
+  </div>
+
+  <div class="text-center text-gray-400 text-sm pt-4 border-t">
+    Generated by improve-codebase-architecture skill · D:\project\DogEggAgent
+  </div>
+
+</div>
+
+<script>
+mermaid.initialize({ startOnLoad: true, theme: 'default' });
+</script>
+</body>
+</html>
