@@ -162,16 +162,15 @@ export function reducer(state: ChatState, msg: Action): ChatState {
     case 'notice':
       return { ...state, blocks: [...state.blocks, { kind: 'notice', color: 'subtext', text: msg.text }] }
     case 'session_ready':
-      // session_ready 带的是 history（完整原文）+ thinking（推理内容），UI 据此渲染完整历史消息。
-      // resume 重建块时，从 assistant.tool_calls 提取工具名+参数，与后续 tool 消息配对，
-      // 组成完整工具块（工具名+参数+结果），与实时 tool_start+tool_end 逻辑一致，保证可折叠展开。
-      // thinking 数组按顺序插入对应的 assistant 块之前（思考 → 回复），恢复折叠/展开能力。
+      // session_ready 带的是 history（完整原文）+ thinking（推理内容）+ reasoning（当前模型是否开启思考）。
+      // reasoning=false 时跳过 thinking 数据——当前模型未开启思考，不应显示历史思考气泡。
+      // resume 重建块时，从 assistant.tool_calls 提取工具名+参数，与后续 tool 消息配对。
       // 清空 partial——否则切换会话时旧会话的流式文本残留显示。
       return {
         ...state,
         status: 'idle',
         partial: null,
-        blocks: rebuildBlocksFromHistory(msg.messages, msg.thinking),
+        blocks: rebuildBlocksFromHistory(msg.messages, msg.reasoning ? msg.thinking : undefined),
       }
     case 'compaction':
       // 压缩（手动或自动）都在对话面板插入一条提示块。
