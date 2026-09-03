@@ -8,3 +8,4 @@ export { parseCommand, matchCommands, COMMANDS, type CommandResult } from './com
 export { STATUS_LABELS, isStateRunning } from './status'
 export { getToolPermission } from './permission'
 export { COMMAND_FEEDBACK_MAP, getCommandFeedback } from './command-feedback'
+export { KNOWN_TOOLS } from './tools'

@@ -13,21 +13,25 @@ export interface Palette {
 
 // 主题列表：name → Palette。
 export const THEMES: Record<string, { label: string; palette: Palette }> = {
+  // Catppuccin Mocha — 柔和暗色，高对比度
   mocha: { label: 'Catppuccin Mocha', palette: {
-    accent: '#89b4fa', text: '#cdd6f4', subtext: '#6c7086',
-    green: '#a6e3a1', yellow: '#f9e2af', cyan: '#94e2d5', red: '#f38ba8',
+    accent: '#89b4fa', text: '#cdd6f4', subtext: '#7f849c',
+    green: '#a6e3a1', yellow: '#f9e2af', cyan: '#89dceb', red: '#f38ba8',
   } },
+  // Tokyo Night — 深蓝调，鲜艳亮色
   tokyonight: { label: 'Tokyo Night', palette: {
-    accent: '#7aa2f7', text: '#c0caf5', subtext: '#565f89',
+    accent: '#7aa2f7', text: '#c0caf5', subtext: '#737aa2',
     green: '#9ece6a', yellow: '#e0af68', cyan: '#7dcfff', red: '#f7768e',
   } },
+  // Gruvbox Dark — 暖色复古，高辨识度
   gruvbox: { label: 'Gruvbox Dark', palette: {
-    accent: '#83a598', text: '#ebdbb2', subtext: '#928374',
-    green: '#b8bb26', yellow: '#fabd2f', cyan: '#8ec07c', red: '#fb4934',
+    accent: '#fabd2f', text: '#ebdbb2', subtext: '#a89984',
+    green: '#b8bb26', yellow: '#fe8019', cyan: '#8ec07c', red: '#fb4934',
   } },
-  dracula: { label: 'Dracula', palette: {
-    accent: '#bd93f9', text: '#f8f8f2', subtext: '#6272a4',
-    green: '#50fa7b', yellow: '#f1fa8c', cyan: '#8be9fd', red: '#ff5555',
+  // Nord — 冷色调，低饱和度高级感
+  nord: { label: 'Nord', palette: {
+    accent: '#88c0d0', text: '#e5e9f0', subtext: '#616e88',
+    green: '#a3be8c', yellow: '#ebcb8b', cyan: '#8fbcbb', red: '#bf616a',
   } },
 }
 
@@ -59,7 +63,6 @@ export function setTheme(name: string): void {
 }
 
 // palette 保持为对象（向后兼容），但属性通过 getter 动态读取当前主题。
-// 这样 `import { palette }` 的旧代码无需修改即可跟随主题切换。
 export const palette: Palette = new Proxy({} as Palette, {
   get(_target, prop: string) {
     return getCurrentPalette()[prop as keyof Palette]

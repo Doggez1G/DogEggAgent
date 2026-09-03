@@ -4,6 +4,7 @@ import type { Entry, TreeCtx } from './entries'
 import { nan } from './label'
 import { detectShells } from './shells'
 import { THEMES, getCurrentTheme, setTheme } from '../theme'
+import { KNOWN_TOOLS } from '../../shared'
 
 // 生成给定路径下的一层字段列表。依据 config + path 决定展示哪些字段、它们的交互形态。
 export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): Entry[] {
@@ -40,7 +41,7 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): En
           run: () => ctx.set(`permission.${bucket}`, tools.filter((t) => t !== tool)),
           del: () => ctx.set(`permission.${bucket}`, tools.filter((t) => t !== tool)),
         })),
-        { label: '＋ 添加工具', kind: 'prompt', title: '工具名', save: (v) => { const t = v.trim(); if (t && !tools.includes(t)) ctx.set(`permission.${bucket}`, [...tools, t]) } },
+        { label: '＋ 添加工具', kind: 'goto', value: '', subPath: { kind: 'selectTool', bucket } },
       ]
     }
 
@@ -137,6 +138,19 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): En
         value: key === current ? '✓' : '',
         run: () => setTheme(key),
       }))
+    }
+
+    case 'selectTool': {
+      // 从已知工具列表中选择——排除已在当前桶中的工具（避免重复添加）。
+      const existing = config.permission[path.bucket]
+      return KNOWN_TOOLS
+        .filter((t) => !existing.includes(t))
+        .map((t) => ({
+          label: t,
+          kind: 'action' as const,
+          value: '',
+          run: () => ctx.set(`permission.${path.bucket}`, [...existing, t]),
+        }))
     }
   }
 }

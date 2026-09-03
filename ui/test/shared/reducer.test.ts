@@ -258,9 +258,9 @@ describe('reducer — session_ready', () => {
 })
 
 describe('reducer — compaction', () => {
-  it('auto 来源显示 auto-compacted 文案', () => {
+  it('auto 来源显示 compacted 文案', () => {
     const s = reducer(initial, { type: 'compaction', before_tokens: 5000, after_tokens: 1000, source: 'auto' })
-    expect(s.blocks[0]?.text).toContain('auto-compacted')
+    expect(s.blocks[0]?.text).toContain('compacted')
     expect(s.blocks[0]?.text).toContain('5000')
     expect(s.blocks[0]?.text).toContain('1000')
   })

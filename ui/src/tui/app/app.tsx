@@ -40,6 +40,8 @@ export function App({ port }: { port: UiPort }) {
   const [infoScroll, setInfoScroll] = useState(0) // info overlay 独立滚动（不与 chat scroll 共用）
   const [statusBarData, setStatusBarData] = useState<{ provider?: string; model?: string; sessionId?: string; tokens?: number; windowTokens?: number; cwd?: string }>({})
   const currentCwdRef = useRef<string>('')
+  // 标记是否为显式信息请求（/context /status 等），用于区分轮询的静默更新。
+  const explicitInfoRef = useRef(false)
   // 主题状态：切换主题时触发重渲染（palette 通过 Proxy 动态读取）。
   const [, setThemeTick] = useState(0)
   useEffect(() => onThemeChange(() => setThemeTick((t) => t + 1)), [])
@@ -134,7 +136,10 @@ export function App({ port }: { port: UiPort }) {
         setView({ kind: 'none' })
       } else if (msg.type === 'session_list') {
         // 按 cwd 过滤：只显示当前工作目录下的会话（Claude 式——每个目录独立）。
-        const filtered = msg.sessions.filter((s) => (s.cwd ?? '') === currentCwdRef.current)
+        // 路径归一化：统一为小写 + 正斜杠，兼容 Windows 反斜杠 + 大小写不敏感。
+        const normalize = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+        const cwd = normalize(currentCwdRef.current)
+        const filtered = msg.sessions.filter((s) => normalize(s.cwd ?? '') === cwd)
         setView({ kind: 'sessionPicker', sessions: filtered.map((s) => ({ id: s.id, preview: s.preview })), cursor: 0, query: '' })
       } else if (msg.type === 'session_deleted') {
         // 会话删除后刷新列表——重新请求 session_list（会触发 sessionPicker 重建）。
@@ -150,20 +155,28 @@ export function App({ port }: { port: UiPort }) {
       } else if (msg.type === 'status_state') {
         currentCwdRef.current = msg.cwd
         setStatusBarData({ provider: msg.provider, model: msg.model, sessionId: msg.sessionId, tokens: msg.estimatedTokens, windowTokens: msg.windowTokens, cwd: msg.cwd })
-        setInfoScroll(0); setView({ kind: 'info', title: '状态', lines: [
-          `session   ${msg.sessionId}`,
-          `provider  ${msg.provider}`,
-          `model     ${msg.model}`,
-          `cwd       ${msg.cwd}`,
-          `state     ${msg.state}`,
-          `context   ${msg.estimatedTokens} / ${msg.windowTokens}`,
-        ] })
+        // 仅显式请求（/status）时打开 info overlay；启动时的自动请求静默更新。
+        if (explicitInfoRef.current) {
+          explicitInfoRef.current = false
+          setInfoScroll(0); setView({ kind: 'info', title: '状态', lines: [
+            `session   ${msg.sessionId}`,
+            `provider  ${msg.provider}`,
+            `model     ${msg.model}`,
+            `cwd       ${msg.cwd}`,
+            `state     ${msg.state}`,
+            `context   ${msg.estimatedTokens} / ${msg.windowTokens}`,
+          ] })
+        }
       } else if (msg.type === 'context_state') {
         setStatusBarData((d) => ({ ...d, tokens: msg.estimatedTokens, windowTokens: msg.windowTokens }))
-        setInfoScroll(0); setView({ kind: 'info', title: '上下文', lines: [
-          `${msg.estimatedTokens} / ${msg.windowTokens} tokens（${msg.percent}%）`,
-          `压缩阈值：窗口 80% = ${Math.round(msg.windowTokens * 0.8)}`,
-        ] })
+        // 仅显式请求（/context）时打开 info overlay；轮询静默更新 StatusBar。
+        if (explicitInfoRef.current) {
+          explicitInfoRef.current = false
+          setInfoScroll(0); setView({ kind: 'info', title: '上下文', lines: [
+            `${msg.estimatedTokens} / ${msg.windowTokens} tokens（${msg.percent}%）`,
+            `压缩阈值：窗口 80% = ${Math.round(msg.windowTokens * 0.8)}`,
+          ] })
+        }
       } else if (msg.type === 'system_state') {
         setInfoScroll(0); setView({ kind: 'info', title: 'system prompt', lines: [`路径：${msg.path}`, '─'.repeat(40), msg.content] })
       } else if (msg.type === 'compaction') {
@@ -187,8 +200,9 @@ export function App({ port }: { port: UiPort }) {
         setInfoScroll(0); setView({ kind: 'info', title: '调试日志', lines: [`路径：${msg.path}`, '─'.repeat(40), msg.tail] })
       }
     })
-    // 订阅后主动取一次配置，用于顶部品牌头展示当前 provider/model。
+    // 订阅后主动取一次配置 + 状态，用于顶部品牌头和 CWD 过滤。
     port.post({ type: 'config_request' })
+    port.post({ type: 'status_request' })
     return off
   }, [port, openMenu, openModelPicker, openConfigTree, updateConfig, setView])
 
@@ -286,7 +300,7 @@ export function App({ port }: { port: UiPort }) {
         else if (entry?.kind === 'action') {
           entry.run()
           // selectProvider/selectModel/selectShell/selectTheme 选中即设后自动回 root（不留在选择列表）。
-          if (v.path.kind === 'selectProvider' || v.path.kind === 'selectModel' || v.path.kind === 'selectShell' || v.path.kind === 'selectTheme') {
+          if (v.path.kind === 'selectProvider' || v.path.kind === 'selectModel' || v.path.kind === 'selectShell' || v.path.kind === 'selectTheme' || v.path.kind === 'selectTool') {
             setView({ kind: 'config', path: { kind: 'root' }, cursor: 0, preview: null })
           }
         }
@@ -338,8 +352,8 @@ export function App({ port }: { port: UiPort }) {
       }
       // Escape：退出块导航模式，焦点回到输入框。
       if (key.escape && browseRef.current !== null) { setBrowseBoth(null); return }
-      // 消息滚动用 PageUp/PageDown（步长 3-5 行，平滑滚动）。
-      const scrollStep = Math.min(5, Math.max(3, Math.floor((stdout.rows || 24) / 20)))
+      // 消息滚动用 PageUp/PageDown（步长 = 终端高度的 1/3，平滑滚动）。
+      const scrollStep = Math.max(3, Math.floor((stdout.rows || 24) / 3))
       if (key.pageUp) setScroll((s) => s + scrollStep)
       else if (key.pageDown) setScroll((s) => Math.max(0, s - scrollStep))
       // ↑/↓ 召回输入历史（只在未进入块导航模式时生效）。
@@ -435,6 +449,11 @@ export function App({ port }: { port: UiPort }) {
         const cmd = raw.trim().split(/\s+/)[0]
         configIntent.current = cmd === '/model' ? 'model' : 'config'
       }
+      // 显式信息请求标记：/context /status /tools /system /log 会回 info overlay。
+      // 区分轮询的静默更新（3s context_request 不开 overlay）。
+      if (['context_request', 'status_request', 'tools_request', 'system_request', 'log_request'].includes(result.msg.type)) {
+        explicitInfoRef.current = true
+      }
       // 所有会打开 overlay 的命令统一吞掉提交回车——
       // port 是同步通道，agent 回响应可能立即设 view 为 menu/info，
       // 不吞的话同一个回车被 useInput 在新 view 里处理（误选中第一项）。
@@ -448,7 +467,7 @@ export function App({ port }: { port: UiPort }) {
   // 渲染计算
   const configEntries = view.kind === 'config' && configSnapshot ? buildEntries(configSnapshot, view.path, treeCtx) : []
   const termWidth = stdout.columns || 80
-  const viewportHeight = Math.max(6, (stdout.rows || 24) - 6)
+  const viewportHeight = Math.max(6, (stdout.rows || 24) - 8)
   const headerInfo = configSnapshot
     ? (configSnapshot.defaultProvider ? `${configSnapshot.defaultProvider}/${configSnapshot.defaultModel ?? '?'}` : '未配置 provider（请先 /config）')
     : '加载配置中…'

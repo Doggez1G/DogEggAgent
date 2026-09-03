@@ -174,10 +174,7 @@ export function reducer(state: ChatState, msg: Action): ChatState {
         blocks: rebuildBlocksFromHistory(msg.messages, msg.thinking),
       }
     case 'compaction':
-      // 压缩（手动或自动）都在对话面板插入一条提示块。
-      if (msg.source === 'auto') {
-        return { ...state, blocks: [...state.blocks, { kind: 'auto_compact', color: 'subtext', text: `Context auto-compacted: ${msg.before_tokens} → ${msg.after_tokens} tokens` }] }
-      }
+      // 压缩（手动或自动）都在对话面板插入一条提示块，统一显示为「压缩」。
       return { ...state, blocks: [...state.blocks, { kind: 'auto_compact', color: 'subtext', text: `Context compacted: ${msg.before_tokens} → ${msg.after_tokens} tokens` }] }
     case 'tools_list':
     case 'status_state':

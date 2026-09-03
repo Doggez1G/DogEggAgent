@@ -27,5 +27,5 @@ export const KIND_ROLE: Record<BlockKind, string> = {
   tool: '工具',
   error: '错误',
   notice: '提示',
-  auto_compact: '自动压缩',
+  auto_compact: '压缩',
 }

@@ -33,6 +33,9 @@ export function MultilineInput(props: {
     // Tab 不拦截——让 app 的命令补全处理器处理。
     if (key.tab) return
 
+    // Ctrl+Enter 不拦截——让 app 的块导航展开/折叠处理器处理。
+    if (key.ctrl && key.return) return
+
     // Shift+Enter → 插入换行。
     if (key.return && key.shift) {
       const newValue = value.slice(0, cursorOffset) + '\n' + value.slice(cursorOffset)
