@@ -1,4 +1,5 @@
 import type { AgentToUiMessage, UiToAgentMessage, UiPort } from '@dogegg/bridge'
+import { agentToUiMessageSchema } from '@dogegg/bridge'
 
 export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected'
 
@@ -27,8 +28,12 @@ export function createSseUiPort(onConnectionChange?: (state: ConnectionState) =>
 
   es.onmessage = (e: MessageEvent) => {
     try {
-      const msg = JSON.parse(e.data) as AgentToUiMessage
-      listeners.forEach((l) => l(msg))
+      const raw = JSON.parse(e.data)
+      // zod 校验下行消息——校验失败则丢弃，不传给 listener。
+      const result = agentToUiMessageSchema.safeParse(raw)
+      if (result.success) {
+        listeners.forEach((l) => l(result.data))
+      }
     } catch {
       // 忽略无法解析的消息（不应发生，但防御性处理）
     }
