@@ -33,8 +33,9 @@ export function MultilineInput(props: {
     // Tab 不拦截——让 app 的命令补全处理器处理。
     if (key.tab) return
 
-    // Ctrl+Enter 不拦截——让 app 的块导航展开/折叠处理器处理。
-    if (key.ctrl && key.return) return
+    // Ctrl+Enter / Ctrl+Return 不拦截——让 app 的块导航展开/折叠处理器处理。
+    // Ctrl+Enter 在大多数终端发送 \n（Ctrl+J），Ink 的 key.return 只认 \r，故需检查 inputChar。
+    if (key.ctrl && (key.return || inputChar === '\n')) return
 
     // Shift+Enter → 插入换行。
     if (key.return && key.shift) {
@@ -44,7 +45,7 @@ export function MultilineInput(props: {
       return
     }
 
-    // Enter（无修饰键）→ 提交。
+    // Enter（无修饰键）→ 提交。key.return 是 \r，Ctrl+Enter 的 \n 已在上面排除。
     if (key.return) {
       onSubmit(value)
       return

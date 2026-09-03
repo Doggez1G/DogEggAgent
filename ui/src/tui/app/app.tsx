@@ -66,10 +66,17 @@ export function App({ port }: { port: UiPort }) {
   useEffect(() => { blocksRef.current = chat.blocks }, [chat.blocks])
   useEffect(() => { statusRef.current = chat.status }, [chat.status])
 
+  // 用户手动滚动标记——PageUp 设为 true，新消息到达时如果未手动滚则保持底部。
+  const userScrolledRef = useRef(false)
+  useEffect(() => {
+    // 新消息或流式更新到达时，如果用户没手动向上滚，保持底部（scroll=0）。
+    if (!userScrolledRef.current) setScroll(0)
+  }, [chat.blocks.length, chat.partial])
+
   // 运行中轮询 context_request（3s 间隔）——让 StatusBar 的 tokens 实时更新。
   // 与 WebUI InfoPanel 的 3s 轮询一致；非运行态停止避免无效请求。
   useEffect(() => {
-    const running = statusRef.current !== 'idle' && statusRef.current !== 'finished' && statusRef.current !== 'cancelled' && statusRef.current !== 'error'
+    const running = chat.status !== 'idle' && chat.status !== 'finished' && chat.status !== 'cancelled' && chat.status !== 'error'
     if (!running) return
     const timer = setInterval(() => port.post({ type: 'context_request' }), 3000)
     return () => clearInterval(timer)
@@ -122,6 +129,7 @@ export function App({ port }: { port: UiPort }) {
         setExpanded(new Set())
         setScroll(0)
         setSuggestCursor(null)
+        userScrolledRef.current = false
       }
       // 错误恢复：error 时自动预填上次提交的文本到输入框，用户可直接改或重新提交。
       if (msg.type === 'error' && inputHistoryRef.current.length > 0) {
@@ -140,7 +148,7 @@ export function App({ port }: { port: UiPort }) {
         const normalize = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
         const cwd = normalize(currentCwdRef.current)
         const filtered = msg.sessions.filter((s) => normalize(s.cwd ?? '') === cwd)
-        setView({ kind: 'sessionPicker', sessions: filtered.map((s) => ({ id: s.id, preview: s.preview })), cursor: 0, query: '' })
+        setView({ kind: 'sessionPicker', sessions: filtered.map((s) => ({ id: s.id, preview: s.preview || '（空会话）' })), cursor: 0, query: '' })
       } else if (msg.type === 'session_deleted') {
         // 会话删除后刷新列表——重新请求 session_list（会触发 sessionPicker 重建）。
         port.post({ type: 'list_sessions' })
@@ -341,7 +349,8 @@ export function App({ port }: { port: UiPort }) {
         return
       }
       // Ctrl+Enter：展开/折叠当前聚焦块（仅 thinking/tool 块有效）。
-      if (key.ctrl && key.return && browseRef.current !== null) {
+      // Ctrl+Enter 发送 \n（Ctrl+J），key.return 只认 \r，故检查 inputChar。
+      if (key.ctrl && (key.return || inputChar === '\n') && browseRef.current !== null) {
         const block = blocksRef.current[browseRef.current]
         if (block && isExpandable(block)) {
           const next = toggleExpanded(expandedRef.current, browseRef.current)
@@ -354,8 +363,14 @@ export function App({ port }: { port: UiPort }) {
       if (key.escape && browseRef.current !== null) { setBrowseBoth(null); return }
       // 消息滚动用 PageUp/PageDown（步长 = 终端高度的 1/3，平滑滚动）。
       const scrollStep = Math.max(3, Math.floor((stdout.rows || 24) / 3))
-      if (key.pageUp) setScroll((s) => s + scrollStep)
-      else if (key.pageDown) setScroll((s) => Math.max(0, s - scrollStep))
+      if (key.pageUp) { userScrolledRef.current = true; setScroll((s) => s + scrollStep) }
+      else if (key.pageDown) {
+        setScroll((s) => {
+          const next = Math.max(0, s - scrollStep)
+          if (next === 0) userScrolledRef.current = false // 滚到底部，清除标记
+          return next
+        })
+      }
       // ↑/↓ 召回输入历史（只在未进入块导航模式时生效）。
       else if (key.upArrow && browseRef.current === null) {
         // 输入历史召回：↑ 向上（更早的输入），↓ 向下（更新的输入），到底部清空。
@@ -467,7 +482,9 @@ export function App({ port }: { port: UiPort }) {
   // 渲染计算
   const configEntries = view.kind === 'config' && configSnapshot ? buildEntries(configSnapshot, view.path, treeCtx) : []
   const termWidth = stdout.columns || 80
-  const viewportHeight = Math.max(6, (stdout.rows || 24) - 8)
+  const termHeight = stdout.rows || 24
+  // 预留行：TopBar(1) + 输入框(1) + 提示(1) + StatusBar(1) + padding(2) = 6，但多行输入可能更高。
+  const viewportHeight = Math.max(6, termHeight - 8)
   const headerInfo = configSnapshot
     ? (configSnapshot.defaultProvider ? `${configSnapshot.defaultProvider}/${configSnapshot.defaultModel ?? '?'}` : '未配置 provider（请先 /config）')
     : '加载配置中…'
@@ -494,7 +511,7 @@ export function App({ port }: { port: UiPort }) {
   const visibleBlocks = sliceViewport(displayBlocks, viewportHeight, scroll)
 
   return (
-    <Box flexDirection="column" padding={1}>
+    <Box flexDirection="column" height={termHeight} padding={0}>
       <TopBar info={headerInfo} />
 
       {/* 消息视口：无外框（消息块自带左色条），用 flexGrow 占满 + 内部滚动 */}
