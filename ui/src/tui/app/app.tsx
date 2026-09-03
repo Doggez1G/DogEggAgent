@@ -324,13 +324,21 @@ export function App({ port }: { port: UiPort }) {
         else if (entry?.kind === 'bool') { entry.save(v.preview ?? entry.value); setView({ kind: 'config', path: v.path, cursor: v.cursor, preview: null }) }
         else if (entry?.kind === 'action') {
           entry.run()
-          // selectProvider/selectModel/selectShell/selectTheme 选中即设后自动回 root。
-          // selectTool 返回 permissionBucket（父层），让用户看到工具已添加。
+          // 操作后的导航行为：
+          // - selectProvider/selectModel/selectShell/selectTheme：返回 root（设置完成）
+          // - selectTool：返回 permissionBucket（父层，看添加结果）
+          // - 「删除此 provider/model」：返回父层（项已删，不留空页）
+          // - 「添加 provider/model」：留在同页（用户可能要继续编辑新建的项）
+          // - permissionBucket 的 action（删除工具）：返回父层
           if (v.path.kind === 'selectTool') {
             setView({ kind: 'config', path: parentPath(v.path) ?? { kind: 'root' }, cursor: 0, preview: null })
           } else if (v.path.kind === 'selectProvider' || v.path.kind === 'selectModel' || v.path.kind === 'selectShell' || v.path.kind === 'selectTheme') {
             setView({ kind: 'config', path: { kind: 'root' }, cursor: 0, preview: null })
+          } else if (entry.del) {
+            // 有 del 回调的 action 是删除操作——返回父层。
+            setView({ kind: 'config', path: parentPath(v.path) ?? { kind: 'root' }, cursor: 0, preview: null })
           }
+          // 无 del 的 action（添加 provider/model）留在同页。
         }
       } else if (key.escape) {
         const parent = parentPath(v.path)
