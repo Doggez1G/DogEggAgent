@@ -70,6 +70,15 @@ export function App({ port }: { port: UiPort }) {
   const blocksRef = useRef(chat.blocks)
   const statusRef = useRef(chat.status) // 镜像 chat.status 供 useInput 读取（闭包防过期）
 
+  const [termDims, setTermDims] = useState({ cols: stdout.columns || 80, rows: stdout.rows || 24 })
+
+  // 终端 resize 时重渲染——Ink 的 useStdout 不会自动触发 React 更新。
+  useEffect(() => {
+    const handler = () => setTermDims({ cols: stdout.columns || 80, rows: stdout.rows || 24 })
+    stdout.on('resize', handler)
+    return () => { stdout.off('resize', handler) }
+  }, [stdout])
+
   const setBrowseBoth = useCallback((i: number | null) => { browseRef.current = i; setBrowse(i) }, [])
   const setView = useCallback((v: View) => { viewRef.current = v; setViewState(v) }, [])
   const updateConfig = useCallback((c: Config) => { configRef.current = c; setConfigSnapshot(c) }, [])
@@ -83,12 +92,17 @@ export function App({ port }: { port: UiPort }) {
   const prevBlocksLenRef = useRef(0)
   useEffect(() => {
     // 新消息块到达时（长度变化），如果用户没手动向上滚，保持底部（scroll=0）。
-    // 流式 partial 更新不触发重置——避免覆盖用户的滚动位置。
     if (chat.blocks.length !== prevBlocksLenRef.current) {
       prevBlocksLenRef.current = chat.blocks.length
       if (!userScrolledRef.current) setScroll(0)
     }
   }, [chat.blocks.length])
+
+  // 流式 partial 增长时，如果用户没手动向上滚，保持底部（scroll=0）。
+  // partial 更新频繁，确保新内容始终可见在底部。
+  useEffect(() => {
+    if (!userScrolledRef.current) setScroll(0)
+  }, [chat.partial])
 
   // 运行中轮询 context_request（3s 间隔）——让 StatusBar 的 tokens 实时更新。
   // 与 WebUI InfoPanel 的 3s 轮询一致；非运行态停止避免无效请求。
@@ -388,7 +402,7 @@ export function App({ port }: { port: UiPort }) {
       // Escape：退出块导航模式，焦点回到输入框。
       if (key.escape && browseRef.current !== null) { setBrowseBoth(null); return }
       // 消息滚动用 PageUp/PageDown（步长 = 终端高度的 1/3，平滑滚动）。
-      const scrollStep = Math.max(3, Math.floor((stdout.rows || 24) / 3))
+      const scrollStep = Math.max(3, Math.floor(termDims.rows / 3))
       if (key.pageUp) { userScrolledRef.current = true; setScroll((s) => s + scrollStep) }
       else if (key.pageDown) {
         setScroll((s) => {
@@ -507,8 +521,8 @@ export function App({ port }: { port: UiPort }) {
 
   // 渲染计算
   const configEntries = view.kind === 'config' && configSnapshot ? buildEntries(configSnapshot, view.path, treeCtx) : []
-  const termWidth = stdout.columns || 80
-  const termHeight = stdout.rows || 24
+  const termWidth = termDims.cols
+  const termHeight = termDims.rows
 
   // 联想匹配提取一次（渲染里多处用，避免重复调用）。
   const suggestMatches = view.kind === 'none' ? matchCommands(input) : []

@@ -1,10 +1,17 @@
 import type { Block } from '../../shared'
 import { isExpandable } from '../../shared'
 
+// 去除 ANSI 转义序列——cli-highlight 等库注入的颜色码不计入终端显示宽度。
+function stripAnsi(str: string): string {
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/\x1b\[[0-9;]*m/g, '')
+}
+
 // 粗略估算一个消息块占用的终端行数（角色头 1 + 正文换行 + 上下边框 2），用于消息视口的自动滚动裁切。
 export function estimateBlockLines(text: string, width: number): number {
+  const clean = stripAnsi(text)
   const lineWidth = Math.max(10, width - 6)
-  const body = text.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / lineWidth)), 0)
+  const body = clean.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / lineWidth)), 0)
   return body + 3
 }
 
