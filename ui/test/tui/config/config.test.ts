@@ -8,7 +8,7 @@ const cfg = configSchema.parse({ providers: [{ name: 'openai', protocol: 'openai
 describe('config-tree', () => {
   it('root lists top-level fields', () => {
     const labels = buildEntries(cfg, { kind: 'root' }, ctx).map((e) => e.label)
-    expect(labels).toEqual(['systemPrompt', 'defaultProvider', 'defaultModel', 'maxIterations', 'maxRetries', 'shellProgram', 'permission', 'providers'])
+    expect(labels).toEqual(['systemPrompt', 'defaultProvider', 'defaultModel', 'maxIterations', 'maxRetries', 'shellProgram', 'theme', 'permission', 'providers'])
   })
 
   it('providers lists provider entries plus an add action', () => {

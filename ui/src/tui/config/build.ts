@@ -3,6 +3,7 @@ import type { ConfigPath } from './navigation'
 import type { Entry, TreeCtx } from './entries'
 import { nan } from './label'
 import { detectShells } from './shells'
+import { THEMES, getCurrentTheme, setTheme } from '../theme'
 
 // 生成给定路径下的一层字段列表。依据 config + path 决定展示哪些字段、它们的交互形态。
 export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): Entry[] {
@@ -15,6 +16,7 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): En
         { label: 'maxIterations', kind: 'scalar', value: String(config.maxIterations), save: (v) => ctx.set('maxIterations', nan(v)) },
         { label: 'maxRetries', kind: 'scalar', value: String(config.maxRetries), save: (v) => ctx.set('maxRetries', nan(v)) },
         { label: 'shellProgram', kind: 'goto', value: config.shellProgram || '（未选择）', subPath: { kind: 'selectShell' } },
+        { label: 'theme', kind: 'goto', value: THEMES[getCurrentTheme()]?.label ?? '默认', subPath: { kind: 'selectTheme' } },
         { label: 'permission', kind: 'goto', value: 'allow/reject/ask', subPath: { kind: 'permission' } },
         { label: 'providers', kind: 'goto', value: `${config.providers.length} 个`, subPath: { kind: 'providers' } },
       ]
@@ -124,6 +126,17 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): En
       }))
       entries.push({ label: '手动输入…', kind: 'prompt', title: 'shell 程序名', save: (v) => { const t = v.trim(); if (t) ctx.set('shellProgram', t) } })
       return entries
+    }
+
+    case 'selectTheme': {
+      // 主题切换是纯 UI 偏好——不通过 config_set，直接调 setTheme。
+      const current = getCurrentTheme()
+      return Object.entries(THEMES).map(([key, t]) => ({
+        label: t.label,
+        kind: 'action' as const,
+        value: key === current ? '✓' : '',
+        run: () => setTheme(key),
+      }))
     }
   }
 }

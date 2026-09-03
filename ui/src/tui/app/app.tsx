@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } 
 import { Box, Text, useInput, useStdout } from 'ink'
 import TextInput from 'ink-text-input'
 import type { AgentToUiMessage, UiToAgentMessage, PermissionDecision, Config, UiPort } from '@dogegg/bridge'
-import { TopBar, MessageBlock, StatusBar, ListPicker } from '../components'
-import { palette } from '../theme'
+import { TopBar, MessageBlock, StatusBar, ListPicker, MultilineInput } from '../components'
+import { palette, THEMES, onThemeChange, setTheme, getCurrentTheme } from '../theme'
 import type { BlockKind } from '../../shared'
 import { isExpandable } from '../../shared'
 import { renderMarkdown } from '../markdown'
@@ -40,6 +40,9 @@ export function App({ port }: { port: UiPort }) {
   const [infoScroll, setInfoScroll] = useState(0) // info overlay 独立滚动（不与 chat scroll 共用）
   const [statusBarData, setStatusBarData] = useState<{ provider?: string; model?: string; sessionId?: string; tokens?: number; windowTokens?: number; cwd?: string }>({})
   const currentCwdRef = useRef<string>('')
+  // 主题状态：切换主题时触发重渲染（palette 通过 Proxy 动态读取）。
+  const [, setThemeTick] = useState(0)
+  useEffect(() => onThemeChange(() => setThemeTick((t) => t + 1)), [])
   const [inputHistory] = useState<string[]>([])
   const inputHistoryRef = useRef<string[]>([])
   const historyCursorRef = useRef<number>(-1) // 输入历史游标（-1=未在浏览历史）
@@ -282,8 +285,8 @@ export function App({ port }: { port: UiPort }) {
         else if (entry?.kind === 'bool') { entry.save(v.preview ?? entry.value); setView({ kind: 'config', path: v.path, cursor: v.cursor, preview: null }) }
         else if (entry?.kind === 'action') {
           entry.run()
-          // selectProvider/selectModel/selectShell 选中即设后自动回 root（不留在选择列表）。
-          if (v.path.kind === 'selectProvider' || v.path.kind === 'selectModel' || v.path.kind === 'selectShell') {
+          // selectProvider/selectModel/selectShell/selectTheme 选中即设后自动回 root（不留在选择列表）。
+          if (v.path.kind === 'selectProvider' || v.path.kind === 'selectModel' || v.path.kind === 'selectShell' || v.path.kind === 'selectTheme') {
             setView({ kind: 'config', path: { kind: 'root' }, cursor: 0, preview: null })
           }
         }
@@ -523,13 +526,14 @@ export function App({ port }: { port: UiPort }) {
                     {i === suggestCursor ? '> ' : '  '}{m.cmd} <Text dimColor>{m.desc}</Text>
                   </Text>
                 ))}
-                <Text dimColor> ↑↓ 选择 · 回车/Tab 补全 · esc 取消</Text>
+                <Text dimColor>↑↓ 选择 · 回车/Tab 补全 · esc 取消</Text>
               </Box>
             )}
             <Box>
               <Text color="blue">› </Text>
-              <TextInput value={input} onChange={(v) => { setInput(v); setSuggestCursor(null) }} onSubmit={handleSubmit} focus={browse === null} />
+              <MultilineInput value={input} onChange={(v) => { setInput(v); setSuggestCursor(null) }} onSubmit={handleSubmit} focus={browse === null} />
             </Box>
+            <Text dimColor>Enter 发送 · Shift+Enter 换行</Text>
           </Box>
         )}
         {view.kind === 'prompt' && (

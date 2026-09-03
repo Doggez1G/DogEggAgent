@@ -1,5 +1,5 @@
 import type { BlockKind, ColorToken } from '../../shared'
-import { palette } from './palette'
+import { getCurrentPalette } from './palette'
 
 // TUI 视觉映射：语义 kind → emoji 图标（终端限制只能用 emoji）。
 export const KIND_ICON: Record<BlockKind, string> = {
@@ -12,15 +12,12 @@ export const KIND_ICON: Record<BlockKind, string> = {
   auto_compact: '🐾',
 }
 
-// TUI 视觉映射：语义 colorToken → hex 色值（Catppuccin Mocha 调色板）。
-export const TOKEN_COLOR: Record<ColorToken, string> = {
-  accent: palette.accent,
-  text: palette.text,
-  cyan: palette.cyan,
-  yellow: palette.yellow,
-  red: palette.red,
-  subtext: palette.subtext,
-}
+// TUI 视觉映射：语义 colorToken → hex 色值（动态读取当前主题）。
+export const TOKEN_COLOR: Record<ColorToken, string> = new Proxy({} as Record<ColorToken, string>, {
+  get(_target, prop: string) {
+    return getCurrentPalette()[prop as keyof ReturnType<typeof getCurrentPalette>] ?? ''
+  },
+})
 
 // TUI 视觉映射：语义 kind → 中文角色标签。
 export const KIND_ROLE: Record<BlockKind, string> = {
