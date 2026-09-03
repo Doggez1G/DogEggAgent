@@ -325,28 +325,25 @@ export function App({ port }: { port: UiPort }) {
         else if (entry?.kind === 'action') {
           entry.run()
           // 操作后的导航行为：
-          // - selectProvider/selectModel/selectShell/selectTheme：返回 root（设置完成）
-          // - selectTool：返回 permissionBucket（父层，看添加结果）
-          // - 「删除此 provider/model」：返回父层（项已删，不留空页）
-          // - 「添加 provider/model」：留在同页（用户可能要继续编辑新建的项）
-          // - permissionBucket 的 action（删除工具）：返回父层
-          if (v.path.kind === 'selectTool') {
-            setView({ kind: 'config', path: parentPath(v.path) ?? { kind: 'root' }, cursor: 0, preview: null })
-          } else if (v.path.kind === 'selectProvider' || v.path.kind === 'selectModel' || v.path.kind === 'selectShell' || v.path.kind === 'selectTheme') {
-            setView({ kind: 'config', path: { kind: 'root' }, cursor: 0, preview: null })
-          } else if (entry.del) {
-            // 有 del 回调的 action 是删除操作——返回父层。
+          // - 有 del 的 action（按 Enter 删除）：返回父层（项已删，不留空页）
+          // - 无 del 的 action（选择/添加）：留在同页，cursor 不变
+          if (entry.del) {
             setView({ kind: 'config', path: parentPath(v.path) ?? { kind: 'root' }, cursor: 0, preview: null })
           }
-          // 无 del 的 action（添加 provider/model）留在同页。
         }
       } else if (key.escape) {
         const parent = parentPath(v.path)
         if (parent) setView({ kind: 'config', path: parent, cursor: 0, preview: null })
         else setView({ kind: 'none' })
       } else if (inputChar === 'd' && entry) {
-        if (entry.kind === 'goto' && entry.del) { entry.del(); setView({ kind: 'config', path: parentPath(v.path) ?? { kind: 'root' }, cursor: 0, preview: null }) }
-        else if (entry.kind === 'action' && entry.del) { entry.del(); setView({ kind: 'config', path: parentPath(v.path) ?? { kind: 'root' }, cursor: 0, preview: null }) }
+        // d 键删除：执行 del 后留在同页，clamp cursor 防越界（删最后一项时 cursor 回退）。
+        if (entry.kind === 'goto' && entry.del) {
+          entry.del()
+          setView({ ...v, cursor: Math.min(v.cursor, Math.max(0, entries.length - 2)), preview: null })
+        } else if (entry.kind === 'action' && entry.del) {
+          entry.del()
+          setView({ ...v, cursor: Math.min(v.cursor, Math.max(0, entries.length - 2)), preview: null })
+        }
       }
     } else if (v.kind === 'none') {
       // 斜杠命令联想提示：输入以 / 开头且有匹配时，↑↓ 选择、回车/Tab 补全。
