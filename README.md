@@ -47,21 +47,23 @@ npm run dev
 ### 生产构建
 
 ```bash
-# WebUI
-npm run build:web    # Vite build -> dist/web/ + esbuild -> dist/server.js
-npm run start:web    # node dist/server.js, serve 静态文件 + 跑 agent
+# 统一 CLI 入口（dogegg 命令）
+npm run build          # esbuild -> dist/dogegg.js (含 TUI + WebUI server)
+npm run build:web      # Vite build -> dist/web/ (WebUI 静态前端)
+npm run start          # dogegg -> TUI
+npm run start:web      # dogegg -web -> WebUI
 
-# TUI
-npm run build        # esbuild -> dist/index.js
-npm run start        # node dist/index.js
+# 全局安装
+npm link               # 注册 dogegg 命令
+dogegg                 # 任意目录启动 TUI
+dogegg -web            # 任意目录启动 WebUI
 ```
 
 ## 架构概览
 
 ```
                     +-------------+
-                    | main.ts     |  TUI 组合根
-                    | main-web.ts |  WebUI 组合根
+                    | bin/dogegg.ts |  统一 CLI 入口 (dogegg → TUI, dogegg -web → WebUI)
                     +------+------+
                  装配 |  | 装配
               +--------+  +--------+

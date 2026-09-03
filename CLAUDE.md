@@ -59,11 +59,12 @@ DogEggAgent/
 - `npm install`：安装依赖 + 链接 workspace 符号链接
 - `npm run typecheck`：五路 tsc（root + agent + ui + bridge + server）
 - `npm run test:run`（或 `npm test`）：Vitest 跑四包 test/
-- `npm run build`：esbuild 打包到 `dist/index.js`（TUI，@dogegg/* 经插件内联，npm 依赖 external）
-- `npm run start`：`node dist/index.js`；`npm run dev` = build + start
+- `npm run build`：esbuild 打包到 `dist/dogegg.js`（统一 CLI 入口，@dogegg/* 经插件内联，npm 依赖 external）
+- `npm run start`：`node dist/dogegg.js`（启动 TUI）；`npm run dev` = build + start
 - `npm run dev:web`：concurrently 跑 server（cross-env VITE_DEV=1 PORT=3001 tsx main-web.ts）+ Vite dev server（wait-on tcp:3001 && vite），Vite proxy `/api` 到 3001
-- `npm run build:web`：Vite build → `dist/web/`（静态前端）+ esbuild → `dist/server.js`（server bundle）
-- `npm run start:web`：`node dist/server.js`，serve dist/web/ 静态文件 + 跑 agent
+- `npm run build:web`：Vite build → `dist/web/`（静态前端）
+- `npm run start:web`：`node dist/dogegg.js -web`，serve dist/web/ 静态文件 + 跑 agent
+- 全局安装（`npm link` 或 `npm install -g`）后：任意目录执行 `dogegg` 启动 TUI，`dogegg -web` 启动 WebUI
 
 > 说明：TUI 用 Ink v7，其依赖 `yoga-layout` 含 top-level await，`tsx` 的 CJS 转换会报错；故运行改用 esbuild 打包（`--format=esm --packages=external`）+ node 原生运行，非 `tsx`。WebUI 用 React DOM + Vite，开发时 `dev:web` 用 tsx 跑 main-web.ts + Vite dev server 代理 `/api`。
 

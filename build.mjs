@@ -16,11 +16,13 @@ const workspacePlugin = {
 }
 
 await build({
-  entryPoints: ['main.ts'],
-  outfile: 'dist/index.js',
+  entryPoints: ['bin/dogegg.ts'],
+  outfile: 'dist/dogegg.js',
   bundle: true,
   platform: 'node',
   format: 'esm',
   packages: 'external',
   plugins: [workspacePlugin],
+  // shebang：让 Linux/macOS 知道用 node 执行；Windows 上 npm 自动创建 .cmd 包装器。
+  banner: { js: '#!/usr/bin/env node' },
 })

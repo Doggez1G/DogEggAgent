@@ -12,7 +12,7 @@ export default defineConfig({
   build: {
     // outDir 相对于 vite.config.ts 所在位置（项目根）解析。
     outDir: fileURLToPath(new URL('./dist/web', import.meta.url)),
-    // 不清空整个 dist/——只清空 dist/web/（避免删掉 TUI 的 dist/index.js 和 server 的 dist/server.js）。
+    // 不清空整个 dist/——只清空 dist/web/（避免删掉 dist/dogegg.js）。
     emptyOutDir: false,
   },
   // @dogegg/bridge 是纯 TS 源码包（exports → src/index.ts），Vite 需要预打包才能正确解析。
