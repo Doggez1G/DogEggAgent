@@ -48,9 +48,18 @@ export class Agent {
   }
 
   // emitState：状态迁移的快捷方法——经 transition 算下一态后 emit state 事件。
+  // 同时附带 status_state（含最新 token 估算），让 StatusBar 在每次状态变化时实时更新。
   private emitState(input: TransitionInput): void {
     const next = transition(this.state, input)
-    if (next !== this.state) this.emit({ type: 'state', from: this.state, to: next })
+    if (next !== this.state) {
+      this.emit({ type: 'state', from: this.state, to: next })
+      // 状态变化时同步推送 token 信息（thinking→responding→tool_calling 等都会触发）。
+      try {
+        const { provider, model } = resolveCurrent(this.config)
+        const cur = this.current()
+        this.emit({ type: 'status_state', sessionId: this.sessionId, provider: provider.name, model: model.name, cwd: this.cwd, state: next, estimatedTokens: this.estimateCurrentTokens(), windowTokens: cur.contextWindow })
+      } catch { /* 配置未就绪时跳过 */ }
+    }
   }
 
   // emit = port.post + 日志埋点。日志按消息类型分 scope，便于 /log 面板按类型过滤。
