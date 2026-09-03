@@ -1,11 +1,11 @@
 import type { Message, State } from '@dogegg/bridge'
 import type { AgentToUiMessage } from '@dogegg/bridge'
-import { transition, type TransitionInput } from '../core/state'
+import { transition, type TransitionInput } from '../core'
 import { estimateContextTokens, compactContext, enforceContextLimit } from '../context'
 import { toolSchemas } from '../tools'
 import { executeOneTool } from './tool-calls'
-import { CancelledError } from '../shared/errors'
-import { newId } from '../shared/id'
+import { CancelledError } from '../shared'
+import { newId } from '../shared'
 import type { LoopDeps, LoopResult } from './types'
 
 // 用 toolSchemas()（wrapped OpenAI 格式）而非 raw tool.parameters，使估算与实际请求一致。

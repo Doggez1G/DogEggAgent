@@ -2,8 +2,8 @@ import { useEffect, useRef } from 'react'
 import { Egg, Loader2 } from 'lucide-react'
 import { MessageBlock } from '../message-block'
 import { MarkdownRenderer } from '../markdown'
-import type { ChatState } from '../../../shared/reducer'
-import type { Block } from '../../../shared/block'
+import type { ChatState } from '../../../shared'
+import type { Block } from '../../../shared'
 import styles from './chat-view.module.css'
 
 // 聊天视口：消息列表 + 流式 partial 块。自动滚动到底部。

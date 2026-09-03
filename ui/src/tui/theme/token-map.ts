@@ -1,4 +1,4 @@
-import type { BlockKind, ColorToken } from '../../shared/block'
+import type { BlockKind, ColorToken } from '../../shared'
 import { palette } from './palette'
 
 // TUI 视觉映射：语义 kind → emoji 图标（终端限制只能用 emoji）。

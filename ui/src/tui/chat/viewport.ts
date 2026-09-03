@@ -1,5 +1,5 @@
-import type { Block } from '../../shared/block'
-import { isExpandable } from '../../shared/block'
+import type { Block } from '../../shared'
+import { isExpandable } from '../../shared'
 
 // 粗略估算一个消息块占用的终端行数（角色头 1 + 正文换行 + 上下边框 2），用于消息视口的自动滚动裁切。
 export function estimateBlockLines(text: string, width: number): number {

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ComponentType } from 'react'
 import { Search, MessageSquare, Palette, Settings, Plus, Trash2, Command as CommandIcon } from 'lucide-react'
-import { COMMANDS, parseCommand } from '../../../shared/commands'
-import { THEMES } from '../../app/view-state'
-import type { ThemeName, SessionItem } from '../../app/view-state'
+import { COMMANDS, parseCommand } from '../../../shared'
+import { THEMES } from '../../app'
+import type { ThemeName, SessionItem } from '../../app'
 import type { UiPort } from '@dogegg/bridge'
 import styles from './command-palette.module.css'
 

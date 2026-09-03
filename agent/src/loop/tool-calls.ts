@@ -1,9 +1,9 @@
 import type { Message, State, PermissionDecision } from '@dogegg/bridge'
 import type { AgentToUiMessage } from '@dogegg/bridge'
-import type { Tool, ToolContext } from '../tools/types'
+import type { Tool, ToolContext } from '../tools'
 import type { PermissionManager } from '../permission'
-import type { TransitionInput } from '../core/state'
-import { truncate } from '../context/message'
+import type { TransitionInput } from '../core'
+import { truncate } from '../context'
 
 // 单个工具的执行结果：要回填的 tool 消息 + 状态迁移输入。
 // isLast 决定迁移到 tool_done（继续下一个）还是 result_back/reject（重新请求模型）。

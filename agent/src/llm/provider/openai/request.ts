@@ -1,4 +1,4 @@
-import type { ChatRequest } from '../../types'
+import type { ChatRequest } from '../..'
 
 // ChatRequest → HTTP 请求（URL + init）。
 // system 消息在此拼接——ChatRequest.messages 只含 user/assistant/tool 历史，不含 system。

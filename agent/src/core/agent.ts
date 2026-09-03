@@ -12,13 +12,11 @@ import { resolveCurrent } from '../config/resolve'
 import { saveConfig } from '../config/loader'
 import { loadSystemPrompt, estimateContextTokens, compactContext, summarizeHistory } from '../context'
 import { getAllTools, toolSchemas } from '../tools'
-import { adapterFor } from '../llm/adapter-for'
+import { adapterFor } from '../llm'
 import { runLoop } from '../loop/run'
 import { saveSession, loadSession, listSessions, deleteSession, defaultSessionsDir } from '../session'
 import { PermissionManager } from '../permission'
-import { newId } from '../shared/id'
-import { log, readLogTail, sessionLogPath } from '../shared/logger'
-import { CancelledError } from '../shared/errors'
+import { log, readLogTail, sessionLogPath, newId, CancelledError } from '../shared'
 
 // Agent 是后端对外的唯一入口：持有 history（完整原文）与 context（发给模型，可压缩），
 // 通过 AgentPort 收发消息，不依赖 ui。

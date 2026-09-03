@@ -1,4 +1,4 @@
-import type { ProviderAdapter, LlmStreamEvent, ChatRequest, ChatResult } from '../../types'
+import type { ProviderAdapter, LlmStreamEvent, ChatRequest, ChatResult } from '../..'
 import { streamOnce } from './stream'
 import { withRetry } from './retry'
 

@@ -1,5 +1,5 @@
 import type { Message } from '@dogegg/bridge'
-import type { ProviderAdapter } from '../../llm/types'
+import type { ProviderAdapter } from '../../llm'
 
 // 用同一 adapter 做一次「离线」总结，把最旧的 Context 消息压成一段中文摘要。
 // 「离线」指不进 agent loop、不发 stream 事件——只是单次 chat 调用拿一个文本结果。

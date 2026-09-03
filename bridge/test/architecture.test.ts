@@ -83,4 +83,35 @@ describe('architecture: 模块边界（index 只做 re-export）', () => {
       })
     expect(violators).toEqual([])
   })
+
+  it('非 index 文件不直接 import 模块私有文件（应通过 index.ts barrel）', () => {
+    // 检测 import 路径指向已知有 barrel 的模块的私有文件。
+    // 已知 barrel 目录：shared, core, core/state, tools, context, context/token, context/message,
+    // llm, llm/streaming, permission, session, config, config/editor, config/loader, config/resolve
+    // 这些目录都有 index.ts，import 应指向目录而非内部文件。
+    const barrelDirs = [
+      'shared/errors', 'shared/id', 'shared/logger',
+      'core/state', 'core/pending',
+      'tools/types', 'tools/registry',
+      'context/token', 'context/message', 'context/compact', 'context/prompt',
+      'llm/types', 'llm/adapter-for', 'llm/streaming',
+      'permission/classify', 'permission/runtime',
+      'session/store', 'session/list',
+    ]
+    // 检查 agent 和 ui 包内非 index 文件的 import。
+    const violators = [
+      ...walk(pkgDir.agent),
+      ...walk(pkgDir.ui),
+    ]
+      .filter((f) => !f.endsWith('/index.ts') && !f.endsWith('/index.tsx') && (f.endsWith('.ts') || f.endsWith('.tsx')))
+      .flatMap((f) => {
+        const src = readFileSync(f, 'utf8')
+        const lines = src.split('\n').map((l) => l.trim())
+        return lines
+          .filter((l) => l.startsWith('import '))
+          .filter((l) => barrelDirs.some((d) => l.includes(`/${d}'`) || l.includes(`/${d}"`)))
+          .map((l) => `${f}: ${l}`)
+      })
+    expect(violators).toEqual([])
+  })
 })

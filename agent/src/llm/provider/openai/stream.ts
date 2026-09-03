@@ -1,6 +1,6 @@
 import type { Message } from '@dogegg/bridge'
-import type { LlmStreamEvent, ChatRequest } from '../../types'
-import { createOpenAiStreamParser } from '../../streaming/openai'
+import type { LlmStreamEvent, ChatRequest } from '../..'
+import { createOpenAiStreamParser } from '../../streaming'
 import { buildRequest } from './request'
 import { HttpError, NetworkError, StreamTimeoutError } from './errors'
 

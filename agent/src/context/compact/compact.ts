@@ -1,5 +1,5 @@
 import type { Message } from '@dogegg/bridge'
-import { estimateContextTokens } from '../token/budget'
+import { estimateContextTokens } from '../token'
 import { shouldCompact } from './trigger'
 import { splitForCompaction } from './split'
 

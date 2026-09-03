@@ -1,5 +1,5 @@
-import { isExpandable } from '../../shared/block'
-import type { Block } from '../../shared/block'
+import { isExpandable } from '../../shared'
+import type { Block } from '../../shared'
 
 // 块浏览：在可折叠块（思考/工具）间移动焦点、展开/折叠。
 // 焦点用 index 表示；expanded 是一个 Set<number>。

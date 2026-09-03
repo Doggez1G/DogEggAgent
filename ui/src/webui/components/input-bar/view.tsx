@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { ArrowUp, Square, Slash, MoreHorizontal, Eraser, Archive, Plus, FolderPlus } from 'lucide-react'
-import { matchCommands, parseCommand } from '../../../shared/commands'
-import { COMMAND_TO_MODAL } from '../../app/view-state'
+import { matchCommands, parseCommand } from '../../../shared'
+import { COMMAND_TO_MODAL } from '../../app'
 import type { UiPort } from '@dogegg/bridge'
 import styles from './input-bar.module.css'
 

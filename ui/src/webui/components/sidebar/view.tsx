@@ -5,8 +5,8 @@ import {
 } from 'lucide-react'
 import { Brand, BrandMark } from '../../brand'
 import { IconButton } from '../primitives'
-import { THEMES } from '../../app/view-state'
-import type { ThemeName, SessionItem } from '../../app/view-state'
+import { THEMES } from '../../app'
+import type { ThemeName, SessionItem } from '../../app'
 import styles from './sidebar.module.css'
 
 // 侧栏：品牌 + 搜索框 + 项目/会话树 + 设置 + 主题切换。

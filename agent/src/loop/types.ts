@@ -1,5 +1,5 @@
-import type { ProviderAdapter } from '../llm/types'
-import type { Tool } from '../tools/types'
+import type { ProviderAdapter } from '../llm'
+import type { Tool } from '../tools'
 import type { Message, PermissionDecision, State } from '@dogegg/bridge'
 import type { AgentToUiMessage } from '@dogegg/bridge'
 import type { PermissionManager } from '../permission'

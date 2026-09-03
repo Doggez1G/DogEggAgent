@@ -1,5 +1,5 @@
 import type { Message } from '@dogegg/bridge'
-import { estimateContextTokens } from '../token/budget'
+import { estimateContextTokens } from '../token'
 
 // 硬上限兜底：当压缩后 context 仍超过窗口 80%（如单条消息极大或压缩失败降级），
 // 从头部丢弃最旧的非 system 消息直到降到阈值以下。

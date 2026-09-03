@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { KIND_ICON, KIND_LABEL } from '../../theme/token-map'
 import { Egg, User, ChevronDown, Wrench, Check, X, Loader2 } from 'lucide-react'
 import { MarkdownRenderer } from '../markdown'
-import type { BlockKind, ColorToken } from '../../../shared/block'
-import { isExpandable } from '../../../shared/block'
+import type { BlockKind, ColorToken } from '../../../shared'
+import { isExpandable } from '../../../shared'
 import styles from './message-block.module.css'
 
 // 消息块：按 kind 分化渲染——每种类型有完全不同的视觉结构。
