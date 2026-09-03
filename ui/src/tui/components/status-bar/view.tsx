@@ -1,15 +1,11 @@
 import React, { useEffect, useState } from 'react'
 import { Box, Text } from 'ink'
 import { palette } from '../../theme'
+import { isStateRunning } from '../../../shared'
 import type { State } from '@dogegg/bridge'
 
 // Braille spinner 帧序列——10 帧循环，80ms/帧（12.5fps），完整一圈 800ms。
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
-
-// 运行态——需要 spinner 旋转动画。
-const SPINNING_STATES: ReadonlySet<State> = new Set([
-  'thinking', 'responding', 'tool_calling', 'executing', 'compacting',
-])
 
 // 状态 → (颜色, Emoji, 中文描述) 映射——落地设计 §14。
 const STATE_META: Record<string, { color: string; emoji: string; label: string }> = {
@@ -37,7 +33,7 @@ export function StatusBar(props: {
   cwd?: string
 }) {
   const meta = STATE_META[props.state] ?? { color: palette.subtext, emoji: '🥚', label: props.state }
-  const isSpinning = SPINNING_STATES.has(props.state as State)
+  const isSpinning = isStateRunning(props.state as State)
   const [frame, setFrame] = useState(0)
 
   // 运行态启动定时器切换 spinner 帧，非运行态停止——避免不必要重渲染。
