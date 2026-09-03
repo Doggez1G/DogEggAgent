@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import type { AgentPort, UiPort } from '@dogegg/bridge'
+import type { AgentPort } from '@dogegg/bridge'
 import type { AgentToUiMessage } from '@dogegg/bridge'
 import type { UiToAgentMessage } from '@dogegg/bridge'
 import { uiToAgentMessageSchema } from '@dogegg/bridge'
@@ -7,13 +7,12 @@ import { uiToAgentMessageSchema } from '@dogegg/bridge'
 // POST body 最大 1MB——防止恶意大 body 耗尽内存。
 const MAX_BODY_SIZE = 1024 * 1024
 
-// SSE 通道：实现 AgentPort / UiPort 接口，用 HTTP SSE 下行 + POST 上行。
+// SSE 通道：实现 AgentPort 接口，用 HTTP SSE 下行 + POST 上行。
 // agent 侧通过 agentPort 收 UI 消息（POST → onMessage 回调）、发 UI 消息（→ SSE 流）。
-// ui 侧通过 uiPort 收 agent 消息（SSE 流 → onMessage 回调）、发 agent 消息（→ POST handler）。
+// UI 侧直接消费 SSE 流（浏览器 EventSource）+ POST 上行（fetch），不需要 UiPort。
 // 多个浏览器标签页可同时连 SSE——它们都是同一 Agent 的观察者，共享同一事件流。
 export function createSseChannel(): {
   agentPort: AgentPort
-  uiPort: UiPort
   /** GET /api/events 的 HTTP handler——建立 SSE 连接，注册到活跃连接集合。 */
   sseHandler: (req: IncomingMessage, res: ServerResponse) => void
   /** POST /api/message 的 HTTP handler——读取 body，zod 校验，触发 agentPort 回调。 */
@@ -35,16 +34,6 @@ export function createSseChannel(): {
       for (const res of sseClients) {
         try { res.write(data) } catch { /* 连接已断开，write 失败——清理在 close 事件里做 */ }
       }
-    },
-  }
-
-  const uiPort: UiPort = {
-    onMessage() {
-      // SSE 通道不支持 uiPort.onMessage——UI 侧通过 sseHandler 直接消费 SSE 流。
-      return () => {}
-    },
-    post(msg: UiToAgentMessage) {
-      agentListeners.forEach((l) => l(msg))
     },
   }
 
@@ -101,5 +90,5 @@ export function createSseChannel(): {
     })
   }
 
-  return { agentPort, uiPort, sseHandler, postHandler }
+  return { agentPort, sseHandler, postHandler }
 }
