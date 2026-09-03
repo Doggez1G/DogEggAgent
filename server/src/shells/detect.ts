@@ -1,7 +1,4 @@
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
-
-const execFileAsync = promisify(execFile)
+import { execFileSync } from 'node:child_process'
 
 // 系统 shell 候选——按常见顺序检测。
 const CANDIDATES = [
@@ -17,17 +14,12 @@ const CANDIDATES = [
 let cached: { value: string; label: string }[] | null = null
 
 // 检测系统可用的 shell 程序列表。
-// 用 execFile（无 shell）替代 execSync，避免 shell 注入 + 不阻塞事件循环。
-// 结果缓存：第一次调用后后续直接返回缓存。
+// 用 execFileSync（无 shell）避免 shell 注入；结果缓存，首次调用后不再重复检测。
 export function detectShells(): { value: string; label: string }[] {
   if (cached) return cached
-  // 同步检测（在首次请求时执行，后续缓存）——用 execFileSync 替代 execSync 避免 shell 注入。
-  // 由于 detectShells 在请求处理中被调用且需要同步返回，这里仍用同步方式但加了缓存。
-  const { execFileSync } = require('node:child_process')
   const found: { value: string; label: string }[] = []
   for (const c of CANDIDATES) {
     try {
-      // 用 execFileSync 直接调用命令（不通过 shell），避免注入风险。
       execFileSync(c.cmd, ['--version'], { timeout: 3000, stdio: 'pipe' })
       found.push({ value: c.value, label: c.label })
     } catch {
