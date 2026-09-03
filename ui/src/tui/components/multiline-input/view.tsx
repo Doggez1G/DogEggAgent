@@ -33,10 +33,6 @@ export function MultilineInput(props: {
     // Tab 不拦截——让 app 的命令补全处理器处理。
     if (key.tab) return
 
-    // Ctrl+Enter / Ctrl+Return 不拦截——让 app 的块导航展开/折叠处理器处理。
-    // Ctrl+Enter 在大多数终端发送 \n（Ctrl+J），Ink 的 key.return 只认 \r，故需检查 inputChar。
-    if (key.ctrl && (key.return || inputChar === '\n')) return
-
     // Shift+Enter → 插入换行。
     if (key.return && key.shift) {
       const newValue = value.slice(0, cursorOffset) + '\n' + value.slice(cursorOffset)
@@ -132,18 +128,17 @@ export function MultilineInput(props: {
     return <Text>{chalk.inverse(placeholder[0] ?? ' ')}{chalk.gray(placeholder.slice(1))}</Text>
   }
 
-  return (
-    <>
-      {lines.map((line, i) => {
-        if (i === cursorLine && focus) {
-          // 光标行：在 cursorCol 位置插入 inverse 字符
-          const before = line.slice(0, cursorCol)
-          const cursorChar = line[cursorCol] ?? ' '
-          const after = line.slice(cursorCol + 1)
-          return <Text key={i}>{before}{chalk.inverse(cursorChar)}{after}</Text>
-        }
-        return <Text key={i}>{line || ' '}</Text>
-      })}
-    </>
-  )
+  // 渲染：所有行合并为一个 Text（Ink 中 Box 内多个 Text 会水平排列，需用 \n 分隔）。
+  // 光标行在 cursorCol 位置用 inverse 高亮字符。
+  const renderedLines = lines.map((line, i) => {
+    if (i === cursorLine && focus) {
+      const before = line.slice(0, cursorCol)
+      const cursorChar = line[cursorCol] ?? ' '
+      const after = line.slice(cursorCol + 1)
+      return before + chalk.inverse(cursorChar) + after
+    }
+    return line || ' '
+  })
+
+  return <Text>{renderedLines.join('\n')}</Text>
 }

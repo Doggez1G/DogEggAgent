@@ -17,10 +17,22 @@ const DECISIONS: PermissionDecision[] = ['allow_once', 'allow_always', 'reject']
 const DECISION_LABELS = ['允许一次', '始终允许（本次会话）', '拒绝']
 
 // 会话搜索过滤：按预览文本模糊匹配（大小写不敏感）。
-function filterSessions(sessions: { id: string; preview: string }[], query: string): { id: string; preview: string }[] {
+function filterSessions(sessions: { id: string; preview: string; updatedAt: string }[], query: string): { id: string; preview: string; updatedAt: string }[] {
   if (!query) return sessions
   const q = query.toLowerCase()
   return sessions.filter((s) => s.preview.toLowerCase().includes(q) || s.id.toLowerCase().includes(q))
+}
+
+// 相对时间格式化：now/m/h/d。
+function relTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const m = Math.floor(diff / 60000)
+  if (m < 1) return '刚刚'
+  if (m < 60) return `${m}分钟前`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}小时前`
+  const d = Math.floor(h / 24)
+  return `${d}天前`
 }
 
 // App 是 UI 的唯一入口。通过 UiPort 收发消息，不依赖 Agent——解耦落点。
@@ -68,17 +80,22 @@ export function App({ port }: { port: UiPort }) {
 
   // 用户手动滚动标记——PageUp 设为 true，新消息到达时如果未手动滚则保持底部。
   const userScrolledRef = useRef(false)
+  const prevBlocksLenRef = useRef(0)
   useEffect(() => {
-    // 新消息或流式更新到达时，如果用户没手动向上滚，保持底部（scroll=0）。
-    if (!userScrolledRef.current) setScroll(0)
-  }, [chat.blocks.length, chat.partial])
+    // 新消息块到达时（长度变化），如果用户没手动向上滚，保持底部（scroll=0）。
+    // 流式 partial 更新不触发重置——避免覆盖用户的滚动位置。
+    if (chat.blocks.length !== prevBlocksLenRef.current) {
+      prevBlocksLenRef.current = chat.blocks.length
+      if (!userScrolledRef.current) setScroll(0)
+    }
+  }, [chat.blocks.length])
 
   // 运行中轮询 context_request（3s 间隔）——让 StatusBar 的 tokens 实时更新。
   // 与 WebUI InfoPanel 的 3s 轮询一致；非运行态停止避免无效请求。
   useEffect(() => {
     const running = chat.status !== 'idle' && chat.status !== 'finished' && chat.status !== 'cancelled' && chat.status !== 'error'
     if (!running) return
-    const timer = setInterval(() => port.post({ type: 'context_request' }), 3000)
+    const timer = setInterval(() => port.post({ type: 'context_request' }), 2000)
     return () => clearInterval(timer)
   }, [port, chat.status])
 
@@ -148,7 +165,7 @@ export function App({ port }: { port: UiPort }) {
         const normalize = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
         const cwd = normalize(currentCwdRef.current)
         const filtered = msg.sessions.filter((s) => normalize(s.cwd ?? '') === cwd)
-        setView({ kind: 'sessionPicker', sessions: filtered.map((s) => ({ id: s.id, preview: s.preview || '（空会话）' })), cursor: 0, query: '' })
+        setView({ kind: 'sessionPicker', sessions: filtered.map((s) => ({ id: s.id, preview: s.preview || '（空会话）', updatedAt: s.updatedAt })), cursor: 0, query: '' })
       } else if (msg.type === 'session_deleted') {
         // 会话删除后刷新列表——重新请求 session_list（会触发 sessionPicker 重建）。
         port.post({ type: 'list_sessions' })
@@ -307,8 +324,11 @@ export function App({ port }: { port: UiPort }) {
         else if (entry?.kind === 'bool') { entry.save(v.preview ?? entry.value); setView({ kind: 'config', path: v.path, cursor: v.cursor, preview: null }) }
         else if (entry?.kind === 'action') {
           entry.run()
-          // selectProvider/selectModel/selectShell/selectTheme 选中即设后自动回 root（不留在选择列表）。
-          if (v.path.kind === 'selectProvider' || v.path.kind === 'selectModel' || v.path.kind === 'selectShell' || v.path.kind === 'selectTheme' || v.path.kind === 'selectTool') {
+          // selectProvider/selectModel/selectShell/selectTheme 选中即设后自动回 root。
+          // selectTool 返回 permissionBucket（父层），让用户看到工具已添加。
+          if (v.path.kind === 'selectTool') {
+            setView({ kind: 'config', path: parentPath(v.path) ?? { kind: 'root' }, cursor: 0, preview: null })
+          } else if (v.path.kind === 'selectProvider' || v.path.kind === 'selectModel' || v.path.kind === 'selectShell' || v.path.kind === 'selectTheme') {
             setView({ kind: 'config', path: { kind: 'root' }, cursor: 0, preview: null })
           }
         }
@@ -339,7 +359,7 @@ export function App({ port }: { port: UiPort }) {
         if (key.escape) { setSuggestCursor(null); return }
       }
       // 块导航模式：Ctrl+Up/Ctrl+Down 在所有消息块间导航聚焦。
-      // 所有块都能被选中聚焦，只有 thinking/tool 块能 Ctrl+Enter 展开。
+      // 所有块都能被选中聚焦，只有 thinking/tool 块能 Enter 展开。
       if (key.ctrl && key.upArrow && blocksRef.current.length > 0) {
         setBrowseBoth(moveBrowse(blocksRef.current, browseRef.current, true))
         return
@@ -348,9 +368,10 @@ export function App({ port }: { port: UiPort }) {
         setBrowseBoth(moveBrowse(blocksRef.current, browseRef.current, false))
         return
       }
-      // Ctrl+Enter：展开/折叠当前聚焦块（仅 thinking/tool 块有效）。
-      // Ctrl+Enter 发送 \n（Ctrl+J），key.return 只认 \r，故检查 inputChar。
-      if (key.ctrl && (key.return || inputChar === '\n') && browseRef.current !== null) {
+      // Enter：在块导航模式下展开/折叠当前聚焦块（仅 thinking/tool 块有效）。
+      // Ctrl+Enter 在终端中不可靠（发送 \n 被解析为普通 Enter，ctrl 丢失），故用 Enter。
+      // 块导航模式下输入框无焦点，Enter 不会提交消息，不冲突。
+      if (key.return && browseRef.current !== null) {
         const block = blocksRef.current[browseRef.current]
         if (block && isExpandable(block)) {
           const next = toggleExpanded(expandedRef.current, browseRef.current)
@@ -553,7 +574,7 @@ export function App({ port }: { port: UiPort }) {
         {/* 输入框行：始终显示。none 视图聚焦主输入，其他视图显示禁用态或 prompt 输入 */}
         {view.kind === 'none' && (
           <Box flexDirection="column">
-            {browse !== null && <Text dimColor>Ctrl+↑↓ 切换块 · Ctrl+Enter 展开/折叠 · esc 返回输入</Text>}
+            {browse !== null && <Text dimColor>Ctrl+↑↓ 切换块 · Enter 展开/折叠 · esc 返回输入</Text>}
             {/* 斜杠命令联想提示：输入 / 开头且有匹配时，显示列表供 ↑↓ 选择、回车/Tab 补全 */}
             {suggestMatches.length > 0 && (
               <Box flexDirection="column" marginTop={0}>
@@ -638,13 +659,13 @@ export function App({ port }: { port: UiPort }) {
             <Box flexDirection="column" borderStyle="round" borderColor={palette.subtext} paddingX={1} marginTop={0}>
               <Text bold color={palette.accent}>选择会话 — {dirName || '当前目录'}</Text>
               <Text dimColor>搜索: {view.query || '（输入过滤）'}{'_'}</Text>
-              {filtered.length === 0 ? (
-                <Text dimColor>（无匹配会话）</Text>
-              ) : (
-                filtered.map((s, i) => (
-                  <Text key={s.id} inverse={i === view.cursor}>{i === view.cursor ? '> ' : '  '}{s.preview}</Text>
-                ))
-              )}
+            {filtered.length === 0 ? (
+              <Text dimColor>（无匹配会话）</Text>
+            ) : (
+              filtered.map((s, i) => (
+                <Text key={s.id} inverse={i === view.cursor}>{i === view.cursor ? '> ' : '  '}{s.preview} <Text dimColor>{relTime(s.updatedAt)}</Text></Text>
+              ))
+            )}
               <Text dimColor>↑↓ 选择 · 回车切换 · d 删除 · esc 返回</Text>
             </Box>
           )
