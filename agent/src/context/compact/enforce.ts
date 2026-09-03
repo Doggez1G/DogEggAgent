@@ -1,3 +1,4 @@
+import { COMPACTION_THRESHOLD } from '@dogegg/bridge'
 import type { Message } from '@dogegg/bridge'
 import { estimateContextTokens } from '../token'
 
@@ -13,7 +14,7 @@ export function enforceContextLimit(input: {
   windowTokens: number
   threshold?: number // 默认 0.8（80%）
 }): { context: Message[]; dropped: number } {
-  const threshold = input.threshold ?? 0.8
+  const threshold = input.threshold ?? COMPACTION_THRESHOLD
   const limit = input.windowTokens * threshold
   let context = [...input.context]
   let dropped = 0

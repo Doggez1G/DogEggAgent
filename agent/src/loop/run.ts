@@ -1,5 +1,6 @@
 import type { Message, State } from '@dogegg/bridge'
 import type { AgentToUiMessage } from '@dogegg/bridge'
+import { COMPACTION_THRESHOLD } from '@dogegg/bridge'
 import { transition, type TransitionInput } from '../core'
 import { estimateContextTokens, compactContext, enforceContextLimit } from '../context'
 import { toolSchemas } from '../tools'
@@ -85,7 +86,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
       // 压缩期间 emit state → compacting 让 UI 可感知，完成后回到 thinking/responding（继续本轮请求）。
       // 压缩失败时降级——跳过压缩继续用未压缩 context 请求模型，不 abort 整个 turn。
       const used = estimateContextTokens(deps.systemPrompt, context, toolParams)
-      if (used > deps.windowTokens * 0.8) {
+      if (used > deps.windowTokens * COMPACTION_THRESHOLD) {
         state = trans({ kind: 'compact_start' })
         try {
           const result = await compactContext({

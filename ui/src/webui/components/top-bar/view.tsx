@@ -1,3 +1,4 @@
+import { STATUS_LABELS } from '../../../shared'
 import React from 'react'
 import { Cpu, FolderClosed, Search } from 'lucide-react'
 import styles from './top-bar.module.css'
@@ -13,12 +14,6 @@ interface TopBarProps {
   onOpenCommandPalette: () => void
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  idle: 'Ready', thinking: 'Thinking', responding: 'Responding',
-  tool_calling: 'Calling Tool', waiting_permission: 'Awaiting Permission',
-  executing: 'Executing', finished: 'Finished', cancelled: 'Cancelled',
-  error: 'Error', compacting: 'Compacting',
-}
 
 const CONN_LABELS: Record<string, string> = {
   connected: 'Connected',

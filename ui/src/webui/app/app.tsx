@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } 
 import type { AgentToUiMessage, Config, UiPort, UiToAgentMessage } from '@dogegg/bridge'
 import { Sidebar, TopBar, ChatView, InputBar, Settings, InfoPanel, CommandPalette, ErrorBoundary, SettingsModal, ConfirmModal, HelpModal, FsBrowserModal, PermissionBanner } from '../components'
 import { Button } from '../components/primitives'
-import { reducer, type ChatState } from '../../shared/reducer'
+import { reducer, type ChatState, getToolPermission, getCommandFeedback, isStateRunning } from '../../shared'
 import type { ThemeName, Modal, SessionItem, FileTouched } from './view-state'
 import { COMMAND_TO_MODAL } from './view-state'
 import styles from './app.module.css'
@@ -15,14 +15,6 @@ interface AppProps {
 }
 
 const initialState: ChatState = { blocks: [], status: 'idle', partial: null }
-
-// 获取工具的配置权限（快照）——从 config.permission 的 allow/reject/ask 桶判断。
-function getToolConfigPerm(toolName: string, config: Config | null): string {
-  if (!config) return 'ask'
-  if (config.permission.reject.includes(toolName)) return 'reject'
-  if (config.permission.allow.includes(toolName)) return 'allow'
-  return 'ask'
-}
 
 export function App({ port, connectionState }: AppProps) {
   const [chat, dispatch] = useReducer(reducer, initialState)
@@ -197,7 +189,7 @@ export function App({ port, connectionState }: AppProps) {
         // 按 toolName 查找 decision——permission_request.id 与 tool_start.id 不同。
         const decision = permissionDecisions.current.get(msg.name)
         // 记录执行时的配置权限快照——不随后续设置变化。
-        const configPerm = getToolConfigPerm(msg.name, configRef.current)
+        const configPerm = getToolPermission(msg.name, configRef.current)
         setToolCalls((prev) => [...prev, { id: msg.id, name: msg.name, status: 'running', seq, decision, configPerm }])
         // 用完后清除 decision（避免下一个同名工具继承上次决策）。
         if (decision) permissionDecisions.current.delete(msg.name)
@@ -236,7 +228,7 @@ export function App({ port, connectionState }: AppProps) {
           }
           // 孤儿 tool_end（被拒绝/未知工具）——创建新条目。
           const seq = ++toolSeqRef.current
-          const configPerm = getToolConfigPerm(msg.name, configRef.current)
+          const configPerm = getToolPermission(msg.name, configRef.current)
           return [...prev, { id: msg.id, name: msg.name, status: 'rejected', output: msg.output, decision: 'reject', configPerm, seq }]
         })
       } else if (msg.type === 'history_cleared') {
@@ -264,10 +256,7 @@ export function App({ port, connectionState }: AppProps) {
     return off
   }, [port, refreshSessions])
 
-  const isRunning = useMemo(() =>
-    chat.status !== 'idle' && chat.status !== 'finished' && chat.status !== 'cancelled' && chat.status !== 'error',
-    [chat.status]
-  )
+  const isRunning = useMemo(() => isStateRunning(chat.status), [chat.status])
 
   const handleDeleteSession = useCallback((id: string) => {
     setModal({ kind: 'confirm', title: 'Delete Session', message: 'Delete this session permanently? This cannot be undone.', onConfirm: () => { port.post({ type: 'delete_session', id }); setModal({ kind: 'none' }) } })
@@ -367,13 +356,13 @@ export function App({ port, connectionState }: AppProps) {
           onRetryConsumed={() => setRetryText(null)}
           onCommandFeedback={(cmd) => {
             if (cmd === '/cd') setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'set_cwd', path }); setModal({ kind: 'none' }) } })
-            else if (cmd === '/session') { setSidebarCollapsed(false); highlightInfoSection('sessions') }
-            else if (cmd === '/status') highlightInfoSection('status')
-            else if (cmd === '/context') highlightInfoSection('context')
-            else if (cmd === '/tools') highlightInfoSection('tools')
-            else if (cmd === '/system') highlightInfoSection('system')
-            else if (cmd === '/log') highlightInfoSection('log')
-            else if (cmd === '/permissions') highlightInfoSection('permissions')
+            else {
+              const section = getCommandFeedback(cmd)
+              if (section) {
+                if (cmd === '/session') setSidebarCollapsed(false)
+                highlightInfoSection(section)
+              }
+            }
           }}
         />
       </div>
@@ -393,13 +382,11 @@ export function App({ port, connectionState }: AppProps) {
           onOpenSettings={() => setModal({ kind: 'settings' })}
           onClearHistory={onClearHistory}
           onCommandFeedback={(cmd) => {
-            if (cmd === '/session') { setSidebarCollapsed(false); highlightInfoSection('sessions') }
-            else if (cmd === '/status') highlightInfoSection('status')
-            else if (cmd === '/context') highlightInfoSection('context')
-            else if (cmd === '/tools') highlightInfoSection('tools')
-            else if (cmd === '/system') highlightInfoSection('system')
-            else if (cmd === '/log') highlightInfoSection('log')
-            else if (cmd === '/permissions') highlightInfoSection('permissions')
+            const section = getCommandFeedback(cmd)
+            if (section) {
+              if (cmd === '/session') setSidebarCollapsed(false)
+              highlightInfoSection(section)
+            }
           }}
           onClose={() => setModal({ kind: 'none' })}
           port={port}

@@ -1,5 +1,9 @@
 // 后端与前端共享的核心类型。此文件是纯类型，无任何运行时逻辑，不依赖其它域。
 
+// 上下文压缩阈值——Context 已用 token 超过窗口的此比例时触发压缩。
+// 后端（trigger.ts, enforce.ts, run.ts）和前端（info-panel 进度条过载判断）共用此常量。
+export const COMPACTION_THRESHOLD = 0.8
+
 export type State =
   | 'idle'
   | 'thinking'

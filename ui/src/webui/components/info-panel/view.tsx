@@ -1,6 +1,8 @@
+import { STATUS_LABELS, getToolPermission } from '../../../shared'
 import { useEffect, useRef, useState } from 'react'
 import { Cpu, Gauge, Activity, Wrench, ChevronRight, ChevronLeft, ChevronDown, Terminal, ScrollText, FileEdit, FilePlus, ShieldCheck, X } from 'lucide-react'
 import type { Config, UiPort } from '@dogegg/bridge'
+import { COMPACTION_THRESHOLD } from '@dogegg/bridge'
 import { Badge } from '../primitives'
 import styles from './info-panel.module.css'
 
@@ -26,23 +28,11 @@ interface InfoPanelProps {
   port: UiPort
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  idle: 'Ready', thinking: 'Thinking', responding: 'Responding',
-  tool_calling: 'Calling Tool', waiting_permission: 'Awaiting Permission',
-  executing: 'Executing', finished: 'Finished', cancelled: 'Cancelled',
-  error: 'Error', compacting: 'Compacting',
-}
 
 const basename = (p: string): string => p.split(/[/\\]/).pop() ?? p
 
 // 获取工具的权限标签——从 config.permission 的 allow/reject/ask 桶判断。
 // 不受 session allow_always 影响——只有设置中的配置才显示。
-function getToolPermission(toolName: string, config: Config | null): string {
-  if (!config) return 'ask'
-  if (config.permission.reject.includes(toolName)) return 'reject'
-  if (config.permission.allow.includes(toolName)) return 'allow'
-  return 'ask'
-}
 
 export function InfoPanel(props: InfoPanelProps) {
   const { collapsed, port, status, sessionId } = props
@@ -85,7 +75,7 @@ export function InfoPanel(props: InfoPanelProps) {
   const tokens = props.contextState?.estimatedTokens ?? props.tokens
   const windowTokens = props.contextState?.windowTokens ?? props.windowTokens
   const percent = tokens && windowTokens ? Math.round((tokens / windowTokens) * 100) : (props.contextState?.percent ?? 0)
-  const overload = percent > 80
+  const overload = percent > COMPACTION_THRESHOLD * 100
   const files = [...props.filesTouched].sort((a, b) => b.time - a.time)
   const cfg = props.config
 
