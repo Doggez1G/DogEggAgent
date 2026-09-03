@@ -1,0 +1,1 @@
+export { detectShells } from './detect'

@@ -1,9 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { readFile } from 'node:fs/promises'
-import { join, extname } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { execSync } from 'node:child_process'
+import { join, extname, resolve as pathResolve, relative as pathRelative, sep as pathSep } from 'node:path'
 import { listDirs, resolveFsPath } from '../fs'
+import { detectShells } from '../shells'
 
 // MIME 类型映射——静态文件 serve 时设置正确的 Content-Type。
 const MIME: Record<string, string> = {
@@ -34,31 +33,7 @@ async function fsHandler(req: IncomingMessage, res: ServerResponse, url: URL): P
   return true
 }
 
-// shells handler：GET /api/shells → 检测系统可用的 shell 程序列表。
-function detectShells(): { value: string; label: string }[] {
-  const candidates = [
-    { cmd: 'powershell', value: 'powershell', label: 'PowerShell' },
-    { cmd: 'pwsh', value: 'pwsh', label: 'PowerShell 7' },
-    { cmd: 'cmd', value: 'cmd', label: 'Command Prompt (cmd)' },
-    { cmd: 'bash', value: 'bash', label: 'Bash' },
-    { cmd: 'zsh', value: 'zsh', label: 'Zsh' },
-    { cmd: 'sh', value: 'sh', label: 'sh' },
-  ]
-  const found: { value: string; label: string }[] = []
-  for (const c of candidates) {
-    try {
-      execSync(`${c.cmd} --version 2>&1` + (process.platform === 'win32' ? '' : ` || ${c.cmd} -c 'exit 0' 2>&1`), {
-        timeout: 3000,
-        stdio: 'pipe',
-      })
-      found.push({ value: c.value, label: c.label })
-    } catch {
-      // shell not available — skip
-    }
-  }
-  return found
-}
-
+// shells handler：GET /api/shells → 检测系统可用的 shell 程序列表（结果缓存）。
 async function shellsHandler(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   if (req.method !== 'GET') {
     res.writeHead(405); res.end('Method Not Allowed'); return true
@@ -75,37 +50,33 @@ export function createRoutes(opts: {
   postHandler: (req: IncomingMessage, res: ServerResponse) => void
 }): Map<string, RouteHandler> {
   const routes = new Map<string, RouteHandler>()
-  // SSE 下行：GET /api/events
   routes.set('/api/events', async (req, res) => {
     if (req.method === 'GET') { opts.sseHandler(req, res); return true }
     res.writeHead(405); res.end('Method Not Allowed'); return true
   })
-  // 上行消息：POST /api/message
   routes.set('/api/message', async (req, res) => {
     if (req.method === 'POST') { opts.postHandler(req, res); return true }
     res.writeHead(405); res.end('Method Not Allowed'); return true
   })
-  // 目录浏览：GET /api/fs
   routes.set('/api/fs', fsHandler)
-  // Shell 检测：GET /api/shells
   routes.set('/api/shells', shellsHandler)
   return routes
 }
 
 // 静态文件 serve：从 staticDir 读取文件，设置 MIME，404 时 fallback 到 index.html（SPA 路由）。
+// 路径穿越防护：用 path.resolve + path.relative 检查结果路径是否在 staticDir 内。
 async function serveStatic(req: IncomingMessage, res: ServerResponse, url: URL, staticDir: string): Promise<void> {
-  // URL pathname → 文件路径；根路径 fallback 到 index.html。
   let pathname = url.pathname
   if (pathname === '/') pathname = '/index.html'
-  const filePath = join(staticDir, pathname)
-  // 防止路径穿越：确保解析后的路径在 staticDir 内。
-  const resolved = fileURLToPath(new URL(`file://${filePath}`))
-  if (!resolved.startsWith(staticDir)) {
+  const resolved = pathResolve(staticDir, '.' + pathname)
+  // 检查解析后的路径是否在 staticDir 内——relative 结果不以 .. 开头且非绝对路径。
+  const rel = pathRelative(staticDir, resolved)
+  if (rel.startsWith('..') || pathResolve(staticDir, rel) === rel) {
     res.writeHead(403); res.end('Forbidden'); return
   }
   try {
-    const content = await readFile(filePath)
-    const mime = MIME[extname(filePath)] ?? 'application/octet-stream'
+    const content = await readFile(resolved)
+    const mime = MIME[extname(resolved)] ?? 'application/octet-stream'
     res.writeHead(200, { 'Content-Type': mime })
     res.end(content)
   } catch {
@@ -121,6 +92,17 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse, url: URL, 
   }
 }
 
+// 检查 Origin header 是否为允许的 localhost 来源。
+function isLocalhostOrigin(origin: string | undefined): boolean {
+  if (!origin) return false
+  try {
+    const url = new URL(origin)
+    return url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]'
+  } catch {
+    return false
+  }
+}
+
 // 请求分发：先匹配 API 路由，未匹配则交给静态文件。
 export async function dispatchRequest(
   req: IncomingMessage,
@@ -129,19 +111,32 @@ export async function dispatchRequest(
   staticDir: string | null,
 ): Promise<void> {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
-  // CORS 预检：仅允许 localhost 来源（防止其他网站跨站驱动 shell 执行）。
+  const origin = req.headers.origin
+  const allowedOrigin = isLocalhostOrigin(typeof origin === 'string' ? origin : undefined) ? origin : undefined
+
+  // CORS 预检：仅允许 localhost 来源（防止跨站驱动 shell 执行）。
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': `http://${req.headers.host ?? 'localhost'}`,
+    const headers: Record<string, string> = {
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
-    })
+      'Vary': 'Origin',
+    }
+    if (allowedOrigin) {
+      headers['Access-Control-Allow-Origin'] = allowedOrigin
+    }
+    res.writeHead(204, headers)
     res.end()
     return
   }
-  // API 路由匹配（精确 pathname 前缀）。
+
+  // 为非 OPTIONS 请求设置 CORS header（仅允许 localhost 来源）。
+  if (allowedOrigin) {
+    res.setHeader('Access-Control-Allow-Origin', allowedOrigin)
+    res.setHeader('Vary', 'Origin')
+  }
+
+  // API 路由匹配。
   const routeKey = url.pathname
-  // 精确匹配 /api/events、/api/message、/api/fs
   if (routes.has(routeKey)) {
     const handler = routes.get(routeKey)!
     await handler(req, res, url)
@@ -152,7 +147,6 @@ export async function dispatchRequest(
     await serveStatic(req, res, url, staticDir)
     return
   }
-  // 开发模式（Vite dev server 代理 /api）：非 API 路径且无 staticDir → 404。
   res.writeHead(404, { 'Content-Type': 'text/plain' })
   res.end('Not Found')
 }

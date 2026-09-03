@@ -2,3 +2,4 @@
 export { createSseChannel } from './channel'
 export { startServer, createRoutes, dispatchRequest, type RouteHandler } from './http'
 export { listDirs, resolveFsPath } from './fs'
+export { detectShells } from './shells'
