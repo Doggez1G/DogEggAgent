@@ -33,7 +33,7 @@ _Avoid_: cli, console
 _Avoid_: web client, frontend app
 
 **Shared**:
-`ui/src/shared/` 中的平台无关前端逻辑（reducer / block / commands）。TUI 与 WebUI 共用，不含任何终端或 DOM 依赖。
+`ui/src/shared/` 中的平台无关前端逻辑（reducer / block / commands / status / permission / command-feedback）。TUI 与 WebUI 共用，不含任何终端或 DOM 依赖。
 _Avoid_: common, utils
 
 **Block**:

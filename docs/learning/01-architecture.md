@@ -57,7 +57,7 @@ type AgentToUiMessage =
   | { type: 'tool_end'; id: string; name: string; output: string; error?: string }
   | { type: 'permission_request'; id: string; tool: string; input: unknown }
   | { type: 'error'; error: { message: string; name?: string } }
-  | ... // 共 22 个变体
+  | ... // 共 23 个变体
 
 // bridge/src/contract/ui-to-agent.ts
 // 前端 → 后端：提交消息、取消、权限决策、会话管理、配置编辑……
@@ -66,7 +66,7 @@ type UiToAgentMessage =
   | { type: 'cancel' }
   | { type: 'permission_decision'; id: string; decision: PermissionDecision }
   | { type: 'config_set'; path: string; value: unknown }
-  | ... // 共 18 个变体
+  | ... // 共 22 个变体
 ```
 
 两套都是**可序列化的纯数据**（没有函数、没有 Error 对象）。这样将来接 SSE 时，序列化/反序列化的就是这些类型，不用改 agent 和 ui。

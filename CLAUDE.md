@@ -21,10 +21,10 @@ DogEggAgent/
 ├─ vite.config.ts        # Vite 构建配置（WebUI 前端入口）
 ├─ agent/                # @dogegg/agent：后端域（core/loop/context/llm/tools/session/permission/config/shared）
 ├─ ui/                   # @dogegg/ui：前端域（tui + webui + shared）
-│  ├─ src/tui/           #   TUI（Ink v7 + React）
-│  ├─ src/webui/         #   WebUI（React DOM + Vite + CSS Modules + Lucide）
-│  └─ src/shared/        #   平台无关前端逻辑（reducer / block / commands / config）
-├─ bridge/               # @dogegg/bridge：契约（消息+Config schema+isConfigured）+ 通道（Port+in-memory）
+│  ├─ src/tui/           #   TUI（Ink v7 + React，含 config 编辑器纯函数）
+│  ├─ src/webui/         #   WebUI（React DOM + Vite + CSS Modules + Lucide + react-markdown）
+│  └─ src/shared/        #   平台无关前端逻辑（reducer / block / commands / status / permission / command-feedback）
+├─ bridge/               # @dogegg/bridge：契约（消息类型+Config zod schema+isConfigured+消息 zod 校验 schema）+ 通道（Port+in-memory）
 └─ server/               # @dogegg/server：HTTP server + SSE channel + REST 端点（fs/shells）+ 静态文件
 ```
 
@@ -61,7 +61,7 @@ DogEggAgent/
 - `npm run test:run`（或 `npm test`）：Vitest 跑四包 test/
 - `npm run build`：esbuild 打包到 `dist/index.js`（TUI，@dogegg/* 经插件内联，npm 依赖 external）
 - `npm run start`：`node dist/index.js`；`npm run dev` = build + start
-- `npm run dev:web`：concurrently 跑 Vite dev server（HMR）+ tsx 跑 main-web.ts
+- `npm run dev:web`：concurrently 跑 server（cross-env VITE_DEV=1 PORT=3001 tsx main-web.ts）+ Vite dev server（wait-on tcp:3001 && vite），Vite proxy `/api` 到 3001
 - `npm run build:web`：Vite build → `dist/web/`（静态前端）+ esbuild → `dist/server.js`（server bundle）
 - `npm run start:web`：`node dist/server.js`，serve dist/web/ 静态文件 + 跑 agent
 

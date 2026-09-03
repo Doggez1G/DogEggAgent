@@ -20,7 +20,7 @@
 
 ## 项目定位
 
-DogEggAgent 是一个自研的**代码编辑型 agent**，第一目标是**学习并理解 agent 的实现**。技术栈：TypeScript / Node.js ≥ 20，npm workspaces 四包，Ink TUI + React DOM WebUI，zod 校验，JSON 持久化，原生 `fetch` + 手写 SSE。
+DogEggAgent 是一个自研的**代码编辑型 agent**，第一目标是**学习并理解 agent 的实现**。技术栈：TypeScript / Node.js ≥ 20，npm workspaces 四包，Ink TUI + React DOM WebUI，zod 校验（含消息 zod schema），JSON 持久化，原生 `fetch` + 手写 SSE，react-markdown + rehype-highlight 语法高亮。
 
 核心问题：**一个 code agent 是怎么工作的？**
 

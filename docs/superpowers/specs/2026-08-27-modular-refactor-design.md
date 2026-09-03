@@ -1,9 +1,9 @@
 # DogEggAgent 模块化重构设计文档
 
-> 状态：已实施（后续新增 server 包，见 WebUI 设计 spec）
+> 状态：已实施（后续新增 server 包 + 架构清理，见 WebUI 设计 spec）
 > 日期：2026-08-27
 > 前置：基于 `2026-08-26-dog-egg-agent-design.md`（下称「原设计」）的 v0.1.0 实现现状
-> 更新：2026-09-01 — 三包扩展为四包（新增 `@dogegg/server`），见 `2026-08-29-webui-design.md`
+> 更新：2026-09-03 — 三包扩展为四包 + barrel import 强制 + shared/config 移至 tui/config + bridge zod schema + 跨模块重复消除
 
 ## 1. 目标与范围
 
@@ -64,11 +64,11 @@ DogEggAgent/
 
 | 包 | dependencies | devDependencies | 说明 |
 |---|---|---|---|
-| `@dogegg/bridge` | `zod` | — | 契约含 Config 的 zod schema；无运行时依赖内聚 |
+| `@dogegg/bridge` | `zod` | — | 契约含 Config zod schema + 消息 zod 校验 schema（agent-to-ui-schema / ui-to-agent-schema）；无运行时依赖内聚 |
 | `@dogegg/agent` | `zod`, `@dogegg/bridge` | — | |
-| `@dogegg/ui` | `ink`, `react`, `ink-text-input`, `marked`, `lucide-react`, `@dogegg/bridge` | `@types/react`, `@types/node`, `vite`, `@vitejs/plugin-react` | 仅此包开 `jsx: react-jsx`；webui 用 React DOM + Vite + CSS Modules |
-| `@dogegg/server` | `@dogegg/agent`, `@dogegg/bridge` | `@types/node` | SSE channel + HTTP server + REST 端点；不 import ui |
-| 根 `dogegg-agent` | `@dogegg/agent`, `@dogegg/ui`, `@dogegg/bridge`, `@dogegg/server` | `esbuild`, `typescript`, `vitest`, `concurrently`, `@types/node` 等 | main.ts / main-web.ts 的依赖 |
+| `@dogegg/ui` | `ink`, `react`, `ink-text-input`, `marked`, `lucide-react`, `react-markdown`, `rehype-highlight`, `highlight.js`, `@dogegg/bridge` | `@types/react`, `@types/node`, `vite`, `@vitejs/plugin-react` | 仅此包开 `jsx: react-jsx`；webui 用 React DOM + Vite + CSS Modules；marked 仅供 TUI，react-markdown 供 WebUI |
+| `@dogegg/server` | `@dogegg/agent`, `@dogegg/bridge` | `@types/node` | SSE channel + HTTP server + REST 端点 + shells 检测；不 import ui |
+| 根 `dogegg-agent` | `@dogegg/agent`, `@dogegg/ui`, `@dogegg/bridge`, `@dogegg/server` | `esbuild`, `typescript`, `vitest`, `concurrently`, `cross-env`, `wait-on`, `@types/node` 等 | main.ts / main-web.ts 的依赖 |
 
 ## 4. bridge 包：契约 + 通道
 
@@ -78,16 +78,18 @@ bridge/
 ├─ src/
 │  ├─ index.ts              # 全部公共导出
 │  ├─ contract/
-│  │  ├─ shared.ts          # State / PermissionDecision / ToolCall / Message（← events/types.ts）
-│  │  ├─ config.ts          # Config 的 zod schema + 类型（← config/schema.ts）
-│  │  ├─ agent-to-ui.ts     # AgentToUiMessage（← events/agent-to-ui.ts）
-│  │  └─ ui-to-agent.ts     # UiToAgentMessage（← events/ui-to-agent.ts）
+│  │  ├─ shared.ts          # State / PermissionDecision / ToolCall / Message + COMPACTION_THRESHOLD 常量
+│  │  ├─ config.ts          # Config 的 zod schema + 类型
+│  │  ├─ agent-to-ui.ts     # AgentToUiMessage（23 变体）
+│  │  ├─ ui-to-agent.ts     # UiToAgentMessage（22 变体）
+│  │  ├─ agent-to-ui-schema.ts  # agentToUiMessageSchema: zod discriminatedUnion（SSE 下行校验）
+│  │  └─ ui-to-agent-schema.ts  # uiToAgentMessageSchema: zod discriminatedUnion（POST 上行校验）
 │  └─ channel/
-│     ├─ port.ts            # AgentPort / UiPort 接口
+│     ├─ port.ts            # AgentPort / UiPort 接口（post 返回 void | Promise<void>）
 │     └─ in-memory.ts       # createChannelPair()：同进程通道
 └─ test/
    ├─ channel.test.ts       # 投递 / 退订 / 双向
-   └─ architecture.test.ts  # 模块边界警察（见 §9）
+   └─ architecture.test.ts  # 模块边界警察 + barrel import 规则检测（见 §9）
 ```
 
 **契约归 bridge 的原则**：凡是「要跨 agent/ui 边界的数据形状」都归 bridge 所有权。除了两套消息 union，`State` / `Message` / `Config` 也一并搬入——它们本就是事实上的跨界契约（消息字段引用它们）。`Config` 的 **zod schema 本体**（不只是类型）放 bridge：单一事实源，agent 做加载与编辑，ui 做类型消费与渲染，永不漂移。`isConfigured()` 作为 Config 的纯派生判断也留 bridge（agent/ui 都可能用），agent 侧不再重写。这是微服务「契约包带 schema（proto/avro）」的对齐。
@@ -338,7 +340,7 @@ renderTui(uiPort)                                 // @dogegg/ui
 
 ## 10. 文件迁移映射
 
-全部源文件 + 测试文件按如下迁移（34 个源文件 + 15 个测试文件）：
+全部源文件 + 测试文件按如下迁移（34 个源文件 + 15 个测试文件——此为迁移时数量，当前已增长至 ~177 源文件 + 24 测试文件 / 167 测试）：
 
 | 现文件 | 去向 |
 |---|---|

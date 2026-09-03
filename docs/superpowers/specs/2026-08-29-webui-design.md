@@ -1,6 +1,6 @@
 # DogEggAgent WebUI 设计与实现 Spec
 
-> 日期：2026-08-29（最后更新：2026-09-01）
+> 日期：2026-08-29（最后更新：2026-09-03）
 > 状态：已实施
 > 关联 ADR：0001 (SSE+POST)、0002 (SSE channel 归 server)、0003 (Block 语义化重构)、0004 (set_cwd 运行时)、0005 (单会话模式)、0006 (会话 cwd 持久化)、0007 (思考内容持久化)
 > 关联文档：`docs/superpowers/specs/2026-08-26-dog-egg-agent-design.md`（原始设计）、`docs/superpowers/specs/2026-08-27-modular-refactor-design.md`（模块化重构设计）
@@ -31,12 +31,21 @@ DogEggAgent 当前有 TUI（Ink v7）+ WebUI（React DOM + Vite）双前端。We
 
 **v2 重新设计（2026-09-01）**：
 - **三主题重命名**：catppuccin → Midnight（Zinc + Indigo），ios-dark → Forest（Slate + Green），ios-light → Dawn（亮色中性 + Indigo）。每个主题定义完整的 token 体系：颜色 / soft 色（8 个低透明度变量）/ 圆角 / 间距 / 字号 / 字体 / 阴影 / z-index / 动画时长 / 毛玻璃 / 布局尺寸 / token 间接层映射。
-- **Primitives 组件层**：新增 `components/primitives/`（Button / IconButton / Input / Textarea / SelectField / EditableField / Toggle / Badge / Tooltip / Card / Section），统一基础组件样式。
+- **Primitives 组件层**：新增 `components/primitives/`（Button / IconButton / Toggle / Badge），统一基础组件样式。
 - **Cmd+K 命令面板**：新增 `components/command-palette/`，glassmorphism 浮层 + 模糊搜索（命令 / 会话 / 主题 / 动作）+ 键盘导航。
 - **权限确认改为内联 banner**：不再弹窗，改为输入框上方内联 PermissionBanner（tool 名 + diff 预览 + 3 按钮）。
 - **纯呈现命令高亮**：/tools /system /log /permissions /context /status 通过 `highlightInfoSection` 高亮右侧面板对应 InfoCard（accent 边框 + soft 色光晕），不弹 toast。/session 高亮侧栏 nav 区域。
 - **tool_calls 权限快照**：执行时记录 configPerm + decision 快照，不随后续设置变化。tool_end 保留 tool_start 时的 decision。
 - **实时刷新**：allow_always 决策后自动 permissions_request 刷新 Session Permissions；finished/error 后自动 log_request 刷新日志。
+
+**v3 架构清理（2026-09-03）**：
+- **app.tsx 拆分**：5 个内联 modal（SettingsModal/ConfirmModal/HelpModal/FsBrowserModal/PermissionBanner）拆为独立组件文件夹，app.tsx 从 581→424 行。
+- **死代码清理**：移除 webui status-bar（从未渲染）、SSE uiPort（返回但无人使用）、5 个未用 primitives（Card/Section/Input/Textarea/EditableField/Tooltip，共 ~525 行）、saveConfig 公开导出。
+- **跨模块重复消除**：STATUS_LABELS 三合一 + getToolPermission 二合一 + isStateRunning 二合一 + onCommandFeedback 三合一 → 统一到 `ui/src/shared/`（status.ts / permission.ts / command-feedback.ts）。COMPACTION_THRESHOLD 0.8 四处硬编码 → 统一到 `bridge/contract/shared.ts`。
+- **barrel import 强制**：修正 33 处违规 import（agent 18 + ui 15），架构测试加规则检测。`shared/config/` 移到 `tui/config/`（仅 TUI 使用）。
+- **消息 zod 校验**：新增 `agent-to-ui-schema.ts`（23 变体），SSE 下行消息 safeParse 校验；与已有的 `ui-to-agent-schema.ts`（22 变体）对称。
+- **Server 安全加固**：CORS 改为 Origin allowlist（localhost only）+ Vary: Origin；detectShells 独立为 `server/src/shells/` 模块，execFileSync 无 shell + 缓存；路径穿越改用 path.resolve + path.relative。
+- **测试覆盖**：reducer/commands/block 从 0→66 测试，总测试数 100→167。
 
 ## 2. 架构总览
 
@@ -69,11 +78,17 @@ main-web.ts (组合根，唯一 import agent + server + bridge)
 | { type: 'set_cwd'; path: string }
 ```
 
-`UiToAgentMessage` 从 18 变 19 种。`/quit` 消息类型保留（TUI 用），WebUI 不发送。
+`UiToAgentMessage` 共 22 种（含 set_cwd、permissions_request、permission_revoke、delete_session 等）。`/quit` 消息类型保留（TUI 用），WebUI 不发送。
 
 ### 3.2 不改动的部分
 
-`AgentToUiMessage`（22 种）、`State`、`Message`、`ToolCall`、`PermissionDecision`、`Config`、Port 接口——全部不变。
+`AgentToUiMessage`（23 种）、`State`、`Message`、`ToolCall`、`PermissionDecision`、`Config`、Port 接口——全部不变。
+
+### 3.3 消息 zod 校验 schema
+
+`bridge/src/contract/` 新增两个 zod schema 文件，用于运行时校验消息：
+- `ui-to-agent-schema.ts`：`uiToAgentMessageSchema`（discriminatedUnion，22 变体），在 server `postHandler` 中 `safeParse` 校验 POST body。
+- `agent-to-ui-schema.ts`：`agentToUiMessageSchema`（discriminatedUnion，23 变体），在 SSE client `onmessage` 中 `safeParse` 校验下行消息。
 
 ## 4. Agent 侧改动（set_cwd）
 
@@ -231,13 +246,17 @@ export async function listDirs(path: string, includeFiles = false): Promise<{ cu
 
 ### 6.4 Shell 检测端点
 
-`server/src/http/routes.ts` 新增 `GET /api/shells`：
-- `detectShells()` 检测系统可用的 shell 程序（powershell / pwsh / cmd / bash / zsh / sh）。
+`server/src/shells/detect.ts`（独立模块，非 routes.ts）提供 `detectShells()`：
+- 用 `execFileSync`（无 shell）检测系统可用的 shell 程序（powershell / pwsh / cmd / bash / zsh / sh）。
+- 结果缓存——首次调用后不再重复检测。
 - 返回 `{ value, label }[]` 供设置面板的 Shell Program 下拉框使用。
+
+路由：`GET /api/shells` → `server/src/http/routes.ts` 中的 `shellsHandler` 调用 `detectShells()`。
 
 ### 6.5 静态文件服务
 
 `startServer` 启动时检查 `dist/web/` 是否存在，存在则 serve。开发模式下由 Vite dev server 代理，不依赖 `dist/web/`。
+路径穿越防护用 `path.resolve` + `path.relative` 检查（非 `fileURLToPath`）。
 
 ## 7. 组合根（main-web.ts）
 
@@ -276,16 +295,24 @@ ui/src/webui/
 │  ├─ app.tsx                    # App 根组件：grid 布局 + state + onMessage + 模态层
 │  └─ view-state.ts             # ThemeName + Modal 类型 + COMMAND_TO_MODAL + SessionItem + FileTouched
 ├─ components/
-│  ├─ index.ts                   # barrel export
+│  ├─ index.ts                   # barrel export（16 个组件）
 │  ├─ sidebar/                   # 侧栏（品牌 + 搜索 + 项目/会话树 + 设置 + 主题切换）
-│  ├─ top-bar/                   # 顶栏（运行状态 + 模型 chip + cwd chip + Cmd+K 入口）
-│  ├─ chat-view/                 # 聊天视口（消息列表 + marked 渲染 + 空状态 + 自动滚动）
+│  ├─ top-bar/                   # 顶栏（运行状态 + 模型 chip + cwd chip + 连接状态 + Cmd+K 入口）
+│  ├─ chat-view/                 # 聊天视口（消息列表 + MarkdownRenderer + 空状态 + 自动滚动）
 │  ├─ message-block/            # 单条消息块（kind 分化渲染：user/assistant/thinking/tool/error/notice）
-│  ├─ input-bar/                 # 输入栏（textarea auto-grow + 斜杠命令联想 + 快捷操作菜单 + 发送/停止）
+│  ├─ markdown/                  # Markdown 渲染器（react-markdown + rehype-highlight + 代码块复制按钮）
+│  ├─ input-bar/                 # 输入栏（textarea auto-grow + 斜杠命令联想 + 输入历史 + 快捷操作菜单 + 发送/停止）
 │  ├─ settings/                  # 设置面板（IDE 风格左导航 + 右内容区：General / Models / Permissions）
 │  ├─ info-panel/                # 右侧信息面板（8 个可折叠 InfoCard + 数据请求 + 高亮）
 │  ├─ command-palette/           # Cmd+K 命令面板（glassmorphism + 模糊搜索 + 键盘导航）
-│  └─ primitives/                # 基础组件层（Button / IconButton / Input / Textarea / SelectField / EditableField / Toggle / Badge / Tooltip / Card / Section）
+│  ├─ error-boundary/            # 错误边界（分区包裹 + 全局兜底，渲染异常不白屏）
+│  ├─ modal-portal/              # 通用 Modal 容器（role=dialog + focus trap + Escape 关闭）
+│  ├─ settings-modal/            # 设置弹窗（ModalPortal + Settings 组件）
+│  ├─ confirm-modal/             # 确认弹窗（ModalPortal + 标题/消息/确认/取消）
+│  ├─ help-modal/                 # 帮助弹窗（ModalPortal + 命令列表 grid）
+│  ├─ fs-browser-modal/          # 目录浏览器弹窗（ModalPortal + /api/fs 浏览 + 手动输入）
+│  ├─ permission-banner/         # 权限确认条（内联，输入框上方：tool 名 + diff 预览 + 3 按钮）
+│  └─ primitives/                # 基础组件层（Button / IconButton / Toggle / Badge）
 ├─ theme/
 │  ├─ index.ts                   # re-export KIND_ICON / TOKEN_CSS_VAR / KIND_LABEL
 │  ├─ token-map.ts               # kind→Lucide icon, colorToken→CSS var 映射
@@ -488,13 +515,10 @@ Lucide React（SVG，1.5px 描边）。零 emoji。
 |---|---|
 | `Button` | variant: primary/secondary/danger/ghost，size: sm/md |
 | `IconButton` | 统一 32×32 方形按钮，hover surface-elevated |
-| `Input` / `Textarea` | 统一 border + focus(border-accent) 样式 |
-| `SelectField` | label + desc + select 下拉框 |
-| `EditableField` | 可编辑字段（blurred 提交） |
 | `Toggle` | 统一开关组件 |
 | `Badge` | variant: accent/warning/success/danger/neutral |
-| `Tooltip` | CSS-only tooltip（hover 显示） |
-| `Card` / `Section` | 统一 card bg + border + radius 布局 |
+
+> 注：`Input`/`Textarea`/`SelectField`/`EditableField`/`Tooltip`/`Card`/`Section` 曾在初始设计中规划但未实际使用（settings 组件自己定义了表单组件，info-panel 自己定义了 InfoCard），已在架构清理中移除。如需重新引入，在 `field.tsx`/`button.tsx` 中实现并从 `index.ts` 导出。
 
 ### 9.7 动画
 
@@ -535,7 +559,7 @@ Lucide React（SVG，1.5px 描边）。零 emoji。
 - **ErrorBlock**：danger 卡片
 - **NoticeBlock**：subtext 提示
 
-markdown 用 `marked` 渲染（`dangerouslySetInnerHTML`），`:global` CSS 规则统一（含 table/th/td）。
+markdown 用 `react-markdown` + `rehype-highlight` 组件式渲染（不走 `dangerouslySetInnerHTML`，消除 XSS 风险），样式统一在 `markdown.module.css`（含 table/th/td + highlight.js 语法高亮主题 + 代码块 hover 复制按钮）。
 
 ## 10. 构建与开发
 
@@ -545,7 +569,7 @@ markdown 用 `marked` 渲染（`dangerouslySetInnerHTML`），`:global` CSS 规�
 {
   "scripts": {
     "dev": "npm run build && npm run start",
-    "dev:web": "concurrently \"vite\" \"tsx main-web.ts\"",
+    "dev:web": "concurrently -n server,web -c yellow,cyan \"cross-env VITE_DEV=1 PORT=3001 tsx main-web.ts\" \"wait-on tcp:3001 && vite\"",
     "build": "node build.mjs",
     "build:web": "vite build && node build-web.mjs",
     "start": "node dist/index.js",
@@ -557,11 +581,12 @@ markdown 用 `marked` 渲染（`dangerouslySetInnerHTML`），`:global` CSS 规�
 }
 ```
 
-- `dev:web`：Vite dev server（HMR）+ tsx 跑 main-web.ts。Vite proxy `/api/*` 到 server。
+- `dev:web`：server（cross-env VITE_DEV=1 PORT=3001 tsx main-web.ts）+ Vite dev server（wait-on tcp:3001 && vite）。Vite proxy `/api/*` 到 3001。
 - `build:web`：Vite build → `dist/web/`（静态文件）+ esbuild → `dist/server.js`（server bundle）。
 - `start:web`：node 跑 dist/server.js，serve dist/web/ 静态文件 + 跑 agent。
 - TUI 脚本不变。
-- 新增 devDependencies：`vite`、`@vitejs/plugin-react`、`concurrently`、`lucide-react`。
+- 运行时依赖：`react-markdown`、`rehype-highlight`、`highlight.js`（WebUI markdown 渲染）。
+- 开发依赖：`vite`、`@vitejs/plugin-react`、`concurrently`、`cross-env`、`wait-on`、`lucide-react`。
 
 ### 10.2 Vite 配置
 
