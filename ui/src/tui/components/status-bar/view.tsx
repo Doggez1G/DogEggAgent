@@ -25,9 +25,8 @@ const STATE_META: Record<string, { color: string; emoji: string; label: string }
   compacting: { color: palette.cyan, emoji: '🥚', label: '压缩中' },
 }
 
-// 状态栏：品牌前缀 + Emoji + Braille spinner + 状态文字 + provider/model/session/tokens。
+// 状态栏：品牌前缀 + Emoji + Braille spinner + 状态文字 + provider/model/session/tokens/cwd。
 // 运行态显示 spinner 旋转动画（useState + setInterval 定时切换帧），非运行态静态显示。
-// 落地 spec §13/§14：`🐶🥚 <Emoji> <Braille> <状态> · provider/model · #sessionId · tokens/window`。
 export function StatusBar(props: {
   state: string
   provider?: string
@@ -35,6 +34,7 @@ export function StatusBar(props: {
   sessionId?: string
   tokens?: number
   windowTokens?: number
+  cwd?: string
 }) {
   const meta = STATE_META[props.state] ?? { color: palette.subtext, emoji: '🥚', label: props.state }
   const isSpinning = SPINNING_STATES.has(props.state as State)
@@ -52,6 +52,8 @@ export function StatusBar(props: {
   const tokensStr = props.tokens !== undefined && props.windowTokens !== undefined
     ? `${props.tokens}/${props.windowTokens}`
     : ''
+  // cwd 缩短为 basename（完整路径太长放不进状态栏）。
+  const cwdStr = props.cwd ? props.cwd.replace(/\\/g, '/').split('/').pop() ?? props.cwd : ''
 
   return (
     <Box gap={1}>
@@ -60,6 +62,7 @@ export function StatusBar(props: {
       {isSpinning && <Text color={meta.color}>{spinner}</Text>}
       <Text bold color={meta.color}>{meta.label}</Text>
       {props.provider && props.model && <Text dimColor>· {props.provider}/{props.model}</Text>}
+      {cwdStr && <Text dimColor>· {cwdStr}</Text>}
       {props.sessionId && <Text dimColor>· #{props.sessionId}</Text>}
       {tokensStr && <Text dimColor>· {tokensStr}</Text>}
     </Box>

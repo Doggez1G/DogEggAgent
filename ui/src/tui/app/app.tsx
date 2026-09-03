@@ -15,6 +15,13 @@ import { type View } from './view-state'
 const DECISIONS: PermissionDecision[] = ['allow_once', 'allow_always', 'reject']
 const DECISION_LABELS = ['允许一次', '始终允许（本次会话）', '拒绝']
 
+// 会话搜索过滤：按预览文本模糊匹配（大小写不敏感）。
+function filterSessions(sessions: { id: string; preview: string }[], query: string): { id: string; preview: string }[] {
+  if (!query) return sessions
+  const q = query.toLowerCase()
+  return sessions.filter((s) => s.preview.toLowerCase().includes(q) || s.id.toLowerCase().includes(q))
+}
+
 // App 是 UI 的唯一入口。通过 UiPort 收发消息，不依赖 Agent——解耦落点。
 // 后端消息经 port.onMessage → dispatch（reducer）+ view 切换；用户输入经 port.post 发给后端。
 export function App({ port }: { port: UiPort }) {
@@ -30,7 +37,8 @@ export function App({ port }: { port: UiPort }) {
   const suggestCursorRef = useRef<number | null>(null) // 镜像供 handleSubmit 读取（闭包防过期）
   const setSuggestCursor = useCallback((c: number | null) => { suggestCursorRef.current = c; setSuggestCursorState(c) }, [])
   const [infoScroll, setInfoScroll] = useState(0) // info overlay 独立滚动（不与 chat scroll 共用）
-  const [statusBarData, setStatusBarData] = useState<{ provider?: string; model?: string; sessionId?: string; tokens?: number; windowTokens?: number }>({})
+  const [statusBarData, setStatusBarData] = useState<{ provider?: string; model?: string; sessionId?: string; tokens?: number; windowTokens?: number; cwd?: string }>({})
+  const currentCwdRef = useRef<string>('')
   const [inputHistory] = useState<string[]>([])
   const inputHistoryRef = useRef<string[]>([])
   const historyCursorRef = useRef<number>(-1) // 输入历史游标（-1=未在浏览历史）
@@ -112,10 +120,12 @@ export function App({ port }: { port: UiPort }) {
         // 权限等待期间状态离开 waiting_permission（如 cancel）→ 关闭 permission overlay。
         setView({ kind: 'none' })
       } else if (msg.type === 'session_list') {
-        openMenu('选择会话（回车切换）', msg.sessions.map((s) => ({
-          label: `${s.id}  ${s.preview}`,
-          onSelect: () => { port.post({ type: 'resume_session', id: s.id }); setView({ kind: 'none' }) },
-        })))
+        // 按 cwd 过滤：只显示当前工作目录下的会话（Claude 式——每个目录独立）。
+        const filtered = msg.sessions.filter((s) => (s.cwd ?? '') === currentCwdRef.current)
+        setView({ kind: 'sessionPicker', sessions: filtered.map((s) => ({ id: s.id, preview: s.preview })), cursor: 0, query: '' })
+      } else if (msg.type === 'session_deleted') {
+        // 会话删除后刷新列表——重新请求 session_list（会触发 sessionPicker 重建）。
+        port.post({ type: 'list_sessions' })
       } else if (msg.type === 'config_state') {
         updateConfig(msg.config)
         if (configIntent.current === 'model') { openModelPicker(msg.config); configIntent.current = null }
@@ -125,7 +135,8 @@ export function App({ port }: { port: UiPort }) {
       } else if (msg.type === 'tools_list') {
         setInfoScroll(0); setView({ kind: 'info', title: '工具', lines: msg.tools.map((t) => `${t.name} — ${t.description}`) })
       } else if (msg.type === 'status_state') {
-        setStatusBarData({ provider: msg.provider, model: msg.model, sessionId: msg.sessionId, tokens: msg.estimatedTokens, windowTokens: msg.windowTokens })
+        currentCwdRef.current = msg.cwd
+        setStatusBarData({ provider: msg.provider, model: msg.model, sessionId: msg.sessionId, tokens: msg.estimatedTokens, windowTokens: msg.windowTokens, cwd: msg.cwd })
         setInfoScroll(0); setView({ kind: 'info', title: '状态', lines: [
           `session   ${msg.sessionId}`,
           `provider  ${msg.provider}`,
@@ -209,6 +220,42 @@ export function App({ port }: { port: UiPort }) {
     } else if (v.kind === 'prompt') {
       // prompt（标量输入）的 Esc：返回 config 编辑器原位（而非无法退出）。
       if (key.escape) setView({ kind: 'config', path: v.returnPath ?? { kind: 'root' }, cursor: v.returnCursor ?? 0, preview: null })
+    } else if (v.kind === 'sessionPicker') {
+      // 会话选择器：搜索过滤 + ↑↓ 导航 + 回车切换 + d 删除 + esc 返回。
+      if (key.escape) { setView({ kind: 'none' }) }
+      else if (key.return) {
+        const filtered = filterSessions(v.sessions, v.query)
+        const s = filtered[v.cursor]
+        if (s) { port.post({ type: 'resume_session', id: s.id }); setView({ kind: 'none' }) }
+      } else if (key.upArrow) {
+        const filtered = filterSessions(v.sessions, v.query)
+        setView({ ...v, cursor: (v.cursor + filtered.length - 1) % Math.max(1, filtered.length) })
+      } else if (key.downArrow) {
+        const filtered = filterSessions(v.sessions, v.query)
+        setView({ ...v, cursor: (v.cursor + 1) % Math.max(1, filtered.length) })
+      } else if (inputChar === 'd' && v.query === '') {
+        // d 键删除当前选中会话（仅在未搜索时生效——避免输入 d 搜索时误触发）。
+        const filtered = filterSessions(v.sessions, v.query)
+        const s = filtered[v.cursor]
+        if (s) {
+          suppressEnterRef.current = true
+          queueMicrotask(() => { suppressEnterRef.current = false })
+          setView({ kind: 'menu', title: `删除会话 ${s.id}？`, items: [
+            { label: '确认删除', onSelect: () => { port.post({ type: 'delete_session', id: s.id }) } },
+            { label: '取消', onSelect: () => setView({ kind: 'none' }) },
+          ], cursor: 0 })
+        }
+      } else if (inputChar && !key.ctrl && !key.meta) {
+        // 搜索输入：累积字符更新过滤
+        if (inputChar === '\u007f' || inputChar === '\b') {
+          // Backspace 删除最后一个搜索字符
+          const newQuery = v.query.slice(0, -1)
+          setView({ ...v, query: newQuery, cursor: 0 })
+        } else if (inputChar >= ' ') {
+          const newQuery = v.query + inputChar
+          setView({ ...v, query: newQuery, cursor: 0 })
+        }
+      }
     } else if (v.kind === 'config') {
       const cfg = configRef.current
       const entries = cfg ? buildEntries(cfg, v.path, treeCtx) : []
@@ -225,8 +272,8 @@ export function App({ port }: { port: UiPort }) {
         else if (entry?.kind === 'bool') { entry.save(v.preview ?? entry.value); setView({ kind: 'config', path: v.path, cursor: v.cursor, preview: null }) }
         else if (entry?.kind === 'action') {
           entry.run()
-          // selectProvider/selectModel 选中即设后自动回 root（不留在选择列表）。
-          if (v.path.kind === 'selectProvider' || v.path.kind === 'selectModel') {
+          // selectProvider/selectModel/selectShell 选中即设后自动回 root（不留在选择列表）。
+          if (v.path.kind === 'selectProvider' || v.path.kind === 'selectModel' || v.path.kind === 'selectShell') {
             setView({ kind: 'config', path: { kind: 'root' }, cursor: 0, preview: null })
           }
         }
@@ -475,6 +522,24 @@ export function App({ port }: { port: UiPort }) {
       {view.kind === 'menu' && (
         <ListPicker title={view.title} items={view.items.map((i) => i.label)} cursor={view.cursor} hint="↑↓ 选择 · 回车确认 · esc 返回" />
       )}
+      {view.kind === 'sessionPicker' && (() => {
+        const filtered = filterSessions(view.sessions, view.query)
+        const dirName = currentCwdRef.current ? currentCwdRef.current.replace(/\\/g, '/').split('/').pop() ?? currentCwdRef.current : ''
+        return (
+          <Box flexDirection="column" borderStyle="round" borderColor={palette.subtext} paddingX={1} marginY={1}>
+            <Text bold color={palette.accent}>选择会话 — {dirName || '当前目录'}</Text>
+            <Text dimColor>搜索: {view.query || '（输入过滤）'}{'_'}</Text>
+            {filtered.length === 0 ? (
+              <Text dimColor>（无匹配会话）</Text>
+            ) : (
+              filtered.map((s, i) => (
+                <Text key={s.id} inverse={i === view.cursor}>{i === view.cursor ? '> ' : '  '}{s.preview}</Text>
+              ))
+            )}
+            <Text dimColor>↑↓ 选择 · 回车切换 · d 删除 · esc 返回</Text>
+          </Box>
+        )
+      })()}
       {view.kind === 'prompt' && (
         <Box>
           <Text color="cyan">{view.title} → </Text>
@@ -513,7 +578,7 @@ export function App({ port }: { port: UiPort }) {
         </Box>
       )}
 
-      {view.kind === 'none' && <StatusBar state={chat.status} provider={statusBarData.provider} model={statusBarData.model} sessionId={statusBarData.sessionId} tokens={statusBarData.tokens} windowTokens={statusBarData.windowTokens} />}
+      {view.kind === 'none' && <StatusBar state={chat.status} provider={statusBarData.provider} model={statusBarData.model} sessionId={statusBarData.sessionId} tokens={statusBarData.tokens} windowTokens={statusBarData.windowTokens} cwd={statusBarData.cwd} />}
       {view.kind === 'none' && (
         <Box flexDirection="column">
           {browse !== null && <Text dimColor>↑↓ 切换块 · 回车展开/折叠 · esc 返回输入</Text>}

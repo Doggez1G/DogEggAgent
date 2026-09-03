@@ -2,6 +2,7 @@ import type { Config } from '@dogegg/bridge'
 import type { ConfigPath } from './navigation'
 import type { Entry, TreeCtx } from './entries'
 import { nan } from './label'
+import { detectShells } from './shells'
 
 // 生成给定路径下的一层字段列表。依据 config + path 决定展示哪些字段、它们的交互形态。
 export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): Entry[] {
@@ -13,7 +14,7 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): En
         { label: 'defaultModel', kind: 'goto', value: config.defaultModel ?? '（未选择）', subPath: { kind: 'selectModel' } },
         { label: 'maxIterations', kind: 'scalar', value: String(config.maxIterations), save: (v) => ctx.set('maxIterations', nan(v)) },
         { label: 'maxRetries', kind: 'scalar', value: String(config.maxRetries), save: (v) => ctx.set('maxRetries', nan(v)) },
-        { label: 'shellProgram', kind: 'scalar', value: config.shellProgram ?? '', save: (v) => ctx.set('shellProgram', v) },
+        { label: 'shellProgram', kind: 'goto', value: config.shellProgram || '（未选择）', subPath: { kind: 'selectShell' } },
         { label: 'permission', kind: 'goto', value: 'allow/reject/ask', subPath: { kind: 'permission' } },
         { label: 'providers', kind: 'goto', value: `${config.providers.length} 个`, subPath: { kind: 'providers' } },
       ]
@@ -110,6 +111,19 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): En
         value: '',
         run: () => ctx.set('defaultModel', m.name),
       }))
+    }
+
+    case 'selectShell': {
+      // 检测系统可用 shell + 提供手动输入选项。
+      const shells = detectShells()
+      const entries: Entry[] = shells.map((s) => ({
+        label: s.label,
+        kind: 'action' as const,
+        value: config.shellProgram === s.value ? '✓' : '',
+        run: () => ctx.set('shellProgram', s.value),
+      }))
+      entries.push({ label: '手动输入…', kind: 'prompt', title: 'shell 程序名', save: (v) => { const t = v.trim(); if (t) ctx.set('shellProgram', t) } })
+      return entries
     }
   }
 }
