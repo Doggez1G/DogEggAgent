@@ -570,8 +570,9 @@ export function App({ port }: { port: UiPort }) {
     <Box flexDirection="column" height={termHeight} padding={0}>
       <TopBar info={headerInfo} />
 
-      {/* 消息视口：无外框（消息块自带左色条），用 flexGrow 占满 + 内部滚动 */}
-      <Box flexGrow={1} flexDirection="column" paddingBottom={1}>
+      {/* 消息视口：固定高度 = termHeight - TopBar(1) - 输入区 - StatusBar(1)。
+          用固定 height 而非 flexGrow，确保 Ink 严格裁切——消息再多也不挤压其他组件。 */}
+      <Box flexDirection="column" height={viewportHeight} overflowY="hidden" paddingBottom={1}>
         {chat.blocks.length === 0 && !chat.partial ? (
           <Box flexDirection="column" paddingY={1}>
             <Text color="#94e2d5">🐶🥚 欢迎使用 DogEggAgent</Text>
