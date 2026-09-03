@@ -1,7 +1,7 @@
 import { isExpandable } from '../../shared'
 import type { Block } from '../../shared'
 
-// 块浏览：在可折叠块（思考/工具）间移动焦点、展开/折叠。
+// 块浏览：在所有消息块间移动焦点，可折叠块（思考/工具）可展开/折叠。
 // 焦点用 index 表示；expanded 是一个 Set<number>。
 
 // 找出所有可折叠块的 index 列表。
@@ -13,14 +13,14 @@ export function expandableIndices(blocks: Block[]): number[] {
     .map(({ i }) => i)
 }
 
-// 按方向移动浏览焦点。未聚焦时按 ↑ 从最后一个开始，↓ 从第一个开始；已聚焦则按方向在原地上下移动并回绕。
+// 在所有块间按方向移动焦点（不只限于可折叠块）。
+// 未聚焦时按 ↑ 从最后一个开始，↓ 从第一个开始；已聚焦则按方向上下移动并回绕。
 export function moveBrowse(blocks: Block[], current: number | null, up: boolean): number | null {
-  const expandable = expandableIndices(blocks)
-  if (expandable.length === 0) return null
-  const idx = current === null ? -1 : expandable.indexOf(current)
+  if (blocks.length === 0) return null
+  if (current === null) return up ? blocks.length - 1 : 0
   return up
-    ? expandable[(idx < 0 ? expandable.length - 1 : (idx - 1 + expandable.length) % expandable.length)]!
-    : expandable[(idx < 0 ? 0 : (idx + 1) % expandable.length)]!
+    ? (current - 1 + blocks.length) % blocks.length
+    : (current + 1) % blocks.length
 }
 
 // 切换某个块的展开/折叠状态，返回新 Set。

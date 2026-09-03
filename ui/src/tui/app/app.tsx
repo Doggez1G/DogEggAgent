@@ -5,9 +5,10 @@ import type { AgentToUiMessage, UiToAgentMessage, PermissionDecision, Config, Ui
 import { TopBar, MessageBlock, StatusBar, ListPicker } from '../components'
 import { palette } from '../theme'
 import type { BlockKind } from '../../shared'
+import { isExpandable } from '../../shared'
 import { renderMarkdown } from '../markdown'
 import { resetSigintTimer } from './entry'
-import { reducer, buildDisplayBlocks, sliceViewport, expandableIndices, moveBrowse, toggleExpanded, type ChatState } from '../chat'
+import { reducer, buildDisplayBlocks, sliceViewport, moveBrowse, toggleExpanded, type ChatState } from '../chat'
 import { parseCommand, matchCommands } from '../input'
 import { buildEntries, entryLabel, parentPath, type ConfigPath, type TreeCtx } from '../overlays/config'
 import { type View } from './view-state'
@@ -312,32 +313,41 @@ export function App({ port }: { port: UiPort }) {
         }
         if (key.escape) { setSuggestCursor(null); return }
       }
-      // 消息视口：↑/↓ 在可折叠块间移动焦点，回车展开/折叠，esc 退回输入框。
-      const expandable = expandableIndices(blocksRef.current)
-      if (expandable.length > 0 && (key.upArrow || key.downArrow)) {
-        setBrowseBoth(moveBrowse(blocksRef.current, browseRef.current, key.upArrow))
+      // 块导航模式：Ctrl+Up/Ctrl+Down 在所有消息块间导航聚焦。
+      // 所有块都能被选中聚焦，只有 thinking/tool 块能 Ctrl+Enter 展开。
+      if (key.ctrl && key.upArrow && blocksRef.current.length > 0) {
+        setBrowseBoth(moveBrowse(blocksRef.current, browseRef.current, true))
         return
       }
-      if (key.return && browseRef.current !== null) {
-        // toggleExpanded 返回新 Set；需同时更新 ref 和 state（useInput 回调闭包读 ref，渲染读 state）。
-        const next = toggleExpanded(expandedRef.current, browseRef.current)
-        expandedRef.current = next
-        setExpanded(next)
+      if (key.ctrl && key.downArrow && blocksRef.current.length > 0) {
+        setBrowseBoth(moveBrowse(blocksRef.current, browseRef.current, false))
         return
       }
+      // Ctrl+Enter：展开/折叠当前聚焦块（仅 thinking/tool 块有效）。
+      if (key.ctrl && key.return && browseRef.current !== null) {
+        const block = blocksRef.current[browseRef.current]
+        if (block && isExpandable(block)) {
+          const next = toggleExpanded(expandedRef.current, browseRef.current)
+          expandedRef.current = next
+          setExpanded(next)
+        }
+        return
+      }
+      // Escape：退出块导航模式，焦点回到输入框。
       if (key.escape && browseRef.current !== null) { setBrowseBoth(null); return }
-      // 消息滚动用 PageUp/PageDown；无可折叠块时 ↑/↓ 召回输入历史。
-      const page = Math.max(5, Math.floor((stdout.rows || 24) / 2))
-      if (key.pageUp) setScroll((s) => s + page)
-      else if (key.pageDown) setScroll((s) => Math.max(0, s - page))
-      else if (key.upArrow && expandable.length === 0 && browseRef.current === null) {
+      // 消息滚动用 PageUp/PageDown（步长 3-5 行，平滑滚动）。
+      const scrollStep = Math.min(5, Math.max(3, Math.floor((stdout.rows || 24) / 20)))
+      if (key.pageUp) setScroll((s) => s + scrollStep)
+      else if (key.pageDown) setScroll((s) => Math.max(0, s - scrollStep))
+      // ↑/↓ 召回输入历史（只在未进入块导航模式时生效）。
+      else if (key.upArrow && browseRef.current === null) {
         // 输入历史召回：↑ 向上（更早的输入），↓ 向下（更新的输入），到底部清空。
         const history = inputHistoryRef.current
         if (history.length === 0) return
         const next = historyCursorRef.current < 0 ? history.length - 1 : Math.max(0, historyCursorRef.current - 1)
         historyCursorRef.current = next
         setInput(history[next] ?? '')
-      } else if (key.downArrow && expandable.length === 0 && browseRef.current === null) {
+      } else if (key.downArrow && browseRef.current === null) {
         const history = inputHistoryRef.current
         if (history.length === 0 || historyCursorRef.current < 0) return
         const next = historyCursorRef.current + 1
@@ -504,7 +514,7 @@ export function App({ port }: { port: UiPort }) {
         {/* 输入框行：始终显示。none 视图聚焦主输入，其他视图显示禁用态或 prompt 输入 */}
         {view.kind === 'none' && (
           <Box flexDirection="column">
-            {browse !== null && <Text dimColor>↑↓ 切换块 · 回车展开/折叠 · esc 返回输入</Text>}
+            {browse !== null && <Text dimColor>Ctrl+↑↓ 切换块 · Ctrl+Enter 展开/折叠 · esc 返回输入</Text>}
             {/* 斜杠命令联想提示：输入 / 开头且有匹配时，显示列表供 ↑↓ 选择、回车/Tab 补全 */}
             {suggestMatches.length > 0 && (
               <Box flexDirection="column" marginTop={0}>
