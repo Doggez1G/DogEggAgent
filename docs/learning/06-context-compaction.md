@@ -86,10 +86,13 @@ shell 输出可能几千行——截断到 8000 字符，末尾标注。截断�
 
 ```ts
 // agent/src/context/compact/trigger.ts
+import { COMPACTION_THRESHOLD } from '@dogegg/bridge'
 function shouldCompact(used: number, windowTokens: number): boolean {
-  return used > windowTokens * 0.8  // 80% 而非 100%——留缓冲
+  return used > windowTokens * COMPACTION_THRESHOLD  // 80% 而非 100%——留缓冲
 }
 ```
+
+阈值 `0.8` 现已抽成常量 `COMPACTION_THRESHOLD`（`bridge/src/contract/shared.ts`），由 trigger.ts、enforce.ts、run.ts 共用——避免魔法数字在各处分散漂移。
 
 ### 压缩流程
 
@@ -124,6 +127,29 @@ async function compactContext(input: {
 - `force=false`（loop 自动）：仅超 80% 窗口才压。
 - `force=true`（`/compact` 手动）：无条件压。消息少时 keep 降为 `length-1`，全部交给摘要。
 
+### 硬上限兜底（enforceContextLimit）
+
+压缩是「软」手段——靠 LLM 摘要把旧消息压成一段。但若单条消息极大（如一次 shell 输出几万 token），或压缩失败降级仍用未压缩 context，压缩后 context 可能仍超阈值。此时 `enforceContextLimit` 作为硬上限兜底：
+
+```ts
+// agent/src/context/compact/enforce.ts
+export function enforceContextLimit(input: {
+  systemPrompt: string; context: Message[]; tools: object[]; windowTokens: number; threshold?: number
+}): { context: Message[]; dropped: number } {
+  const threshold = input.threshold ?? COMPACTION_THRESHOLD
+  const limit = input.windowTokens * threshold
+  let context = [...input.context]
+  let dropped = 0
+  while (context.length > 1 && estimateContextTokens(input.systemPrompt, context, input.tools) > limit) {
+    context.shift()  // 从头部丢弃最旧的非 system 消息
+    dropped++
+  }
+  return { context, dropped }
+}
+```
+
+从头部逐条 `shift` 最旧消息直到降到阈值以下，**保留至少一条**（`context.length > 1` 守卫）确保模型看到最新输入。system 消息不在 context 数组中（由 adapter 拼接），所以这里丢弃的都是非 system 消息。被丢弃的消息在 history 中仍保留——只是不再发给模型，UI 显示不受影响。loop 在压缩后调用它，`dropped > 0` 时原地替换 context（`run.ts` ~110-122）。
+
 ### 摘要调用
 
 ```ts
@@ -152,7 +178,7 @@ for (;;) {
   ...
   // 自动压缩（token 超 80%）
   const used = estimateContextTokens(...)
-  if (used > deps.windowTokens * 0.8) {
+  if (used > deps.windowTokens * COMPACTION_THRESHOLD) {
     state = trans({ kind: 'compact_start' })  // → compacting
     try {
       const result = await compactContext({ ..., signal: deps.signal })

@@ -37,9 +37,12 @@ DogEggAgent/
 1. `agent/src` 不得 import `@dogegg/ui`；`ui/src` 不得 import `@dogegg/agent`。
 2. `bridge/src` 不得 import `@dogegg/agent` 或 `@dogegg/ui`。
 3. `server/src` 不得 import `@dogegg/ui`（前端是静态文件被 serve）。
-4. `index.ts` 只允许 re-export，不允许 `export const/function/class` 实现声明。
+4. `ui/src/webui` 不得 import `@dogegg/agent` 或 `@dogegg/server`（webui 只依赖 bridge + shared）。
+5. `ui/src/shared` 不得 import `@dogegg/agent`（shared 是 webui/tui 共用的纯前端层，不反向依赖后端）。
+6. `index.ts` 只允许 re-export，不允许 `export const/function/class` 实现声明。
+7. 非 index 文件不得直接 import 模块私有文件（barrel-discipline：有 `index.ts` 的模块必须经 barrel 导入，不许绕过直达内部文件）。
 
-> 详见 `bridge/test/architecture.test.ts`。
+共 7 条断言。> 详见 `bridge/test/architecture.test.ts`。
 
 ## bridge 包：契约 + 通道
 
@@ -70,6 +73,8 @@ type UiToAgentMessage =
 ```
 
 两套都是**可序列化的纯数据**（没有函数、没有 Error 对象）。这样将来接 SSE 时，序列化/反序列化的就是这些类型，不用改 agent 和 ui。
+
+两套消息另有对应的 zod schema——`bridge/src/contract/agent-to-ui-schema.ts`（`agentToUiMessageSchema`）与 `ui-to-agent-schema.ts`（`uiToAgentMessageSchema`），与类型定义一一对应，只加了运行时验证能力：SSE `onmessage` 收到的 JSON 经 `agentToUiMessageSchema` 校验，失败即丢弃（不传给 listener）；POST `/api/message` 的 body 经 `uiToAgentMessageSchema` 校验，失败返回 400。同进程 TUI 不走 schema（类型即保证），schema 仅在网络边界生效。
 
 ### Config schema
 

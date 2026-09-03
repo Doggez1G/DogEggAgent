@@ -25,7 +25,7 @@ type State =
 
 ## 迁移输入（TransitionInput）
 
-每个迁移由一个输入事件触发。用 discriminated union 定义，16 个变体：
+每个迁移由一个输入事件触发。用 discriminated union 定义，15 个变体：
 
 ```ts
 // agent/src/core/state/events.ts
@@ -64,7 +64,7 @@ const VALID_FROM: Record<TransitionInput['kind'], ReadonlySet<State>> = {
   tool_auto: new Set(['tool_calling']),
   tool_needs_permission: new Set(['tool_calling']),
   allow: new Set(['waiting_permission']),
-  tool_done: new Set(['executing', 'waiting_permission', 'tool_calling']),
+  tool_done: new Set(['executing', 'waiting_permission']),
   reject: new Set(['executing', 'waiting_permission', 'tool_calling']),
   result_back: new Set(['executing']),
   compact_start: new Set(['thinking', 'responding', 'idle', ...]),

@@ -10,7 +10,9 @@
   "updatedAt": "2026-08-28T12:00:00.000Z",
   "history": [...],       // 完整原文（永不压缩）
   "context": [...],        // 发给模型的（可能压缩过）
-  "allowedTools": ["read_file"]  // 会话级 allow_always 授权
+  "allowedTools": ["read_file"],  // 会话级 allow_always 授权
+  "cwd": "/home/user/project",     // 创建会话时的工作目录
+  "thinking": [{ "text": "..." }]  // 每轮推理内容（resume 时恢复思考块）
 }
 ```
 
@@ -20,11 +22,11 @@
 
 ```ts
 // agent/src/session/store.ts
-export function saveSession(id, history, context, allowedTools = [], baseDir = defaultSessionsDir()): void {
+export function saveSession(id, history, context, allowedTools = [], baseDir = defaultSessionsDir(), cwd = '', thinking = []): void {
   mkdirSync(baseDir, { recursive: true })
   const target = file(baseDir, id)
   const tmp = target + '.tmp'
-  writeFileSync(tmp, JSON.stringify({ id, updatedAt: new Date().toISOString(), history, context, allowedTools }))
+  writeFileSync(tmp, JSON.stringify({ id, updatedAt: new Date().toISOString(), history, context, allowedTools, cwd, thinking }))
   renameSync(tmp, target)  // 原子：先写 .tmp 再 rename，崩溃时不会损坏原文件
 }
 ```
@@ -34,18 +36,45 @@ export function saveSession(id, history, context, allowedTools = [], baseDir = d
 ### 旧格式迁移
 
 ```ts
-export function loadSession(id, baseDir = defaultSessionsDir()): { id, history, context, allowedTools } {
+export function loadSession(id, baseDir = defaultSessionsDir()): { id, history, context, allowedTools, cwd, thinking } {
   const raw = JSON.parse(readFileSync(file(baseDir, id), 'utf8'))
   const history = raw.history ?? raw.messages ?? []
   const context = raw.context ?? [...history]  // 必须拷贝！否则旧格式时 context 和 history 引用同一数组
   const allowedTools = raw.allowedTools ?? []
-  return { id: raw.id ?? id, history, context, allowedTools }
+  const cwd = raw.cwd ?? ''
+  const thinking = raw.thinking ?? []
+  return { id: raw.id ?? id, history, context, allowedTools, cwd, thinking }
 }
 ```
 
 **`[...history]` 拷贝是关键**——旧格式（只有 `messages`）时 `context = history` 会让两者指向同一数组，push 时双写变三写。
 
 `raw.id ?? id`——损坏文件可能缺 id 字段，回退到请求的 id。
+
+### 删除会话
+
+```ts
+// agent/src/session/store.ts
+export function deleteSession(id, baseDir = defaultSessionsDir()): void {
+  const target = file(baseDir, id)
+  if (existsSync(target)) unlinkSync(target)
+}
+```
+
+文件不存在时静默成功（幂等）。`/session` 面板选中删除时 agent 调用它，删后 emit `session_deleted { id }` 让前端刷新列表。
+
+### 思考持久化与对齐（thinking）
+
+`thinking` 是每轮 LLM 调用收集的推理内容数组，存进 session JSON：
+
+- **收集**：loop 每次 `adapter.chat` 后 push 一个条目（见 03 章）。只在 `deps.reasoning` 为真时记录实际 reasoning；关闭思考时存空字符串。
+- **累积**：`agent.ts` 维护 `this.thinking`，loop 返回后 `this.thinking.push(...result.thinking)` 累积本轮条目，再通过 `saveSession(..., this.cwd, this.thinking)` 持久化。
+- **resume**：`loadSession` 读回 `thinking`，`agent.ts` 赋值 `this.thinking = s.thinking`；`session_ready` 事件携带 `thinking` 数组（`this.thinking.length ? { thinking } : {}`）给前端。
+- **对齐**：UI 端 `rebuildBlocksFromHistory` 按序把 thinking 条目与 assistant 消息 1:1 对齐——每条 assistant 消息消费一个 thinking 条目（含 `content=null` 的纯 tool_calls 消息）。空字符串条目被跳过，不显示思考气泡。
+
+### cwd 持久化
+
+session 存 `cwd`（创建会话时的工作目录）。`saveSession` 写入 `this.cwd`；resume 时 `loadSession` 读回，`agent.ts` 用 `s.cwd` 恢复 `this.cwd`——从项目 A 切到会话 B 再切回来，工作目录随之恢复，工具执行在原目录上下文中进行。
 
 ### 会话列表
 

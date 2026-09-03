@@ -10,49 +10,63 @@ UI 层
 │  ├─ app.tsx          # App 组件：状态持有 + 渲染骨架 + 键盘路由
 │  ├─ view-state.ts    # View 视图态联合
 │  └─ entry.tsx        # renderTui(port)：Ink render + alt-screen 进出
-├─ chat/
-│  ├─ block.ts         # Block 模型 + ICON/COLOR 映射
-│  ├─ reducer.ts       # AgentToUiMessage → ChatState（纯函数）★可单测
-│  ├─ viewport.ts      # 行估算 + 滚动窗口裁切（纯）
-│  └─ browse.ts        # 块浏览焦点 + 折叠展开集合管理（纯）
-├─ input/
-│  └─ commands.ts      # 斜杠命令表 + parseCommand + matchCommands 联想
-├─ overlays/
-│  └─ config/          # 配置树编辑器（build/navigation/label）
+├─ config/              # 配置树编辑器纯函数（build/navigation/label/entries）
 ├─ components/          # 无状态展示组件（top-bar/message-block/status-bar/list-picker）
-├─ theme/palette.ts     # Catppuccin Mocha 调色板
-└─ markdown/render.ts   # markdown → 干净纯文本
+├─ theme/
+│  ├─ palette.ts       # Catppuccin Mocha 调色板
+│  └─ token-map.ts     # BlockKind→emoji, ColorToken→hex, BlockKind→角色标签
+└─ markdown/render.ts   # markdown → 干净纯文本（用 marked Lexer 分词）
 ```
 
-## 双层状态
+> **共享模块**：reducer、block、commands 已从 TUI 移到 `ui/src/shared/`（见下文），TUI 和 WebUI 共用。viewport.ts 和 browse.ts 仍是 TUI 专属（终端滚动/折叠逻辑），不进 shared。
 
-- **后端 10 态**（State）：idle/thinking/responding/...——来自 `state` 事件。
-- **UI 视图态**（View）：none/permission/menu/prompt/config/info——UI 自己的弹层状态机。
+## 共享层：Block 语义模型
 
-两者正交——后端在 `executing` 时 UI 可以在 `none`（正常显示）或 `permission`（弹权限框）。
-
-## reducer：消息 → 聊天状态
+`ui/src/shared/block.ts` 定义平台无关的消息块语义模型——不含任何终端/DOM 依赖：
 
 ```ts
-// ui/src/tui/chat/reducer.ts
+type BlockKind = 'user' | 'assistant' | 'thinking' | 'tool' | 'error' | 'notice' | 'auto_compact'
+type ColorToken = 'accent' | 'text' | 'cyan' | 'yellow' | 'red' | 'subtext'
+
+interface Block {
+  kind: BlockKind          // 语义角色
+  color: ColorToken        // 语义色
+  text: string             // 折叠时摘要
+  full?: string            // 展开时完整内容（仅 thinking/tool）
+  toolId?: string          // tool_start/tool_end 精确匹配
+  toolInput?: unknown      // tool_start input，供 tool_end 格式化 diff
+}
+```
+
+Block 只携带语义信息（kind + colorToken），**不含具体视觉值**（emoji / hex）。视觉映射归各 UI 的 theme 层：
+- **TUI**：`token-map.ts` 把 `BlockKind → emoji`（🥚🐶🐾）、`ColorToken → hex`（palette 色）
+- **WebUI**：`token-map.ts` 把 `BlockKind → Lucide SVG 图标`、`ColorToken → CSS variable`
+
+## 共享层：reducer
+
+`ui/src/shared/reducer.ts` 是纯函数，把 `AgentToUiMessage` 转换为 `ChatState`。TUI 和 WebUI 共用。
+
+```ts
 interface ChatState {
-  blocks: Block[]                          // 已落盘的消息块
-  status: State                            // 后端状态
-  partial: { kind: 'assistant'|'thinking'; text: string } | null  // 进行中的流式块
+  blocks: Block[]
+  status: State
+  partial: { kind: 'assistant'|'thinking'; text: string } | null
 }
 
 function reducer(state: ChatState, msg: Action): ChatState {
   switch (msg.type) {
-    case 'text_delta':    // 累积到 partial；如果之前是 thinking partial 先 flush
-    case 'thought_delta': // 累积到 partial
+    case 'text_delta':    // 累积到 assistant partial；如果之前是 thinking partial 先 flush
+    case 'thought_delta': // 累积到 thinking partial；如果之前是 assistant partial 先 flush
+    case 'local_user':    // UI 本地动作——立即追加 user block（不等后端确认）
     case 'message':       // assistant 的 message → flush partial 落盘
     case 'tool_start':    // flush + 新建工具块（带 toolId）
-    case 'tool_end':      // 按 toolId 找块，更新 text/full
-    case 'state':         // 更新 status
+    case 'tool_end':      // 按 toolId 找块，更新 text/full + diff 预览
+    case 'state':         // cancelled/idle 时 flush partial（防止残留流式文本被下一轮拼接）
     case 'finished':      // flush + status='finished'
-    case 'error':         // flush（避免幽灵块）+ 错误块
+    case 'error':         // flush（保留半句文本）+ 错误块
     case 'session_ready': // rebuildBlocksFromHistory 重建所有块
-    case 'compaction':    // 自动压缩插提示块；手动不处理（app 弹 overlay）
+    case 'compaction':    // 插入 auto_compact 提示块（before/after token 数）
+    case 'history_cleared': // flush + 替换为单条 notice 块
     ...
   }
 }
@@ -67,57 +81,69 @@ function flush(state): ChatState {
   const fullText = state.partial.text
   // 思考块：折叠显示前 3 行摘要，展开显示全文（full）
   const summary = isThinking ? fullText.split('\n').slice(0, 3).join('\n') + ... : fullText
+  const kind: BlockKind = isThinking ? 'thinking' : 'assistant'
+  const color: ColorToken = isThinking ? 'yellow' : 'text'
   return {
     ...state, partial: null,
-    blocks: [...state.blocks, { icon: isThinking ? ICON.thinking : ICON.assistant, ..., ...(isThinking ? { full: fullText } : {}) }],
+    blocks: [...state.blocks, { kind, color, text: isThinking ? summary : fullText, ...(isThinking ? { full: fullText } : {}) }],
   }
 }
 ```
 
 思考块的 `text` 是摘要（前 3 行），`full` 是全文——折叠显示摘要，展开显示全文。
 
-### tool_end 用 id 匹配
+### tool_end 用 id 匹配 + diff 预览
 
 ```ts
 case 'tool_end': {
   const idx = blocks.findIndex((b) => b.toolId === msg.id)  // 按 id 精确匹配
   if (idx >= 0) {
-    blocks[idx] = { ...target, text: `${target.text}\n${summary}`, full: `${target.text}\n${fullText}` }
+    const diffPreview = formatToolDiff(msg.name, target.toolInput)
+    blocks[idx] = { ...target, text: `${target.text}\n${summary}`, full: [target.text, fullText, diffPreview].join('\n') }
   }
 }
 ```
 
-不靠数组尾部——notice/compaction 块可能插在 tool_start 和 tool_end 之间。
+`formatToolDiff` 根据 toolName 格式化 diff 预览：edit_file 显示 old/new 对比、write_file 显示写入内容、shell 显示命令。
 
-### rebuildBlocksFromHistory
+### rebuildBlocksFromHistory + thinking 对齐
 
-resume 时从持久化的 history 重建 UI 块——从 `assistant.tool_calls` 提取工具名+参数，与 `tool` 消息按 `tool_call_id` 配对：
+resume 时从持久化的 history + thinking 数组重建 UI 块：
 
 ```ts
-function rebuildBlocksFromHistory(messages: Message[]): Block[] {
-  const pendingCalls = new Map<string, ToolCall>()
+function rebuildBlocksFromHistory(messages: Message[], thinking: { text: string }[] = []): Block[] {
+  let thinkingIdx = 0
   for (const m of messages) {
     if (m.role === 'assistant') {
-      if (m.tool_calls) for (const tc of m.tool_calls) pendingCalls.set(tc.id, tc)
-      if (m.content) blocks.push({ icon: ICON.assistant, ... })
+      // 每条 assistant 消息消费一个 thinking 条目（含 content=null 的 tool_calls 消息）
+      if (thinkingIdx < thinking.length) {
+        const t = thinking[thinkingIdx]!
+        if (t.text) {  // 空字符串跳过——这轮没开思考或没产生 reasoning
+          blocks.push({ kind: 'thinking', color: 'yellow', text: summary, full: t.text })
+        }
+      }
+      thinkingIdx++  // 每条 assistant 消息都递增（1:1 对齐）
+      if (m.content) blocks.push({ kind: 'assistant', color: 'text', text: m.content })
     } else if (m.role === 'tool') {
-      const call = pendingCalls.get(m.tool_call_id)
-      const toolName = call?.function.name ?? '工具'
-      blocks.push({ icon: ICON.tool, text: `${toolName} ...\n✓ ${summary}`, full: `${toolName} ...\n✓ 完成\n${m.content}` })
+      // 从 tool_calls + tool 消息配对重建工具块
     }
   }
 }
 ```
 
-**固有限制**：思考块是流式 `thought_delta` 产生的，不持久化进 history，resume 后无法恢复。
+**thinking 对齐原理**：
+- `thinking` 数组每轮 LLM 调用产生一个条目（`run.ts` 中 `thinking.push({ text: deps.reasoning ? (result.reasoning ?? '') : '' })`）。
+- 关闭思考时存空字符串（即使模型返回了 reasoning 也不记录）。
+- `thinkingIdx` 每条 assistant 消息都递增——包括 content=null 的 tool_calls 消息——保证 1:1 对齐。
+- 空字符串条目被跳过（不显示思考气泡），有内容的显示思考块。
 
 ## 视口滚动
 
 ```ts
-// ui/src/tui/chat/viewport.ts
+// ui/src/tui/chat/viewport.ts（TUI 专属，不进 shared）
 function buildDisplayBlocks(blocks, expanded, termWidth): DisplayBlock[] {
   return blocks.map((b, i) => {
-    const expandable = (b.icon === ICON.thinking || b.icon === ICON.tool) && b.full !== undefined
+    const expandable = (b.kind === 'thinking' || b.kind === 'tool') && b.full !== undefined
     const shownText = !expandable ? b.text : isExpanded ? (b.full ?? b.text) : b.text
     return { ...b, index: i, lines: estimateBlockLines(shownText, termWidth), shownText, isCollapsed: expandable && !isExpanded }
   })
@@ -177,7 +203,7 @@ entry.tsx 的 SIGINT handler 走"两次 Ctrl+C 兜底退出"——防 Ink 外卡
 ### 联想补全
 
 ```ts
-// ui/src/tui/input/commands.ts
+// ui/src/shared/commands.ts（已移到 shared，TUI 和 WebUI 共用）
 const COMMANDS = [
   { cmd: '/new', desc: '新建会话' },
   { cmd: '/session', desc: '切换会话' },

@@ -52,9 +52,9 @@ DogEggAgent 当前有 TUI（Ink v7）+ WebUI（React DOM + Vite）双前端。We
 ```
 main-web.ts (组合根，唯一 import agent + server + bridge)
   ├─ loadConfig → createSseChannel() → new Agent(agentPort, config, cwd)
-  └─ startServer({ uiPort, staticDir, cwd })
-       ├─ SSE 端点 GET /api/events    → uiPort.onMessage 注册的回调推到 SSE 流
-       ├─ POST 端点 POST /api/message → uiPort.post(UiToAgentMessage)
+  └─ startServer({ sseHandler, postHandler, staticDir, port })
+       ├─ SSE 端点 GET /api/events    → sseHandler 建立连接，agentPort.post 推到所有 SSE 客户端
+       ├─ POST 端点 POST /api/message → postHandler 读 body + zod 校验 → agentPort.onMessage 回调
        ├─ FS 端点 GET /api/fs?path=   → listDirs(path) 安全目录浏览
        └─ 静态文件 /                  → serve dist/web/
 ```
@@ -224,16 +224,16 @@ server/
 ```ts
 export function createSseChannel(): {
   agentPort: AgentPort
-  uiPort: UiPort
   sseHandler: (req: IncomingMessage, res: ServerResponse) => void  // GET /api/events
   postHandler: (req: IncomingMessage, res: ServerResponse) => void  // POST /api/message
 }
 ```
 
-- **下行**（agent → UI）：`uiPort.post(msg)` → 序列化为 JSON → 写入所有活跃 SSE 连接的 `res.write('data: ' + json + '\n\n')`。用 `Set<ServerResponse>` 管理多连接。
-- **上行**（UI → agent）：`postHandler` 读取 POST body → 解析 JSON → `agentPort.onMessage` 回调触发。
+- **下行**（agent → UI）：`agentPort.post(msg)` → 序列化为 JSON → 写入所有活跃 SSE 连接的 `res.write('data: ' + json + '\n\n')`。用 `Set<ServerResponse>` 管理多连接。
+- **上行**（UI → agent）：`postHandler` 读取 POST body（1MB 上限）→ `uiToAgentMessageSchema.safeParse` zod 校验 → `agentPort.onMessage` 回调触发。校验失败返回 400。
 - **SSE 头**：`Content-Type: text/event-stream`、`Cache-Control: no-cache`、`Connection: keep-alive`。
 - **重连**：SSE 断开后浏览器 EventSource 自动重连。重连时 server 推 `session_ready`（agent 当前 history），恢复完整状态。
+- **无 uiPort**：SSE 传输天生不对称（下行 SSE / 上行 POST），不存在对称的 uiPort。UI 侧的 Port 由浏览器 `sse-client.ts` 独立创建。
 
 ### 6.3 FS 浏览端点
 
@@ -272,13 +272,12 @@ import { Agent, loadConfig, initLogger } from '@dogegg/agent'
 import { createSseChannel, startServer } from '@dogegg/server'
 
 const config = loadConfig()
-const { agentPort, uiPort, sseHandler, postHandler } = createSseChannel()
+const { agentPort, sseHandler, postHandler } = createSseChannel()
 initLogger(join(homedir(), '.dogegg', 'logs'))
 
 new Agent(agentPort, config, process.cwd())
 
 startServer({
-  uiPort,
   sseHandler,
   postHandler,
   staticDir: join(import.meta.dirname, 'web'),
@@ -341,12 +340,16 @@ ui/src/webui/
 
 `ui/src/webui/channel/sse-client.ts`:
 ```ts
+import { agentToUiMessageSchema } from '@dogegg/bridge'
+
 export function createSseUiPort(): UiPort {
   const es = new EventSource('/api/events')
   const listeners = new Set<(msg: AgentToUiMessage) => void>()
   es.onmessage = (e) => {
-    const msg = JSON.parse(e.data) as AgentToUiMessage
-    listeners.forEach((l) => l(msg))
+    const raw = JSON.parse(e.data)
+    const parsed = agentToUiMessageSchema.safeParse(raw)
+    if (!parsed.success) return   // 校验失败丢弃，不传给 listener（见 §3.3）
+    listeners.forEach((l) => l(parsed.data))
   }
   return {
     onMessage(cb) { listeners.add(cb); return () => listeners.delete(cb) },

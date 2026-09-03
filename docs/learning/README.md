@@ -7,16 +7,18 @@
 
 | 章节 | 标题 | 核心概念 |
 |---|---|---|
-| [01](./01-architecture.md) | 整体架构与多包解耦 | workspaces、bridge 契约、Port 通道、组合根 |
+| [01](./01-architecture.md) | 整体架构与多包解耦 | workspaces、bridge 契约、Port 通道、组合根、架构测试 |
 | [02](./02-state-machine.md) | 10 态状态机 | 纯函数迁移、VALID_FROM 守卫、迁移事件 |
-| [03](./03-agent-loop.md) | Agent Loop 核心循环 | 问模型→串行工具→回填→再问、中断保存、自动压缩 |
+| [03](./03-agent-loop.md) | Agent Loop 核心循环 | 问模型→串行工具→回填→再问、中断保存、自动压缩、thinking 收集、硬上限兜底 |
 | [04](./04-tools.md) | 工具系统 | 双 schema、串行执行、权限分支、取消三件套 |
-| [05](./05-llm.md) | LLM 接入层 | 原生 fetch+SSE、流式解析器、重试退避、adapter 分派 |
-| [06](./06-context-compaction.md) | 上下文管理与压缩 | History/Context 分离、token 估算、阈值触发、手动/自动压缩 |
-| [07](./07-session-permission.md) | 会话持久化与权限模型 | 原子写、旧格式迁移、三桶权限、会话隔离、授权持久化 |
+| [05](./05-llm.md) | LLM 接入层 | 原生 fetch+SSE、流式解析器、错误分类、状态感知重试、流式超时、adapter 分派 |
+| [06](./06-context-compaction.md) | 上下文管理与压缩 | History/Context 分离、token 估算、阈值触发、硬上限兜底、COMPACTION_THRESHOLD |
+| [07](./07-session-permission.md) | 会话持久化与权限模型 | 原子写、thinking 持久化与对齐、cwd 持久化、三桶权限、会话隔离、授权持久化 |
 | [08](./08-config.md) | 配置系统 | zod schema、树形编辑器、路径解析、事务回滚 |
-| [09](./09-tui.md) | TUI 前端 | Ink 渲染、reducer、视口滚动、键盘路由、联想补全 |
-| [10](./10-design-patterns.md) | 跨切面设计模式 | 依赖注入、error-as-value、discriminated union、模块边界 |
+| [09](./09-tui.md) | TUI 前端 | Ink 渲染、shared 语义 Block 模型、reducer、视口滚动、键盘路由、联想补全 |
+| [10](./10-design-patterns.md) | 跨切面设计模式 | 依赖注入、error-as-value、discriminated union、模块边界、barrel 纪律 |
+| [11](./11-webui.md) | WebUI 前端 | React DOM + Vite、三主题、SSE 客户端、信息面板、react-markdown、错误边界 |
+| [12](./12-server-sse.md) | Server 与 SSE 传输 | SSE Channel、HTTP 路由、CORS 安全、zod 校验、REST 端点、组合根 |
 
 ## 项目定位
 

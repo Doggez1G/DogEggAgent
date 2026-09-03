@@ -111,7 +111,7 @@ npm run start        # node dist/index.js
 - [模块化重构设计](docs/superpowers/specs/2026-08-27-modular-refactor-design.md) — 包结构、依赖图、架构测试
 - [WebUI 设计](docs/superpowers/specs/2026-08-29-webui-design.md) — 三主题、Primitives、Cmd+K、信息面板
 - [架构审查报告](docs/architecture-review-2026-09-01.html) — 全量审计 ~126 模块，8 个改进候选
-- [实现详解系列](docs/learning/) — 10 章逐模块讲解（架构 / 状态机 / Agent Loop / 工具 / LLM / 上下文 / 会话 / 配置 / TUI / 设计模式）
+- [实现详解系列](docs/learning/) — 12 章逐模块讲解（架构 / 状态机 / Agent Loop / 工具 / LLM / 上下文 / 会话 / 配置 / TUI / 设计模式 / WebUI / Server）
 - [ADR 记录](docs/adr/) — 7 个架构决策记录
 
 ## License

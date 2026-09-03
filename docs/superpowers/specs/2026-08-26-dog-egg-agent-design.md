@@ -12,13 +12,13 @@ DogEggAgent 是一个自研的 **code agent** 工具。第一目标是**学习�
 | 项目名 | DogEggAgent |
 | 形态 | 代码编辑型 Agent |
 | 语言/运行时 | TypeScript / Node.js **≥ 20**（依赖内置全局 `fetch`，不依赖 Bun） |
-| 交互 | TUI（Ink）；`webui` 仅占位，v1 不实现 |
+| 交互 | TUI（Ink）；WebUI 已实现（React DOM + Vite），见 WebUI 设计 spec |
 
 ## 2. 第一原则：后端与前端解耦
 
 **后端**（agent 核心及其依赖的 llm / tools / session / permission 等）与**前端**（ui：tui / webui）**完全解耦**，所有重要的后端行为都通过 **Event** 表达。
 
-`agent/` 与 `ui/` 这两个目录只是「后端」与「前端」两大部分的代称——边界不在字面的这两个文件夹，而在「后端逻辑」与「前端展示」之间。v0.1.0 起二者建模为两个独立的 workspace 包（`agent/`、`ui/`），解耦契约归入第三个包 `bridge/`。
+`agent/` 与 `ui/` 这两个目录只是「后端」与「前端」两大部分的代称——边界不在字面的这两个文件夹，而在「后端逻辑」与「前端展示」之间。v0.1.0 起采用 npm workspaces 多包结构：后端 `agent/`、前端 `ui/`、解耦契约 `bridge/` 三包；WebUI 阶段新增第四个包 `server/`（HTTP/SSE 传输层）。完整四包结构以 `2026-08-27-modular-refactor-design.md` 与 `2026-08-29-webui-design.md` 为准。
 
 实现方式：
 - `bridge/` 是唯一的解耦契约：按方向拆成两套消息类型 `AgentToUiMessage` / `UiToAgentMessage`（见 §6），并提供传输无关的 `Port` 接口（`AgentPort` / `UiPort`）与同进程通道实现 `createChannelPair()`。
@@ -216,6 +216,8 @@ type UiToAgentMessage =
   | { type: 'quit' }
 ```
 
+> **注**：消息类型以 `bridge/src/contract/` 为单一事实源（当前 23 个 `AgentToUiMessage` + 22 个 `UiToAgentMessage`）。此处为初始设计快照，实际类型以契约源码为准。
+
 要点：
 - `permission_request`（out）与 `permission_decision`（in）通过 `id` 配对。
 - `message` 的 `id` 为真值（非空串），与 `tool_start`/`tool_end` 的 `id` 同源，供 UI 做块定位/折叠/滚动跟随。
@@ -360,7 +362,7 @@ DogEggAgent/
 
 ## 11. 非目标（v1 不做）
 
-- WebUI（仅占位目录）
+- WebUI — 已实现（React DOM + Vite），见 WebUI 设计 spec（原 v1 非目标，现已交付）
 - 会话切换多后端（仅 JSON）
 - MCP、子 agent、规划模型
 - OpenAI 以外的协议实现（架构预留多协议，v1 只实现 OpenAI）
@@ -400,7 +402,7 @@ DogEggAgent/
 
 | 组件 | 说明 | 键位 |
 |---|---|---|
-| 消息列表 | 每条消息为**左色条块**（无全框，靠左侧色条 + marginBottom 留白分隔）：用户、思考、助手、工具（调用+结果合一）各自成块；思考块与工具结果**默认折叠**（思考折叠显示前 3 行摘要、工具折叠显示前 120 字符摘要，展开显示全文/完整结果 + diff 预览——edit_file 展开 `-old_string/+new_string`，write_file 展开 `+content`，shell 展开命令），`↑`/`↓` 在可折叠块间移动焦点（accent 左色条 + ▸ 高亮），`回车` 展开/折叠、`Esc` 返回输入框；无可折叠块时 `↑`/`↓` 滚动历史，`PageUp`/`PageDown` 翻页，`scroll=0` 时自动跟随最新；底部显示滚动提示。⚠️ resume 加载历史会话时工具块可折叠（full 从持久化的 tool 消息 content 重建），但思考块不可恢复——思考内容来自流式 `thought_delta`、不持久化进 history，resume 后无思考块（固有限制） | — |
+| 消息列表 | 每条消息为**左色条块**（无全框，靠左侧色条 + marginBottom 留白分隔）：用户、思考、助手、工具（调用+结果合一）各自成块；思考块与工具结果**默认折叠**（思考折叠显示前 3 行摘要、工具折叠显示前 120 字符摘要，展开显示全文/完整结果 + diff 预览——edit_file 展开 `-old_string/+new_string`，write_file 展开 `+content`，shell 展开命令），`↑`/`↓` 在可折叠块间移动焦点（accent 左色条 + ▸ 高亮），`回车` 展开/折叠、`Esc` 返回输入框；无可折叠块时 `↑`/`↓` 滚动历史，`PageUp`/`PageDown` 翻页，`scroll=0` 时自动跟随最新；底部显示滚动提示。⚠️ resume 加载历史会话时工具块可折叠（full 从持久化的 tool 消息 content 重建），思考块已持久化（ADR-0007）——reasoning 内容存入 session JSON 的 thinking 字段，resume 后恢复思考块 | — |
 | 输入框 | 多行缓冲 | `Enter` 发送 / `Ctrl+Enter` 换行（终端发送 `\n` 被 ink-text-input 当普通字符插入）/ `↑↓` 召回输入历史（无可折叠块时）/ `Ctrl+C` 运行中打断当前操作（发 cancel，不退出）/ 空闲时弹退出确认 / `PageUp`/`PageDown` 滚动历史 / `/` 命令联想补全：输入 `/` 前缀时上方显示匹配命令列表（命令名+描述，前缀匹配），`↑↓` 选择、`Enter`/`Tab` 补全命令到输入框（不补全描述，不直接运行，需再按 `Enter` 提交）、`Esc` 取消 |
 | 状态栏 | `<品牌> <Emoji+Braille spinner> <状态文字> · provider/model · #sessionId · tokens/window`；运行态（thinking/responding/executing/compacting）显示 Braille spinner 旋转动画（`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` 循环，80ms/帧）+ 对应状态 Emoji；非运行态（idle/finished/cancelled/error/waiting_permission）静态显示。状态来自后端 `state` 事件 | — |
 | 权限弹层 | 工具变更预览（edit_file 显示 `- old_string` / `+ new_string` 红绿 diff；write_file 显示 `+ content`；shell 显示命令）+ 三行列表：允许一次 / 始终允许 / 拒绝 | `↑↓` 选、`Enter` 确认、`Esc` 拒绝 → `permission_decision` |

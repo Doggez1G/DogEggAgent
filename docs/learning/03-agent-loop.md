@@ -20,6 +20,7 @@ Agent Loop 是 code agent 的心脏——它实现了"问模型 → 有工具调
 export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
   const context = [...deps.context]   // 拷贝 context（不修改原数组）
   const newMessages: Message[] = []    // 本轮新增消息（供 agent 同步到 history）
+  const thinking: { text: string }[] = []  // 每轮 reasoning 收集，不进 history/context
   let state: State = 'idle'
   let iterations = 0
 
@@ -41,17 +42,35 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
 
       // 3. 自动压缩（token 超 80% 窗口）
       const used = estimateContextTokens(deps.systemPrompt, context, toolParams)
-      if (used > deps.windowTokens * 0.8) { ... 压缩 ... }
+      if (used > deps.windowTokens * 0.8) {
+        state = trans({ kind: 'compact_start' })
+        try { /* 压缩 context，失败降级继续 */ } catch { /* 降级：跳过压缩继续用未压缩 context */ }
+        state = trans({ kind: 'compact_done', next: deps.reasoning ? 'thinking' : 'responding' })
+        // 硬上限兜底：压缩后仍超 80%（单条消息极大或压缩失败降级），从头部丢弃最旧非 system 消息（保留至少一条）
+        const enforced = enforceContextLimit({ systemPrompt: deps.systemPrompt, context, tools: toolParams, windowTokens: deps.windowTokens })
+        if (enforced.dropped > 0) { context.length = 0; context.push(...enforced.context) }
+      }
 
       // 4. 调模型（流式）
-      assistant = await deps.adapter.chat({ ...messages: context... }, deps.signal, (e) => {
-        if (e.type === 'text_delta') {
-          if (state === 'thinking') state = trans({ kind: 'thought_done' })  // reasoning 结束
-          deps.emit({ type: 'text_delta', delta: e.text })
-        } else if (e.type === 'thought_delta' && deps.reasoning) {
-          deps.emit({ type: 'thought_delta', delta: e.text })
-        }
-      })
+      let result
+      try {
+        result = await deps.adapter.chat({ ...messages: context... }, deps.signal, (e) => {
+          if (e.type === 'text_delta') {
+            if (state === 'thinking') state = trans({ kind: 'thought_done' })  // reasoning 结束
+            deps.emit({ type: 'text_delta', delta: e.text })
+          } else if (e.type === 'thought_delta' && deps.reasoning) {
+            deps.emit({ type: 'thought_delta', delta: e.text })
+          }
+        })
+      } catch (e) {
+        // 取消引发的 AbortError 视为取消而非错误，转成 CancelledError 上抛
+        if ((e as Error).name === 'AbortError') { state = trans({ kind: 'cancel' }); throw new CancelledError() }
+        state = trans({ kind: 'error' }); throw e
+      }
+
+      const assistant = result.message
+      // 每轮 LLM 调用收集一个 thinking 条目；reasoning 关闭时存空字符串（不显示思考气泡）
+      thinking.push({ text: deps.reasoning ? (result.reasoning ?? '') : '' })
 
       context.push(assistant)
       newMessages.push(assistant)
@@ -62,7 +81,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
       if (calls.length === 0) {
         state = trans({ kind: 'final_answer' })
         deps.emit({ type: 'finished' })
-        return { context, newMessages }  // 正常结束
+        return { context, newMessages, thinking }  // 正常结束
       }
 
       state = trans({ kind: 'tool_calls' })
@@ -83,8 +102,8 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
   } catch (e) {
     // 中断/错误：补全未配对的 tool_calls，返回部分结果
     patchUnpairedToolCalls(context)
-    if (e instanceof CancelledError) return { context, newMessages, cancelled: true }
-    return { context, newMessages, error: (e as Error).message }
+    if (e instanceof CancelledError) return { context, newMessages, thinking, cancelled: true }
+    return { context, newMessages, thinking, error: (e as Error).message }
   }
 }
 ```
@@ -149,6 +168,24 @@ const patchUnpairedToolCalls = (msgs: Message[]): void => {
 `adapter.chat(req, signal, emit)` 的第三个参数是流式回调——每收到一个 `text_delta` 或 `thought_delta` 就立即 emit 给 UI。UI 据此实时渲染流式文本。
 
 推理模型的 `thought_done` 迁移在 `text_delta` 第一次到达时触发——因为推理模型先吐 reasoning（`thought_delta`），再吐正文（`text_delta`），第一次收到 `text_delta` 意味着 reasoning 结束。
+
+### 6. 每轮思考收集（thinking）
+
+loop 维护一个 `thinking: { text: string }[]` 数组，每次 LLM 调用后 push 一个条目（`run.ts` ~160）：
+
+```ts
+thinking.push({ text: deps.reasoning ? (result.reasoning ?? '') : '' })
+```
+
+每条 assistant 消息对应一个 thinking 条目（含 `content=null` 的纯 tool_calls 消息）。只在 `deps.reasoning`（当前模型开启思考）时才记录实际 reasoning 内容；关闭思考时存空字符串——不记录、不显示。thinking 不进 history/context，单独随 `LoopResult` 返回，由 agent 持久化到 session 文件，resume 后恢复思考块显示。UI 端 `rebuildBlocksFromHistory` 按 1:1 对齐 assistant 消息与 thinking 条目，空字符串条目被跳过（不显示思考气泡）。
+
+### 7. 硬上限兜底（enforceContextLimit）
+
+压缩后若 context 仍超 80% 窗口（单条消息极大，或压缩失败降级仍用未压缩 context），`enforceContextLimit` 从头部丢弃最旧的非 system 消息直到降到阈值以下，保留至少一条消息确保模型看到最新输入（`run.ts` ~110-122）。被丢弃的消息在 history 中仍保留——只是不再发给模型，UI 显示不受影响。
+
+### 8. AbortError → CancelledError
+
+`adapter.chat` 调用裹在 try/catch 中（`run.ts` ~149-157）。用户取消时正在飞的 fetch 会抛 `AbortError`——loop 把它识别为取消而非错误，迁移到 `cancelled` 态并转成 `CancelledError` 上抛，由外层 catch 走中断保存路径。其它错误迁移到 `error` 态后原样上抛。
 
 ## LoopDeps：依赖注入
 
