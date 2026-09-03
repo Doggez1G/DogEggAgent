@@ -8,7 +8,7 @@ import type { BlockKind } from '../../shared'
 import { isExpandable } from '../../shared'
 import { renderMarkdown } from '../markdown'
 import { resetSigintTimer } from './entry'
-import { reducer, buildDisplayBlocks, sliceViewport, moveBrowse, toggleExpanded, type ChatState } from '../chat'
+import { reducer, buildDisplayBlocks, sliceViewport, estimateBlockLines, moveBrowse, toggleExpanded, type ChatState } from '../chat'
 import { parseCommand, matchCommands } from '../input'
 import { buildEntries, entryLabel, parentPath, type ConfigPath, type TreeCtx } from '../overlays/config'
 import { type View } from './view-state'
@@ -509,16 +509,29 @@ export function App({ port }: { port: UiPort }) {
   const configEntries = view.kind === 'config' && configSnapshot ? buildEntries(configSnapshot, view.path, treeCtx) : []
   const termWidth = stdout.columns || 80
   const termHeight = stdout.rows || 24
-  // 预留行：TopBar(1) + 输入框(1) + 提示(1) + StatusBar(1) + padding(2) = 6，但多行输入可能更高。
-  const viewportHeight = Math.max(6, termHeight - 8)
+
+  // 联想匹配提取一次（渲染里多处用，避免重复调用）。
+  const suggestMatches = view.kind === 'none' ? matchCommands(input) : []
+
+  // 估算输入区占用行数：输入框(1) + 提示(1) + 可选 browse/suggest 提示。
+  let inputAreaLines = 3 // 输入框 + Enter提示 + 基础间距
+  if (view.kind === 'none') {
+    if (browse !== null) inputAreaLines++ // browse 提示行
+    if (suggestMatches.length > 0) inputAreaLines += suggestMatches.length + 1 // 联想列表 + 提示
+  } else {
+    // overlay 模式：输入行(1) + overlay 内容（估算至少 3 行）
+    inputAreaLines = view.kind === 'info' ? Math.min(10, 4) : 4
+  }
+
+  // 状态栏(1) + TopBar(1) + 输入区 = chat 可用高度。
+  const viewportHeight = Math.max(3, termHeight - 1 - inputAreaLines - 1)
+
   const headerInfo = configSnapshot
     ? (configSnapshot.defaultProvider ? `${configSnapshot.defaultProvider}/${configSnapshot.defaultModel ?? '?'}` : '未配置 provider（请先 /config）')
     : '加载配置中…'
 
   // markdown 渲染（助手/思考块）+ 展开/折叠状态 + 行数估算 + 滚动窗口裁切。
-  // 联想匹配提取一次（渲染里多处用，避免重复调用）。
   // useMemo 缓存 renderedBlocks——chat.blocks 不变时不重复解析 markdown（流式时只 partial 变）。
-  const suggestMatches = view.kind === 'none' ? matchCommands(input) : []
   const isMd = (kind: BlockKind) => kind === 'assistant' || kind === 'thinking'
   const renderedBlocks = useMemo(() =>
     chat.blocks.map((b) => ({
@@ -530,11 +543,28 @@ export function App({ port }: { port: UiPort }) {
     [chat.blocks],
   )
   const displayBlocks = buildDisplayBlocks(renderedBlocks, expanded, termWidth)
+
+  // 流式 partial 块也纳入视口裁切范围——否则它超出 viewportHeight 挤压其他组件。
+  // 将 partial 转为临时 DisplayBlock 追加到 displayBlocks 末尾参与裁切。
+  let blocksForViewport = displayBlocks
+  if (chat.partial) {
+    const partialText = chat.partial.kind === 'thinking' ? chat.partial.text : renderMarkdown(chat.partial.text)
+    blocksForViewport = [...displayBlocks, {
+      ...chat.partial,
+      kind: chat.partial.kind === 'thinking' ? 'thinking' : 'assistant',
+      color: chat.partial.kind === 'thinking' ? 'yellow' : 'text',
+      index: displayBlocks.length,
+      lines: estimateBlockLines(partialText, termWidth),
+      shownText: partialText,
+      isCollapsed: false,
+    }]
+  }
+
   // 滚动裁切：计算总行数与可见窗口，scrolled > 0 表示有内容被滚出顶部。
-  const totalLines = displayBlocks.reduce((n, b) => n + b.lines, 0)
+  const totalLines = blocksForViewport.reduce((n, b) => n + b.lines, 0)
   const maxScroll = Math.max(0, totalLines - viewportHeight)
   const scrolled = Math.min(scroll, maxScroll)
-  const visibleBlocks = sliceViewport(displayBlocks, viewportHeight, scroll)
+  const visibleBlocks = sliceViewport(blocksForViewport, viewportHeight, scroll)
 
   return (
     <Box flexDirection="column" height={termHeight} padding={0}>
@@ -561,14 +591,6 @@ export function App({ port }: { port: UiPort }) {
             </MessageBlock>
           ))
         )}
-        {chat.partial ? (
-          <MessageBlock
-            kind={chat.partial.kind === 'thinking' ? 'thinking' : 'assistant'}
-            color={chat.partial.kind === 'thinking' ? 'yellow' : 'text'}
-          >
-            <Text dimColor={chat.partial.kind === 'thinking'}>{chat.partial.kind === 'thinking' ? chat.partial.text : renderMarkdown(chat.partial.text)}</Text>
-          </MessageBlock>
-        ) : null}
         {scrolled > 0 && (
           <Text dimColor>↑ {scrolled} 行历史（PageUp/PageDown 滚动）</Text>
         )}
