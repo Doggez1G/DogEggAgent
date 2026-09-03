@@ -80,9 +80,9 @@ npm run start        # node dist/index.js
 
 | 包 | 说明 |
 |---|---|
-| `@dogegg/bridge` | 消息契约（AgentToUiMessage / UiToAgentMessage）+ Config zod schema + Port 接口 |
-| `@dogegg/agent` | 后端域：core（agent/state/pending）/ loop / context / llm / tools / session / permission / config |
-| `@dogegg/ui` | 前端域：tui（Ink）/ webui（React DOM + Vite）/ shared（reducer/block/commands） |
+| `@dogegg/bridge` | 消息契约（AgentToUiMessage / UiToAgentMessage）+ Config zod schema + 消息 zod 校验 schema + Port 接口 |
+| `@dogegg/agent` | 后端域：core（agent/state/pending）/ loop / context / llm / tools / session / permission / config / shared |
+| `@dogegg/ui` | 前端域：tui（Ink）/ webui（React DOM + Vite）/ shared（reducer/block/commands/status/permission/command-feedback） |
 | `@dogegg/server` | HTTP server + SSE channel + REST 端点（fs/shells）+ 静态文件服务 |
 
 ### 核心设计约束
@@ -110,6 +110,7 @@ npm run start        # node dist/index.js
 - [设计文档](docs/superpowers/specs/2026-08-26-dog-egg-agent-design.md) — 需求清单、状态机、权限模型、消息契约
 - [模块化重构设计](docs/superpowers/specs/2026-08-27-modular-refactor-design.md) — 包结构、依赖图、架构测试
 - [WebUI 设计](docs/superpowers/specs/2026-08-29-webui-design.md) — 三主题、Primitives、Cmd+K、信息面板
+- [架构审查报告](docs/architecture-review-2026-09-01.html) — 全量审计 ~126 模块，8 个改进候选
 - [实现详解系列](docs/learning/) — 10 章逐模块讲解（架构 / 状态机 / Agent Loop / 工具 / LLM / 上下文 / 会话 / 配置 / TUI / 设计模式）
 - [ADR 记录](docs/adr/) — 7 个架构决策记录
 

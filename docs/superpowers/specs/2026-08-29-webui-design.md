@@ -122,9 +122,10 @@ ToolContext 每次从 `this.cwd` 构建（`agent/src/loop/tool-calls.ts:63`）�
 | `ui/src/tui/chat/block.ts` | `ui/src/shared/block.ts` | 重构（见 5.2） |
 | `ui/src/tui/chat/reducer.ts` | `ui/src/shared/reducer.ts` | 重构（见 5.3） |
 | `ui/src/tui/input/commands.ts` | `ui/src/shared/commands.ts` | 加 /cd 命令，其余原样 |
-| `ui/src/tui/overlays/config/build.ts` | `ui/src/shared/config/build.ts` | 原样（纯函数） |
-| `ui/src/tui/overlays/config/navigation.ts` | `ui/src/shared/config/navigation.ts` | 原样（纯函数） |
-| `ui/src/tui/overlays/config/label.ts` | `ui/src/shared/config/label.ts` | 原样（纯函数） |
+| `ui/src/tui/overlays/config/build.ts` | `ui/src/tui/config/build.ts` | 原样（纯函数）；后续从 shared 移回 tui（仅 TUI 使用） |
+| `ui/src/tui/overlays/config/navigation.ts` | `ui/src/tui/config/navigation.ts` | 原样（纯函数） |
+| `ui/src/tui/overlays/config/label.ts` | `ui/src/tui/config/label.ts` | 原样（纯函数） |
+| `ui/src/tui/overlays/config/entries.ts` | `ui/src/tui/config/entries.ts` | 原样（纯函数） |
 
 ### 5.2 Block 语义化
 
@@ -203,13 +204,16 @@ server/
 │  ├─ http/
 │  │  ├─ index.ts            # re-export
 │  │  ├─ server.ts           # startServer()：http.createServer + 路由分发 + 静态文件
-│  │  └─ routes.ts           # SSE / POST / fs / static 路由匹配
+│  │  └─ routes.ts           # SSE / POST / fs / shells / static 路由匹配 + CORS + 路径穿越防护
 │  ├─ channel/
 │  │  ├─ index.ts            # re-export
-│  │  └─ sse.ts              # createSseChannel()：SSE Port 实现
-│  └─ fs/
+│  │  └─ sse.ts              # createSseChannel()：SSE Port 实现（POST zod 校验）
+│  ├─ fs/
+│  │  ├─ index.ts            # re-export
+│  │  └─ browse.ts           # listDirs(path)：安全目录浏览
+│  └─ shells/
 │     ├─ index.ts            # re-export
-│     └─ browse.ts           # listDirs(path)：安全目录浏览
+│     └─ detect.ts           # detectShells()：execFileSync 无 shell + 缓存
 └─ vite.config.ts            # Vite 构建配置（webui 前端入口）
 ```
 
