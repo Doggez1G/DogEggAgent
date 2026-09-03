@@ -60,6 +60,15 @@ export function App({ port }: { port: UiPort }) {
   useEffect(() => { blocksRef.current = chat.blocks }, [chat.blocks])
   useEffect(() => { statusRef.current = chat.status }, [chat.status])
 
+  // 运行中轮询 context_request（3s 间隔）——让 StatusBar 的 tokens 实时更新。
+  // 与 WebUI InfoPanel 的 3s 轮询一致；非运行态停止避免无效请求。
+  useEffect(() => {
+    const running = statusRef.current !== 'idle' && statusRef.current !== 'finished' && statusRef.current !== 'cancelled' && statusRef.current !== 'error'
+    if (!running) return
+    const timer = setInterval(() => port.post({ type: 'context_request' }), 3000)
+    return () => clearInterval(timer)
+  }, [port, chat.status])
+
   // 块清空时复位浏览焦点与展开状态，避免残留下标误展开新块。
   useEffect(() => {
     if (chat.blocks.length === 0) {
@@ -486,119 +495,136 @@ export function App({ port }: { port: UiPort }) {
           </MessageBlock>
         ) : null}
         {scrolled > 0 && (
-          <Text dimColor>↑ {scrolled} 行历史（↑↓ 或 PageUp/PageDown 滚动）</Text>
+          <Text dimColor>↑ {scrolled} 行历史（PageUp/PageDown 滚动）</Text>
         )}
       </Box>
 
-      {view.kind === 'permission' && (() => {
-        // diff 预览：edit_file 显示 old→new，write_file 显示要写入的内容
-        const inp = view.input as Record<string, unknown> | null
-        return (
-        <Box flexDirection="column" borderStyle="round" borderColor={palette.subtext} paddingX={1} marginY={1}>
-          <Text bold color={palette.accent}>工具 {view.tool} 请求权限</Text>
-          {view.tool === 'edit_file' && inp && (
-            <Box flexDirection="column" marginTop={0}>
-              <Text dimColor>文件：{String(inp.path ?? '')}</Text>
-              <Text color={palette.red}>- {String(inp.old_string ?? '').slice(0, 200)}</Text>
-              <Text color={palette.green}>+ {String(inp.new_string ?? '').slice(0, 200)}</Text>
-            </Box>
-          )}
-          {view.tool === 'write_file' && inp && (
-            <Box flexDirection="column" marginTop={0}>
-              <Text dimColor>文件：{String(inp.path ?? '')}</Text>
-              <Text color={palette.green} wrap="truncate">+ {String(inp.content ?? '').slice(0, 200)}</Text>
-            </Box>
-          )}
-          {view.tool === 'shell' && inp && (
-            <Text dimColor>命令：{String(inp.command ?? '')}</Text>
-          )}
-          {DECISION_LABELS.map((label, i) => (
-            <Text key={label} inverse={i === view.cursor}>{i === view.cursor ? '> ' : '  '}{label}</Text>
-          ))}
-          <Text dimColor>↑↓ 选择 · 回车确认 · esc 拒绝</Text>
-        </Box>
-        )
-      })()}
-      {view.kind === 'menu' && (
-        <ListPicker title={view.title} items={view.items.map((i) => i.label)} cursor={view.cursor} hint="↑↓ 选择 · 回车确认 · esc 返回" />
-      )}
-      {view.kind === 'sessionPicker' && (() => {
-        const filtered = filterSessions(view.sessions, view.query)
-        const dirName = currentCwdRef.current ? currentCwdRef.current.replace(/\\/g, '/').split('/').pop() ?? currentCwdRef.current : ''
-        return (
-          <Box flexDirection="column" borderStyle="round" borderColor={palette.subtext} paddingX={1} marginY={1}>
-            <Text bold color={palette.accent}>选择会话 — {dirName || '当前目录'}</Text>
-            <Text dimColor>搜索: {view.query || '（输入过滤）'}{'_'}</Text>
-            {filtered.length === 0 ? (
-              <Text dimColor>（无匹配会话）</Text>
-            ) : (
-              filtered.map((s, i) => (
-                <Text key={s.id} inverse={i === view.cursor}>{i === view.cursor ? '> ' : '  '}{s.preview}</Text>
-              ))
+      {/* 输入区 + overlay 一体：输入框始终在顶部，overlay 在下方展开（视觉一体） */}
+      <Box flexDirection="column">
+        {/* 输入框行：始终显示。none 视图聚焦主输入，其他视图显示禁用态或 prompt 输入 */}
+        {view.kind === 'none' && (
+          <Box flexDirection="column">
+            {browse !== null && <Text dimColor>↑↓ 切换块 · 回车展开/折叠 · esc 返回输入</Text>}
+            {/* 斜杠命令联想提示：输入 / 开头且有匹配时，显示列表供 ↑↓ 选择、回车/Tab 补全 */}
+            {suggestMatches.length > 0 && (
+              <Box flexDirection="column" marginTop={0}>
+                {suggestMatches.map((m, i) => (
+                  <Text key={m.cmd} inverse={i === suggestCursor} color={i === suggestCursor ? undefined : palette.subtext}>
+                    {i === suggestCursor ? '> ' : '  '}{m.cmd} <Text dimColor>{m.desc}</Text>
+                  </Text>
+                ))}
+                <Text dimColor> ↑↓ 选择 · 回车/Tab 补全 · esc 取消</Text>
+              </Box>
             )}
-            <Text dimColor>↑↓ 选择 · 回车切换 · d 删除 · esc 返回</Text>
-          </Box>
-        )
-      })()}
-      {view.kind === 'prompt' && (
-        <Box>
-          <Text color="cyan">{view.title} → </Text>
-          <TextInput
-            value={view.value}
-            onChange={(val) => setView({ ...view, value: val })}
-            onSubmit={(val) => {
-              suppressEnterRef.current = true
-              queueMicrotask(() => { suppressEnterRef.current = false })
-              view.onSubmit(val)
-            }}
-          />
-        </Box>
-      )}
-      {view.kind === 'config' && (
-        <ListPicker
-          title={`配置 / ${view.path.kind}`}
-          items={configEntries.map((e, i) => entryLabel(e, i === view.cursor && e.kind === 'bool' ? (view.preview ?? e.value) : undefined))}
-          cursor={view.cursor}
-          hint="↑↓ 选择 · 回车钻入/编辑 · ←→ 切布尔 · d 删 · esc 返回"
-        />
-      )}
-
-      {view.kind === 'info' && (
-        <Box flexDirection="column" borderStyle="round" borderColor="#6c7086" paddingX={1} marginY={1}>
-          <Text bold color="#89b4fa">{view.title}</Text>
-          <Box flexDirection="column" marginTop={0}>
-            {/* 裁切可见窗口：infoScroll 为顶部隐藏行数，viewportHeight 控制可见行数 */}
-            {view.lines
-              .slice(Math.max(0, view.lines.length - infoScroll - (viewportHeight - 4)), Math.max(0, view.lines.length - infoScroll))
-              .map((line, i) => (
-                <Text key={i} dimColor={line.startsWith('─') || line.startsWith('路径')}>{line}</Text>
-              ))}
-          </Box>
-          <Text dimColor>↑↓ 翻页 · esc 关闭</Text>
-        </Box>
-      )}
-
-      {view.kind === 'none' && <StatusBar state={chat.status} provider={statusBarData.provider} model={statusBarData.model} sessionId={statusBarData.sessionId} tokens={statusBarData.tokens} windowTokens={statusBarData.windowTokens} cwd={statusBarData.cwd} />}
-      {view.kind === 'none' && (
-        <Box flexDirection="column">
-          {browse !== null && <Text dimColor>↑↓ 切换块 · 回车展开/折叠 · esc 返回输入</Text>}
-          {/* 斜杠命令联想提示：输入 / 开头且有匹配时，显示列表供 ↑↓ 选择、回车/Tab 补全 */}
-          {suggestMatches.length > 0 && (
-            <Box flexDirection="column" marginTop={0}>
-              {suggestMatches.map((m, i) => (
-                <Text key={m.cmd} inverse={i === suggestCursor} color={i === suggestCursor ? undefined : palette.subtext}>
-                  {i === suggestCursor ? '> ' : '  '}{m.cmd} <Text dimColor>{m.desc}</Text>
-                </Text>
-              ))}
-              <Text dimColor> ↑↓ 选择 · 回车/Tab 补全 · esc 取消</Text>
+            <Box>
+              <Text color="blue">› </Text>
+              <TextInput value={input} onChange={(v) => { setInput(v); setSuggestCursor(null) }} onSubmit={handleSubmit} focus={browse === null} />
             </Box>
-          )}
+          </Box>
+        )}
+        {view.kind === 'prompt' && (
+          <Box>
+            <Text color="cyan">{view.title} → </Text>
+            <TextInput
+              value={view.value}
+              onChange={(val) => setView({ ...view, value: val })}
+              onSubmit={(val) => {
+                suppressEnterRef.current = true
+                queueMicrotask(() => { suppressEnterRef.current = false })
+                view.onSubmit(val)
+              }}
+            />
+          </Box>
+        )}
+        {view.kind !== 'none' && view.kind !== 'prompt' && (
           <Box>
             <Text color="blue">› </Text>
-            <TextInput value={input} onChange={(v) => { setInput(v); setSuggestCursor(null) }} onSubmit={handleSubmit} focus={browse === null} />
+            <Text dimColor>{view.kind === 'permission' ? '权限请求中…'
+              : view.kind === 'menu' ? view.title
+              : view.kind === 'sessionPicker' ? '选择会话'
+              : view.kind === 'config' ? `配置 / ${view.path.kind}`
+              : view.kind === 'info' ? view.title
+              : ''}</Text>
           </Box>
-        </Box>
-      )}
+        )}
+
+        {/* overlay 在输入框下方展开——视觉上和输入框一体 */}
+        {view.kind === 'permission' && (() => {
+          // diff 预览：edit_file 显示 old→new，write_file 显示要写入的内容
+          const inp = view.input as Record<string, unknown> | null
+          return (
+          <Box flexDirection="column" borderStyle="round" borderColor={palette.subtext} paddingX={1} marginTop={0}>
+            <Text bold color={palette.accent}>工具 {view.tool} 请求权限</Text>
+            {view.tool === 'edit_file' && inp && (
+              <Box flexDirection="column" marginTop={0}>
+                <Text dimColor>文件：{String(inp.path ?? '')}</Text>
+                <Text color={palette.red}>- {String(inp.old_string ?? '').slice(0, 200)}</Text>
+                <Text color={palette.green}>+ {String(inp.new_string ?? '').slice(0, 200)}</Text>
+              </Box>
+            )}
+            {view.tool === 'write_file' && inp && (
+              <Box flexDirection="column" marginTop={0}>
+                <Text dimColor>文件：{String(inp.path ?? '')}</Text>
+                <Text color={palette.green} wrap="truncate">+ {String(inp.content ?? '').slice(0, 200)}</Text>
+              </Box>
+            )}
+            {view.tool === 'shell' && inp && (
+              <Text dimColor>命令：{String(inp.command ?? '')}</Text>
+            )}
+            {DECISION_LABELS.map((label, i) => (
+              <Text key={label} inverse={i === view.cursor}>{i === view.cursor ? '> ' : '  '}{label}</Text>
+            ))}
+            <Text dimColor>↑↓ 选择 · 回车确认 · esc 拒绝</Text>
+          </Box>
+          )
+        })()}
+        {view.kind === 'menu' && (
+          <ListPicker title={view.title} items={view.items.map((i) => i.label)} cursor={view.cursor} hint="↑↓ 选择 · 回车确认 · esc 返回" />
+        )}
+        {view.kind === 'sessionPicker' && (() => {
+          const filtered = filterSessions(view.sessions, view.query)
+          const dirName = currentCwdRef.current ? currentCwdRef.current.replace(/\\/g, '/').split('/').pop() ?? currentCwdRef.current : ''
+          return (
+            <Box flexDirection="column" borderStyle="round" borderColor={palette.subtext} paddingX={1} marginTop={0}>
+              <Text bold color={palette.accent}>选择会话 — {dirName || '当前目录'}</Text>
+              <Text dimColor>搜索: {view.query || '（输入过滤）'}{'_'}</Text>
+              {filtered.length === 0 ? (
+                <Text dimColor>（无匹配会话）</Text>
+              ) : (
+                filtered.map((s, i) => (
+                  <Text key={s.id} inverse={i === view.cursor}>{i === view.cursor ? '> ' : '  '}{s.preview}</Text>
+                ))
+              )}
+              <Text dimColor>↑↓ 选择 · 回车切换 · d 删除 · esc 返回</Text>
+            </Box>
+          )
+        })()}
+        {view.kind === 'config' && (
+          <ListPicker
+            title={`配置 / ${view.path.kind}`}
+            items={configEntries.map((e, i) => entryLabel(e, i === view.cursor && e.kind === 'bool' ? (view.preview ?? e.value) : undefined))}
+            cursor={view.cursor}
+            hint="↑↓ 选择 · 回车钻入/编辑 · ←→ 切布尔 · d 删 · esc 返回"
+          />
+        )}
+        {view.kind === 'info' && (
+          <Box flexDirection="column" borderStyle="round" borderColor="#6c7086" paddingX={1} marginTop={0}>
+            <Text bold color="#89b4fa">{view.title}</Text>
+            <Box flexDirection="column" marginTop={0}>
+              {/* 裁切可见窗口：infoScroll 为顶部隐藏行数，viewportHeight 控制可见行数 */}
+              {view.lines
+                .slice(Math.max(0, view.lines.length - infoScroll - (viewportHeight - 4)), Math.max(0, view.lines.length - infoScroll))
+                .map((line, i) => (
+                  <Text key={i} dimColor={line.startsWith('─') || line.startsWith('路径')}>{line}</Text>
+                ))}
+            </Box>
+            <Text dimColor>↑↓ 翻页 · esc 关闭</Text>
+          </Box>
+        )}
+      </Box>
+
+      {/* StatusBar 始终在底部——不随 overlay 消失 */}
+      <StatusBar state={chat.status} provider={statusBarData.provider} model={statusBarData.model} sessionId={statusBarData.sessionId} tokens={statusBarData.tokens} windowTokens={statusBarData.windowTokens} cwd={statusBarData.cwd} />
     </Box>
   )
 }
