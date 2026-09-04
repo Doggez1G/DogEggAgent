@@ -191,10 +191,7 @@ export function App({ port }: { port: UiPort }) {
       } else if (msg.type === 'system_state') {
         setInfoScroll(0); setView({ kind: 'info', title: 'system prompt', lines: [`路径：${msg.path}`, '─'.repeat(40), msg.content] })
       } else if (msg.type === 'compaction') {
-        if (msg.source === 'manual') {
-          setInfoScroll(0)
-          setView({ kind: 'info', title: '压缩上下文', lines: [`压缩前：${msg.before_tokens} tokens`, `压缩后：${msg.after_tokens} tokens`] })
-        }
+        // 压缩提示只走消息流 notice 块（reducer 已插入）——不弹 overlay。
       } else if (msg.type === 'permissions_list') {
         // /permissions：用 menu overlay 显示当前会话的 allow_always 授权列表。
         if (msg.tools.length === 0) {
@@ -489,7 +486,7 @@ export function App({ port }: { port: UiPort }) {
   return (
     <>
       {/* Static：已完成的块打印进终端缓冲区，永不重绘；用户用终端原生滚动查看历史 */}
-      <Static key={staticKey} items={staticItems}>
+      <Static key={staticKey} items={staticItems} style={{ width: "100%" }}>
         {(item, index) => {
           if (item.type === 'header') return <TopBar key="header" info={headerInfo} sessionId={statusBarData.sessionId} cwd={statusBarData.cwd} />
           // 块渲染前完成 markdown → 纯文本转换（Static 只渲染一次，无性能问题）。
