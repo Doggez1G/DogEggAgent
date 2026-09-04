@@ -3,13 +3,13 @@ import { Box, Text } from 'ink'
 import { palette } from '../../theme'
 import type { Block } from '../../../shared/block'
 
-// DogEgg 品牌化消息渲染——强视觉区分设计：
-//   user:      圆角气泡框（accent 色，收缩到内容宽度）——消息最醒目的边界
-//   assistant: 🐶 DogEgg 绿色粗体头行 + 正文（与 user 的蓝色区分角色）
-//   thinking:  折叠=dim 单行；展开=头行+dim 全文
-//   tool:      调用行用背景色块（动作事件的强锚点）+ ⎿ dim 结果
-//   error:     红色头行+正文
-//   notice / auto_compact: dim 单行
+// OpenCode/Codex 风格消息渲染——背景色块 + 克制符号：
+//   user:      整行 surface 背景横幅 + 左侧 accent 竖线（对话轮次的强边界）
+//   assistant: 无头行直接正文（markdown 富文本）——背景横幅已分轮
+//   thinking:  + 思考 · N 字（黄 + 号，dim 元信息）／展开显示全文
+//   tool:      ▪ name(args)（青色小方块）+ ⎿ dim 摘要／展开显示完整结果
+//   error:     ✕ 红色
+//   notice / auto_compact: · dim
 // 折叠/展开由 expanded prop 控制——切换时 App 清屏并重挂 Static 重绘全部块。
 export function MessageBlock(props: { block: Block; expanded?: boolean }) {
   const b = props.block
@@ -25,32 +25,22 @@ function renderBlock(b: Block, expanded: boolean): React.ReactNode {
   switch (b.kind) {
     case 'user':
       return (
-        <Box
-          borderStyle="round"
-          borderColor={palette.accent}
-          paddingX={1}
-          alignSelf="flex-start"
-          maxWidth="100%"
-        >
-          <Text color={palette.accent}>❯ {b.text}</Text>
+        // 整行背景横幅：surface 底 + 左侧 accent 竖线（OpenCode 同款）。
+        <Box borderStyle="round" borderTop={false} borderBottom={false} borderRight={false} borderColor={palette.accent} backgroundColor={palette.surface} paddingX={1}>
+          <Text>{b.text}</Text>
         </Box>
       )
     case 'assistant':
-      return (
-        <>
-          <Text bold color={palette.green}>🐶 DogEgg</Text>
-          <Text dimColor>{'┈'.repeat(24)}</Text>
-          <Text>{b.text}</Text>
-        </>
-      )
+      // 无头行——回复直接输出（markdown 富文本），靠 user 背景横幅分轮。
+      return <Text>{b.text}</Text>
     case 'thinking': {
       const full = b.full ?? b.text
       if (!expanded) {
-        return <Text dimColor>🐣 思考 · {full.length} 字</Text>
+        return <Text color={palette.subtext}>+ 思考 · {full.length} 字</Text>
       }
       return (
         <>
-          <Text bold dimColor>🐣 思考（展开）</Text>
+          <Text color={palette.yellow}>+ 思考（展开）</Text>
           <Text dimColor>{full}</Text>
         </>
       )
@@ -60,47 +50,51 @@ function renderBlock(b: Block, expanded: boolean): React.ReactNode {
       const lines = b.text.split('\n')
       const callLine = lines[0] ?? ''
       const callName = callLine.split(' ')[0] ?? '工具'
-      const callArgs = truncateMiddle(callLine.slice(callName.length).trim(), 80)
-      const callBadge = (
-        <Text backgroundColor={palette.subtext} color={palette.cyan}> 🐾 {callName}({callArgs}) </Text>
+      const callArgs = truncateMiddle(callLine.slice(callName.length).trim(), 70)
+      const summaryLines = lines.slice(1)
+      const head = (
+        <Text>
+          <Text color={palette.cyan}>▪ {callName}</Text>
+          <Text color={palette.subtext}>({callArgs})</Text>
+          {summaryLines.length > 0 && <Text color={palette.subtext}> · {truncateMiddle(summaryLines[0]!.replace(/^[✓✕] /, ''), 50)}</Text>}
+        </Text>
       )
       if (!expanded || !b.full) {
-        // 折叠：调用行（背景块）+ 结果摘要（dim）。
         return (
           <>
-            {callBadge}
-            {lines.slice(1).map((l, i) => (
-              <Text key={i} dimColor>  ⎿ {truncateMiddle(l, 100)}</Text>
+            {head}
+            {summaryLines.slice(1).map((l, i) => (
+              <Text key={i} color={palette.subtext}>  ⎿ {truncateMiddle(l, 100)}</Text>
             ))}
           </>
         )
       }
-      // 展开：调用行 + 完整结果/diff（超长截断到 50 行）。
+      // 展开：完整结果/diff（超长截断到 50 行）。
       const fullLines = b.full.split('\n')
-      const clipped = fullLines.slice(1) // 跳过调用行（已在标题显示）
+      const clipped = fullLines.slice(1) // 跳过调用行
       const truncated = clipped.length > 50
       return (
         <>
-          {callBadge}
-          <Text bold dimColor>（已展开）</Text>
+          {head}
+          <Text color={palette.yellow}>  ↑ 已展开（Ctrl+Enter 或浏览模式 Enter 折叠）</Text>
           {clipped.slice(0, 50).map((l, i) => (
-            <Text key={i} dimColor>  ⎿ {l}</Text>
+            <Text key={i} color={palette.subtext}>  ⎿ {l}</Text>
           ))}
-          {truncated && <Text dimColor>  …（共 {clipped.length} 行，完整输出见 /log）</Text>}
+          {truncated && <Text color={palette.subtext}>  …（共 {clipped.length} 行，完整输出见 /log）</Text>}
         </>
       )
     }
     case 'error':
       return (
         <>
-          <Text bold color={palette.red}>✕ 出错了</Text>
+          <Text color={palette.red}>✕ 出错了</Text>
           <Text color={palette.red}>{b.text}</Text>
         </>
       )
     case 'auto_compact':
-      return <Text dimColor>🥚 {b.text}</Text>
+      return <Text color={palette.subtext}>· {b.text}</Text>
     default: // notice
-      return <Text dimColor>· {b.text}</Text>
+      return <Text color={palette.subtext}>· {b.text}</Text>
   }
 }
 

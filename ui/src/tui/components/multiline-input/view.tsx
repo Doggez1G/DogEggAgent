@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react'
-import { Text, useInput } from 'ink'
+import { Text, useInput, usePaste } from 'ink'
 import chalk from 'chalk'
 
-// 多行文本输入组件：替换 ink-text-input，支持 Shift+Enter 换行。
-// Enter（无修饰键）提交；Shift+Enter 插入换行符。
-// Up/Down 在多行文本内移动光标行；单行时不上报（让 app 的输入历史回溯生效）。
-// 兼容 ink-text-input 的 props 接口（value/onChange/onSubmit/focus），可直接替换。
+// 多行文本输入组件：替换 ink-text-input，支持多行编辑。
+// 换行方式（Windows 终端不报告 Shift 修饰符，Shift+Enter 不可检测）：
+//   Ctrl+J（发送 \n，readline 标准）或 Alt+Enter（\x1b\r，key.meta）→ 插入换行。
+//   粘贴多行文本经 usePaste（bracketed paste）整段插入，不误提交。
+// Enter（\r，无修饰）提交。Up/Down 在多行文本内移动光标行；单行时不上报
+//（让 app 的输入历史回溯生效）。
 chalk.level = 1
 
 export function MultilineInput(props: {
@@ -33,15 +35,15 @@ export function MultilineInput(props: {
     // Tab 不拦截——让 app 的命令补全处理器处理。
     if (key.tab) return
 
-    // Shift+Enter → 插入换行。
-    if (key.return && key.shift) {
+    // Ctrl+J（\n，多数终端的换行键）或 Alt+Enter（meta+return）→ 插入换行。
+    if (inputChar === '\n' || (key.meta && key.return)) {
       const newValue = value.slice(0, cursorOffset) + '\n' + value.slice(cursorOffset)
       onChange(newValue)
       setCursorOffset(cursorOffset + 1)
       return
     }
 
-    // Enter（无修饰键）→ 提交。key.return 是 \r，Ctrl+Enter 的 \n 已在上面排除。
+    // Enter（\r，无修饰）→ 提交。
     if (key.return) {
       onSubmit(value)
       return
@@ -62,9 +64,7 @@ export function MultilineInput(props: {
       const before = value.slice(0, cursorOffset)
       const lastNewline = before.lastIndexOf('\n')
       if (lastNewline === -1) return // 在第一行，不拦截
-      // 计算当前列位置
       const currentCol = cursorOffset - lastNewline - 1
-      // 找到上一行的起始位置
       const prevLineStart = before.slice(0, lastNewline).lastIndexOf('\n') + 1
       const prevLineEnd = lastNewline
       const prevLineLen = prevLineEnd - prevLineStart
@@ -76,10 +76,8 @@ export function MultilineInput(props: {
       const after = value.slice(cursorOffset)
       const nextNewline = after.indexOf('\n')
       if (nextNewline === -1) return // 在最后一行，不拦截
-      // 计算当前列位置
       const before = value.slice(0, cursorOffset)
       const currentCol = cursorOffset - (before.lastIndexOf('\n') + 1)
-      // 下一行长度
       const afterNextNewline = after.slice(nextNewline + 1)
       const lineAfterNext = afterNextNewline.indexOf('\n')
       const nextLineLen = lineAfterNext === -1 ? afterNextNewline.length : lineAfterNext
@@ -97,12 +95,20 @@ export function MultilineInput(props: {
       return
     }
 
-    // 普通字符插入（过滤控制字符）。
-    if (inputChar && inputChar.length > 0 && inputChar >= ' ') {
+    // 普通字符插入（过滤控制字符；\n 已在上面处理）。
+    if (inputChar && inputChar.length > 0 && inputChar >= ' ' && inputChar !== '\n') {
       const newValue = value.slice(0, cursorOffset) + inputChar + value.slice(cursorOffset)
       onChange(newValue)
       setCursorOffset(cursorOffset + inputChar.length)
     }
+  }, { isActive: focus })
+
+  // 粘贴：bracketed paste 事件——整段插入（含换行），不触发提交。
+  usePaste((paste) => {
+    if (!focus || !paste) return
+    const newValue = value.slice(0, cursorOffset) + paste + value.slice(cursorOffset)
+    onChange(newValue)
+    setCursorOffset(cursorOffset + paste.length)
   }, { isActive: focus })
 
   // 渲染：按行拆分，光标行用 inverse 高亮光标字符。
@@ -129,7 +135,6 @@ export function MultilineInput(props: {
   }
 
   // 渲染：所有行合并为一个 Text（Ink 中 Box 内多个 Text 会水平排列，需用 \n 分隔）。
-  // 光标行在 cursorCol 位置用 inverse 高亮字符。
   const renderedLines = lines.map((line, i) => {
     if (i === cursorLine && focus) {
       const before = line.slice(0, cursorCol)

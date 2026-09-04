@@ -549,9 +549,21 @@ export function App({ port }: { port: UiPort }) {
                 ))}
               </Box>
             )}
-            <Box>
-              <Text color={palette.accent}>{'> '}</Text>
-              <MultilineInput value={input} onChange={(v) => { setInput(v); setSuggestCursor(null) }} onSubmit={handleSubmit} focus={browseIdx === null} />
+            {/* 输入框：surface 背景块 + 左侧 accent 竖线（OpenCode 同款） */}
+            <Box
+              borderStyle="round"
+              borderTop={false}
+              borderBottom={false}
+              borderRight={false}
+              borderColor={palette.accent}
+              backgroundColor={palette.surface}
+              paddingX={1}
+            >
+              <MultilineInput value={input} onChange={(v) => { setInput(v); setSuggestCursor(null) }} onSubmit={handleSubmit} focus={browseIdx === null} placeholder="Ask anything..." />
+            </Box>
+            <Box marginTop={0}>
+              <Text color={palette.cyan}>Enter 发送</Text>
+              <Text color={palette.subtext}> · Ctrl+J/Alt+Enter 换行 · /help 命令</Text>
             </Box>
           </Box>
         )}
