@@ -8,18 +8,30 @@ import type { State } from '@dogegg/bridge'
 // Braille spinner 帧序列——10 帧循环，80ms/帧（12.5fps），完整一圈 800ms。
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
-// 状态 → (颜色, Emoji, 中文描述) 映射。
-const STATE_META: Record<string, { color: string; emoji: string; label: string }> = {
-  idle: { color: palette.subtext, emoji: '🥚', label: '空闲' },
-  thinking: { color: palette.yellow, emoji: '🐣', label: '思考中' },
-  responding: { color: palette.accent, emoji: '🐶', label: '回答中' },
-  tool_calling: { color: palette.cyan, emoji: '🐾', label: '工具调用' },
-  executing: { color: palette.cyan, emoji: '🐾', label: '执行中' },
-  waiting_permission: { color: palette.yellow, emoji: '⚠', label: '等待审批' },
-  finished: { color: palette.green, emoji: '🐥', label: '完成' },
-  cancelled: { color: palette.subtext, emoji: '🥚', label: '已打断' },
-  error: { color: palette.red, emoji: '🐶', label: '出错' },
-  compacting: { color: palette.cyan, emoji: '🥚', label: '压缩中' },
+// 状态 → (Emoji, 中文描述) 映射（颜色主题相关，渲染时经 stateColor() 动态取）。
+const STATE_META: Record<string, { emoji: string; label: string }> = {
+  idle: { emoji: '🥚', label: '空闲' },
+  thinking: { emoji: '🐣', label: '思考中' },
+  responding: { emoji: '🐶', label: '回答中' },
+  tool_calling: { emoji: '🐾', label: '工具调用' },
+  executing: { emoji: '🐾', label: '执行中' },
+  waiting_permission: { emoji: '⚠', label: '等待审批' },
+  finished: { emoji: '🐥', label: '完成' },
+  cancelled: { emoji: '🥚', label: '已打断' },
+  error: { emoji: '🐶', label: '出错' },
+  compacting: { emoji: '🥚', label: '压缩中' },
+}
+
+// 状态色（渲染时动态读主题——模块级常量会固化 Proxy 首值，切主题不跟色）。
+function stateColor(state: string): string {
+  switch (state) {
+    case 'thinking': case 'waiting_permission': return palette.yellow
+    case 'responding': return palette.accent
+    case 'tool_calling': case 'executing': case 'compacting': return palette.cyan
+    case 'finished': return palette.green
+    case 'error': return palette.red
+    default: return palette.subtext
+  }
 }
 
 // context 进度条：8 格块字符，超过压缩阈值时变黄提示。
@@ -50,7 +62,8 @@ export function StatusBar(props: {
   windowTokens?: number
   cwd?: string
 }) {
-  const meta = STATE_META[props.state] ?? { color: palette.subtext, emoji: '🥚', label: props.state }
+  const meta = STATE_META[props.state] ?? { emoji: '🥚', label: props.state }
+  const metaColor = stateColor(props.state)
   const isSpinning = isStateRunning(props.state as State)
   const [frame, setFrame] = useState(0)
 
@@ -68,17 +81,13 @@ export function StatusBar(props: {
   const modelStr = props.provider && props.model ? `${props.provider}/${props.model}` : ''
 
   return (
-    // 两端对齐（OpenCode 式）：左=状态徽章+模型，右=上下文+目录+会话。
-    <Box justifyContent="space-between">
-      <Box gap={1}>
-        <Text backgroundColor={isSpinning ? palette.yellow : palette.surface} color={isSpinning ? '#1e2030' : meta.color}> {meta.emoji} {isSpinning ? spinner + ' ' : ''}{meta.label} </Text>
-        {modelStr && <Text color={palette.subtext}>{modelStr}</Text>}
-      </Box>
-      <Box gap={1}>
-        {ctx && <Text color={ctx.color}>[{ctx.bar}] {ctx.text}</Text>}
-        {cwdStr && <Text color={palette.subtext}>📂 {cwdStr}</Text>}
-        {props.sessionId && <Text dimColor>🔖 {props.sessionId.slice(0, 8)}</Text>}
-      </Box>
+    <Box gap={1}>
+      {/* 状态词背景徽章：运行时黄底深字（醒目），空闲/结束 surface 底（安静） */}
+      <Text backgroundColor={isSpinning ? palette.yellow : palette.surfaceAlt} color={isSpinning ? '#1e2030' : metaColor}> {meta.emoji} {isSpinning ? spinner + ' ' : ''}{meta.label} </Text>
+      {modelStr && <Text color={palette.subtext}>· {modelStr}</Text>}
+      {ctx && <Text color={ctx.color}>· [{ctx.bar}] {ctx.text}</Text>}
+      {cwdStr && <Text color={palette.subtext}>· 📂 {cwdStr}</Text>}
+      {props.sessionId && <Text color={palette.faint}>· 🔖 {props.sessionId.slice(0, 8)}</Text>}
     </Box>
   )
 }

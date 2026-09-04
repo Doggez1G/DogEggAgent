@@ -3,15 +3,14 @@ import { Box, Text } from 'ink'
 import { palette } from '../../theme'
 import type { Block } from '../../../shared/block'
 
-// DogEgg 品牌消息渲染（OpenCode 式明度分层 + 蛋狗家族 emoji）：
-//   user:      全宽 surface 背景块 + accent 实色竖线 + 🥚 前缀——轮次强边界
-//   assistant: 无背景纯文本（markdown 富文本）——与背景块形成明暗对比
-//   thinking:  🐣 思考 · N 字（黄 emoji + dim 元信息）／展开显示全文
-//   tool:      全宽 surface 背景块 + cyan 实色竖线 + 🐾 调用行／展开输出在块内
-//   error:     ✕ 红
-//   notice / auto_compact: · dim
-// 竖线用 ▌（左半块字符）实色渲染——比边框线更粗、更现代（OpenCode 同款）。
-// 折叠/展开由 expanded prop 控制——切换时 App 清屏并重挂 Static 重绘全部块。
+// DogEgg 消息卡片系统——统一结构语言：每类消息 = 左竖线 + 背景容器，色彩区分角色：
+//   user:      accent 蓝  竖线 + surface 背景    （你说话）
+//   assistant: 无容器正文（最大阅读区，内联 🐶 前缀）
+//   thinking:  purple 紫竖线 + surfaceAlt 背景  （思考卡片）
+//   tool:      cyan 青竖线  + surfaceAlt 背景    （工具卡片）
+//   error:     red 红竖线   + surface 背景
+//   notice / auto_compact: faint 裸文本（最弱）
+// 展开由 expanded 控制——切换时 App 清屏重挂 Static 重绘。
 export function MessageBlock(props: { block: Block; expanded?: boolean }) {
   const b = props.block
   const expanded = props.expanded ?? false
@@ -22,14 +21,19 @@ export function MessageBlock(props: { block: Block; expanded?: boolean }) {
   )
 }
 
-// 带竖线的背景块：左列竖线 + 右列内容（背景延伸到全宽）。
-function RailBlock(props: { rail: string; bg: string; children: React.ReactNode }) {
+// 左竖线卡片容器：只有左边框（round 风格的 │），配背景色。
+function Card(props: { color: string; bg: string; children: React.ReactNode }) {
   return (
-    <Box>
-      <Text color={props.rail}>▌</Text>
-      <Box flexDirection="column" backgroundColor={props.bg} paddingX={1} flexGrow={1}>
-        {props.children}
-      </Box>
+    <Box
+      borderStyle="round"
+      borderTop={false}
+      borderBottom={false}
+      borderRight={false}
+      borderColor={props.color}
+      backgroundColor={props.bg}
+      paddingX={1}
+    >
+      {props.children}
     </Box>
   )
 }
@@ -38,28 +42,38 @@ function renderBlock(b: Block, expanded: boolean): React.ReactNode {
   switch (b.kind) {
     case 'user':
       return (
-        <RailBlock rail={palette.accent} bg={palette.surface}>
+        <Card color={palette.accent} bg={palette.surface}>
           <Text>🥚 {b.text}</Text>
-        </RailBlock>
+        </Card>
       )
-    case 'assistant':
-      // 无背景纯文本——与 user/tool 的背景块形成明暗节奏。
-      return <Text>{b.text}</Text>
-    case 'thinking': {
-      const full = b.full ?? b.text
-      if (!expanded) {
-        return (
-          <Text>
-            <Text>🐣 </Text>
-            <Text color={palette.subtext}>思考 · {full.length} 字</Text>
-          </Text>
-        )
-      }
+    case 'assistant': {
+      // 首行内联 🐶 前缀（accent 色），正文 markdown 富文本。
+      const lines = b.text.split('\n')
+      const first = lines[0] ?? ''
+      const rest = lines.slice(1)
       return (
         <>
-          <Text>🐣 <Text color={palette.yellow}>思考（展开）</Text></Text>
-          <Text dimColor>{full}</Text>
+          <Text>
+            <Text color={palette.accent}>🐶 </Text>
+            <Text>{first}</Text>
+          </Text>
+          {rest.length > 0 && <Text>{rest.join('\n')}</Text>}
         </>
+      )
+    }
+    case 'thinking': {
+      const full = b.full ?? b.text
+      return (
+        <Card color={palette.purple} bg={palette.surfaceAlt}>
+          {expanded ? (
+            <>
+              <Text color={palette.purple}>🐣 思考（展开）</Text>
+              <Text color={palette.subtext}>{full}</Text>
+            </>
+          ) : (
+            <Text color={palette.subtext}>🐣 思考 · {full.length} 字</Text>
+          )}
+        </Card>
       )
     }
     case 'tool': {
@@ -76,40 +90,43 @@ function renderBlock(b: Block, expanded: boolean): React.ReactNode {
           {summaryLines.length > 0 && <Text color={palette.subtext}> · {truncateMiddle(summaryLines[0]!.replace(/^[✓✕] /, ''), 50)}</Text>}
         </Text>
       )
-      if (!expanded || !b.full) {
-        return (
-          <RailBlock rail={palette.cyan} bg={palette.surface}>
-            {head}
-            {summaryLines.slice(1).map((l, i) => (
-              <Text key={i} color={palette.subtext}>⎿ {truncateMiddle(l, 100)}</Text>
-            ))}
-          </RailBlock>
-        )
-      }
-      // 展开：完整结果/diff 在背景块内（超长截断到 50 行）。
-      const fullLines = b.full.split('\n')
-      const clipped = fullLines.slice(1) // 跳过调用行
-      const truncated = clipped.length > 50
       return (
-        <RailBlock rail={palette.cyan} bg={palette.surface}>
-          {head}
-          <Text color={palette.yellow}>↑ 已展开</Text>
-          {clipped.slice(0, 50).map((l, i) => (
-            <Text key={i} color={palette.subtext}>⎿ {l}</Text>
-          ))}
-          {truncated && <Text color={palette.subtext}>…（共 {clipped.length} 行，完整输出见 /log）</Text>}
-        </RailBlock>
+        <Card color={palette.cyan} bg={palette.surfaceAlt}>
+          {expanded && b.full ? (
+            <>
+              {head}
+              {(() => {
+                const clipped = b.full.split('\n').slice(1)
+                const truncated = clipped.length > 50
+                return (
+                  <>
+                    {clipped.slice(0, 50).map((l, i) => (
+                      <Text key={i} color={palette.subtext}>⎿ {l}</Text>
+                    ))}
+                    {truncated && <Text color={palette.faint}>…（共 {clipped.length} 行，完整输出见 /log）</Text>}
+                  </>
+                )
+              })()}
+            </>
+          ) : (
+            <>
+              {head}
+              {summaryLines.slice(1).map((l, i) => (
+                <Text key={i} color={palette.subtext}>⎿ {truncateMiddle(l, 100)}</Text>
+              ))}
+            </>
+          )}
+        </Card>
       )
     }
     case 'error':
       return (
-        <>
-          <Text color={palette.red}>✕ 出错了</Text>
-          <Text color={palette.red}>{b.text}</Text>
-        </>
+        <Card color={palette.red} bg={palette.surface}>
+          <Text color={palette.red}>✕ {b.text}</Text>
+        </Card>
       )
     case 'auto_compact':
-      return <Text color={palette.subtext}>🥚 {b.text}</Text>
+      return <Text color={palette.faint}>🥚 {b.text}</Text>
     default: // notice
       return <Text color={palette.subtext}>· {b.text}</Text>
   }

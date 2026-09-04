@@ -528,7 +528,7 @@ export function App({ port }: { port: UiPort }) {
           return (
             <Box flexDirection="column" marginTop={1}>
               <Text>
-                <Text backgroundColor={palette.subtext} color={palette.text}> 🔍 {browseIdx + 1}/{chat.blocks.length} {block ? kindLabel[block.kind] ?? block.kind : ''}{expandable ? (isExpanded ? ' · 已展开' : ' · 已折叠') : ''} </Text>
+                <Text backgroundColor={palette.surfaceAlt} color={palette.text}> 🔍 {browseIdx + 1}/{chat.blocks.length} {block ? kindLabel[block.kind] ?? block.kind : ''}{expandable ? (isExpanded ? ' · 已展开' : ' · 已折叠') : ''} </Text>
               </Text>
               {previewLines.map((l, i) => (
                 <Text key={i} dimColor>  ┃ {l}</Text>
@@ -549,12 +549,17 @@ export function App({ port }: { port: UiPort }) {
                 ))}
               </Box>
             )}
-            {/* 输入框：高亮背景块 + accent 实色竖线（OpenCode 同款，视觉焦点） */}
-            <Box>
-              <Text color={palette.accent}>▌</Text>
-              <Box flexDirection="column" backgroundColor={palette.surfaceHi} paddingX={1} flexGrow={1}>
-                <MultilineInput value={input} onChange={(v) => { setInput(v); setSuggestCursor(null) }} onSubmit={handleSubmit} focus={browseIdx === null} placeholder="向狗蛋布置任务，或输入 / 命令…" />
-              </Box>
+            {/* 输入框：surface 背景块 + 左侧 accent 竖线（OpenCode 同款） */}
+            <Box
+              borderStyle="round"
+              borderTop={false}
+              borderBottom={false}
+              borderRight={false}
+              borderColor={palette.accent}
+              backgroundColor={palette.surface}
+              paddingX={1}
+            >
+              <MultilineInput value={input} onChange={(v) => { setInput(v); setSuggestCursor(null) }} onSubmit={handleSubmit} focus={browseIdx === null} placeholder="向狗蛋布置任务，或输入 / 命令…" />
             </Box>
             <Box marginTop={0}>
               <Text color={palette.cyan}>Enter 发送</Text>
@@ -593,7 +598,7 @@ export function App({ port }: { port: UiPort }) {
           // diff 预览：edit_file 显示 old→new，write_file 显示要写入的内容
           const inp = view.input as Record<string, unknown> | null
           return (
-          <Box flexDirection="column" borderStyle="round" borderColor={palette.subtext} paddingX={1}>
+          <Box flexDirection="column" borderStyle="round" borderColor={palette.border} paddingX={1}>
             <Text bold color={palette.accent}>工具 {view.tool} 请求权限</Text>
             {view.tool === 'edit_file' && inp && (
               <Box flexDirection="column">
@@ -629,7 +634,7 @@ export function App({ port }: { port: UiPort }) {
           const start = Math.max(0, Math.min(view.cursor - WIN + 3, Math.max(0, filtered.length - WIN)))
           const windowed = filtered.slice(start, start + WIN)
           return (
-            <Box flexDirection="column" borderStyle="round" borderColor={palette.subtext} paddingX={1}>
+            <Box flexDirection="column" borderStyle="round" borderColor={palette.border} paddingX={1}>
               <Text bold color={palette.accent}>选择会话 — {dirName || '当前目录'}</Text>
               <Text dimColor>搜索: {view.query || '（输入过滤）'}{'_'}</Text>
               {windowed.length === 0 ? (
