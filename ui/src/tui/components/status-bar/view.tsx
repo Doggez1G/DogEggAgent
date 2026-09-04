@@ -69,9 +69,8 @@ export function StatusBar(props: {
 
   return (
     <Box gap={1}>
-      <Text color={meta.color}>{meta.emoji}</Text>
-      {isSpinning && <Text color={meta.color}>{spinner}</Text>}
-      <Text bold color={meta.color}>{meta.label}</Text>
+      {/* 状态词背景徽章：运行时黄底深字（醒目），空闲/结束灰底（安静） */}
+      <Text backgroundColor={isSpinning ? palette.yellow : palette.surface} color={isSpinning ? '#1e2030' : meta.color}> {meta.emoji} {isSpinning ? spinner + ' ' : ''}{meta.label} </Text>
       {modelStr && <Text color={palette.subtext}>· {modelStr}</Text>}
       {ctx && <Text color={ctx.color}>· [{ctx.bar}] {ctx.text}</Text>}
       {cwdStr && <Text color={palette.subtext}>· 📂 {cwdStr}</Text>}

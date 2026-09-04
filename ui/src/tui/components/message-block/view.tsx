@@ -3,11 +3,11 @@ import { Box, Text } from 'ink'
 import { palette } from '../../theme'
 import type { Block } from '../../../shared/block'
 
-// OpenCode/Codex 风格消息渲染——背景色块 + 克制符号：
-//   user:      整行 surface 背景横幅 + 左侧 accent 竖线（对话轮次的强边界）
-//   assistant: 无头行直接正文（markdown 富文本）——背景横幅已分轮
-//   thinking:  + 思考 · N 字（黄 + 号，dim 元信息）／展开显示全文
-//   tool:      ▪ name(args)（青色小方块）+ ⎿ dim 摘要／展开显示完整结果
+// DogEgg 品牌消息渲染（OpenCode/Codex 骨架 + DogEgg 蛋狗家族 emoji）：
+//   user:      整行 surface 背景横幅 + 左 accent 竖线 + 🥚 前缀（蛋=用户开壳发言）
+//   assistant: 首行内联 🐶 前缀（狗蛋开口），正文 markdown 富文本
+//   thinking:  🐣 思考 · N 字（破壳思考）／展开显示全文
+//   tool:      🐾 name(args)（狗爪干活）+ dim 摘要／展开显示完整结果
 //   error:     ✕ 红色
 //   notice / auto_compact: · dim
 // 折叠/展开由 expanded prop 控制——切换时 App 清屏并重挂 Static 重绘全部块。
@@ -25,22 +25,39 @@ function renderBlock(b: Block, expanded: boolean): React.ReactNode {
   switch (b.kind) {
     case 'user':
       return (
-        // 整行背景横幅：surface 底 + 左侧 accent 竖线（OpenCode 同款）。
+        // 整行背景横幅：surface 底 + 左侧 accent 竖线 + 🥚 前缀。
         <Box borderStyle="round" borderTop={false} borderBottom={false} borderRight={false} borderColor={palette.accent} backgroundColor={palette.surface} paddingX={1}>
-          <Text>{b.text}</Text>
+          <Text>🥚 {b.text}</Text>
         </Box>
       )
-    case 'assistant':
-      // 无头行——回复直接输出（markdown 富文本），靠 user 背景横幅分轮。
-      return <Text>{b.text}</Text>
+    case 'assistant': {
+      // 首行内联 🐶 前缀（不是整行头——保持 OpenCode 的克制），后续行直接输出。
+      const lines = b.text.split('\n')
+      const first = lines[0] ?? ''
+      const rest = lines.slice(1)
+      return (
+        <>
+          <Text>
+            <Text>🐶 </Text>
+            <Text>{first}</Text>
+          </Text>
+          {rest.length > 0 && <Text>{rest.join('\n')}</Text>}
+        </>
+      )
+    }
     case 'thinking': {
       const full = b.full ?? b.text
       if (!expanded) {
-        return <Text color={palette.subtext}>+ 思考 · {full.length} 字</Text>
+        return (
+          <Text>
+            <Text>🐣 </Text>
+            <Text color={palette.subtext}>思考 · {full.length} 字</Text>
+          </Text>
+        )
       }
       return (
         <>
-          <Text color={palette.yellow}>+ 思考（展开）</Text>
+          <Text>🐣 <Text color={palette.yellow}>思考（展开）</Text></Text>
           <Text dimColor>{full}</Text>
         </>
       )
@@ -54,7 +71,7 @@ function renderBlock(b: Block, expanded: boolean): React.ReactNode {
       const summaryLines = lines.slice(1)
       const head = (
         <Text>
-          <Text color={palette.cyan}>▪ {callName}</Text>
+          <Text color={palette.cyan}>🐾 {callName}</Text>
           <Text color={palette.subtext}>({callArgs})</Text>
           {summaryLines.length > 0 && <Text color={palette.subtext}> · {truncateMiddle(summaryLines[0]!.replace(/^[✓✕] /, ''), 50)}</Text>}
         </Text>
@@ -76,7 +93,7 @@ function renderBlock(b: Block, expanded: boolean): React.ReactNode {
       return (
         <>
           {head}
-          <Text color={palette.yellow}>  ↑ 已展开（Ctrl+Enter 或浏览模式 Enter 折叠）</Text>
+          <Text color={palette.yellow}>  ↑ 已展开</Text>
           {clipped.slice(0, 50).map((l, i) => (
             <Text key={i} color={palette.subtext}>  ⎿ {l}</Text>
           ))}
@@ -92,7 +109,7 @@ function renderBlock(b: Block, expanded: boolean): React.ReactNode {
         </>
       )
     case 'auto_compact':
-      return <Text color={palette.subtext}>· {b.text}</Text>
+      return <Text color={palette.subtext}>🥚 {b.text}</Text>
     default: // notice
       return <Text color={palette.subtext}>· {b.text}</Text>
   }

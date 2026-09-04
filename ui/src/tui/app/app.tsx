@@ -559,7 +559,7 @@ export function App({ port }: { port: UiPort }) {
               backgroundColor={palette.surface}
               paddingX={1}
             >
-              <MultilineInput value={input} onChange={(v) => { setInput(v); setSuggestCursor(null) }} onSubmit={handleSubmit} focus={browseIdx === null} placeholder="Ask anything..." />
+              <MultilineInput value={input} onChange={(v) => { setInput(v); setSuggestCursor(null) }} onSubmit={handleSubmit} focus={browseIdx === null} placeholder="向狗蛋布置任务，或输入 / 命令…" />
             </Box>
             <Box marginTop={0}>
               <Text color={palette.cyan}>Enter 发送</Text>

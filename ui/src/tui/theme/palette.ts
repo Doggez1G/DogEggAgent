@@ -37,6 +37,12 @@ export const THEMES: Record<string, { label: string; palette: Palette }> = {
     green: '#98c379', yellow: '#e5c07b', cyan: '#56b6c2', red: '#e06c75',
     surface: '#2c313a',
   } },
+  // DogEgg Warm — 品牌主题：蛋壳暖橙 + 暖白，默认色的活泼替代
+  dogegg: { label: 'DogEgg Warm', palette: {
+    accent: '#f5a97f', text: '#f2f4f5', subtext: '#a5adba',
+    green: '#a6da95', yellow: '#f9e2af', cyan: '#8bd5ca', red: '#ee99a0',
+    surface: '#3b3540',
+  } },
 }
 
 export const DEFAULT_THEME = 'mocha'

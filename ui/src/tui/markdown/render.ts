@@ -1,6 +1,7 @@
 import { Lexer } from 'marked'
 import { highlight } from 'cli-highlight'
 import chalk from 'chalk'
+import { palette } from '../theme'
 
 // marked token 的宽松形状：只取渲染纯文本需要的字段，避免与 marked 内部类型强耦合。
 interface MdToken {
@@ -15,6 +16,15 @@ interface MdToken {
 // cli-highlight 的 theme 函数接收原始字符串、返回带 ANSI 的字符串。
 // chalk.level = 1 强制基础 ANSI（256-color 在某些终端会冲突，基础色最安全）。
 chalk.level = 1
+
+// hex → truecolor ANSI 前景码（heading/bullet 用主题 accent 色着色）。
+function accentAnsi(): string {
+  const hex = palette.accent
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `\x1b[38;2;${r};${g};${b}m`
+}
 
 const CODE_THEME = {
   keyword: (s: string) => chalk.blue(s),
@@ -64,12 +74,13 @@ function inlineRich(tokens: MdToken[] | undefined): string {
 }
 
 // 把 markdown 渲染成「终端富文本 + 代码块 ANSI 高亮」。
-// 标题/列表/引用保留结构；strong/em/codespan 用 ANSI 样式；code 用 cli-highlight。
+// 标题/列表/引用保留结构；heading/bullet 用主题 accent 色；strong/em/codespan 用 ANSI 样式。
 export function renderMarkdown(md: string): string {
   const tokens = new Lexer().lex(md) as unknown as MdToken[]
+  const accent = accentAnsi()
   const lines: string[] = []
   for (const t of tokens) {
-    if (t.type === 'heading') lines.push(BOLD + (t.text ?? '').trim() + '\x1b[22m')
+    if (t.type === 'heading') lines.push(BOLD + accent + (t.text ?? '').trim() + RESET)
     else if (t.type === 'paragraph') lines.push(inlineRich(t.tokens).trim())
     else if (t.type === 'code') {
       const code = (t.text ?? '').replace(/\n$/, '')
@@ -86,7 +97,7 @@ export function renderMarkdown(md: string): string {
       }
     }
     else if (t.type === 'list') {
-      for (const item of t.items ?? []) lines.push('• ' + inlineRich(item.tokens).trim())
+      for (const item of t.items ?? []) lines.push(accent + '•' + RESET + ' ' + inlineRich(item.tokens).trim())
     } else if (t.type === 'blockquote') {
       for (const l of inlineRich(t.tokens).split('\n')) lines.push('│ ' + l)
     } else if (t.type === 'hr') lines.push('────────')
