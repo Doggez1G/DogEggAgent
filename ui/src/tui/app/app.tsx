@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useReducer, useRef, useState } from 'rea
 import { Box, Static, Text, useInput } from 'ink'
 import TextInput from 'ink-text-input'
 import type { AgentToUiMessage, PermissionDecision, Config, UiPort } from '@dogegg/bridge'
-import { TopBar, MessageBlock, StatusBar, ListPicker, MultilineInput } from '../components'
+import { TopBar, MessageBlock, StatusBar, ListPicker, MultilineInput, StreamingBlock } from '../components'
 import { palette, onThemeChange } from '../theme'
 import { renderMarkdown } from '../markdown'
 import { clearScreen, resetSigintTimer } from './entry'
@@ -507,13 +507,11 @@ export function App({ port }: { port: UiPort }) {
           <MessageBlock key={b.toolId ?? 'active'} block={b} />
         ))}
         {chat.partial ? (
-          <Box flexDirection="column" marginBottom={1}>
-            {chat.partial.kind === 'thinking' ? (
-              <Text dimColor>{chat.partial.text}</Text>
-            ) : (
-              <Text>{renderMarkdown(chat.partial.text)}</Text>
-            )}
-          </Box>
+          // 流式 partial 容器化——回复/思考从一开始就有头行+边框线，完成后无缝进入 Static。
+          <StreamingBlock
+            kind={chat.partial.kind}
+            text={chat.partial.kind === 'thinking' ? chat.partial.text : renderMarkdown(chat.partial.text)}
+          />
         ) : null}
 
         {/* 浏览模式状态条：显示当前焦点块的信息+内容预览（焦点块在缓冲区里，无法就地高亮，用此条反馈） */}

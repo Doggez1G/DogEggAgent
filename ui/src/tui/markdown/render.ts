@@ -15,7 +15,6 @@ interface MdToken {
 
 // cli-highlight 的 theme 函数接收原始字符串、返回带 ANSI 的字符串。
 // chalk.level = 1 强制基础 ANSI（256-color 在某些终端会冲突，基础色最安全）。
-chalk.level = 1
 
 // hex → truecolor ANSI 前景码（heading/bullet 用主题 accent 色着色）。
 function accentAnsi(): string {

@@ -1,1 +1,1 @@
-export { MessageBlock } from './view'
+export { MessageBlock, StreamingBlock } from './view'

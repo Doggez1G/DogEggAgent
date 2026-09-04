@@ -118,3 +118,25 @@ function truncateMiddle(s: string, max: number): string {
   const half = Math.floor(max / 2)
   return s.slice(0, half) + '…' + s.slice(s.length - half)
 }
+
+// 流式中的 partial 块容器——与已完成块同构（头行+缩进内容），
+// 让回复/思考从一开始就有边框线，而不是完成后才出现。
+// text 由调用方完成 markdown 渲染（assistant）或原文（thinking）。
+export function StreamingBlock(props: { kind: 'assistant' | 'thinking'; text: string }) {
+  const isThinking = props.kind === 'thinking'
+  const color = isThinking ? palette.purple : palette.green
+  const bg = isThinking ? palette.surfaceAlt : palette.surface
+  return (
+    <Box flexDirection="column" backgroundColor={bg} marginBottom={1}>
+      <Text>
+        <Text color={color}>▌ </Text>
+        <Text color={color}>{isThinking ? '🐣 思考中…' : '🐶 DogEgg'}</Text>
+      </Text>
+      <Box paddingLeft={3} paddingRight={1}>
+        {isThinking
+          ? <Text color={palette.subtext}>{props.text}</Text>
+          : <Text>{props.text}</Text>}
+      </Box>
+    </Box>
+  )
+}

@@ -8,7 +8,6 @@ import chalk from 'chalk'
 //   粘贴多行文本经 usePaste（bracketed paste）整段插入，不误提交。
 // Enter（\r，无修饰）提交。Up/Down 在多行文本内移动光标行；单行时不上报
 //（让 app 的输入历史回溯生效）。
-chalk.level = 1
 
 export function MultilineInput(props: {
   value: string
