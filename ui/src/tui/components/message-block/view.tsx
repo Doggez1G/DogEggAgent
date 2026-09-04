@@ -23,11 +23,12 @@ export function MessageBlock(props: { block: Block; expanded?: boolean }) {
   )
 }
 
-// 块容器：头行（▌ + label）在上，内容整体缩进在下，背景贯穿全宽。
+// 块容器：头行（▌ + label）在上，内容整体缩进在下，背景贯穿全宽（width 100%——
+// Static 下的子元素默认 fit-content，需显式拉伸）。
 // collapsed=true 时只有头行一行（无内容区）。
 function BlockShell(props: { color: string; bg: string; label: React.ReactNode; children?: React.ReactNode; collapsed?: boolean }) {
   return (
-    <Box flexDirection="column" backgroundColor={props.bg}>
+    <Box flexDirection="column" backgroundColor={props.bg} width="100%">
       <Text>
         <Text color={props.color}>▌ </Text>
         {props.label}
@@ -127,7 +128,7 @@ export function StreamingBlock(props: { kind: 'assistant' | 'thinking'; text: st
   const color = isThinking ? palette.purple : palette.green
   const bg = isThinking ? palette.surfaceAlt : palette.surface
   return (
-    <Box flexDirection="column" backgroundColor={bg} marginBottom={1}>
+    <Box flexDirection="column" backgroundColor={bg} width="100%" marginBottom={1}>
       <Text>
         <Text color={color}>▌ </Text>
         <Text color={color}>{isThinking ? '🐣 思考中…' : '🐶 DogEgg'}</Text>

@@ -65,7 +65,12 @@ export function App({ port }: { port: UiPort }) {
   useEffect(() => { blocksRef.current = chat.blocks }, [chat.blocks])
   // 主题状态：切换主题时触发重渲染（palette 通过 Proxy 动态读取）。
   const [, setThemeTick] = useState(0)
-  useEffect(() => onThemeChange(() => setThemeTick((t) => t + 1)), [])
+  useEffect(() => onThemeChange(() => {
+    // 主题切换：清屏 + Static 重挂载——历史消息也按新主题重渲染（缓冲区内容无法就地改色）。
+    clearScreen()
+    setStaticKey((k) => k + 1)
+    setThemeTick((t) => t + 1)
+  }), [])
   const inputHistoryRef = useRef<string[]>([])
   const historyCursorRef = useRef<number>(-1) // 输入历史游标（-1=未在浏览历史）
   // view/config 用 ref 镜像，避免 Ink useInput 回调闭包过期（useState 在回调里拿到的是旧值）。
@@ -556,6 +561,8 @@ export function App({ port }: { port: UiPort }) {
               borderColor={palette.accent}
               backgroundColor={palette.surface}
               paddingX={1}
+              paddingY={1}
+              width="100%"
             >
               <MultilineInput value={input} onChange={(v) => { setInput(v); setSuggestCursor(null) }} onSubmit={handleSubmit} focus={browseIdx === null} placeholder="向狗蛋布置任务，或输入 / 命令…" />
             </Box>
@@ -567,7 +574,7 @@ export function App({ port }: { port: UiPort }) {
         )}
         {view.kind === 'prompt' && (
           <Box>
-            <Text color="cyan">{view.title} → </Text>
+            <Text color={palette.cyan}>{view.title} → </Text>
             <TextInput
               value={view.value}
               onChange={(val) => setView({ ...view, value: val })}
@@ -664,8 +671,8 @@ export function App({ port }: { port: UiPort }) {
           const start = Math.max(0, view.lines.length - infoScroll - WIN)
           const windowed = view.lines.slice(start, start + WIN)
           return (
-            <Box flexDirection="column" borderStyle="round" borderColor="#6c7086" paddingX={1}>
-              <Text bold color="#89b4fa">{view.title}</Text>
+            <Box flexDirection="column" borderStyle="round" borderColor={palette.border} paddingX={1}>
+              <Text bold color={palette.accent}>{view.title}</Text>
               {windowed.map((line, i) => (
                 <Text key={i} dimColor={line.startsWith('─') || line.startsWith('路径')}>{line}</Text>
               ))}
