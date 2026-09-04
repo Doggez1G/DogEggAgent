@@ -68,13 +68,17 @@ export function StatusBar(props: {
   const modelStr = props.provider && props.model ? `${props.provider}/${props.model}` : ''
 
   return (
-    <Box gap={1}>
-      {/* 状态词背景徽章：运行时黄底深字（醒目），空闲/结束灰底（安静） */}
-      <Text backgroundColor={isSpinning ? palette.yellow : palette.surface} color={isSpinning ? '#1e2030' : meta.color}> {meta.emoji} {isSpinning ? spinner + ' ' : ''}{meta.label} </Text>
-      {modelStr && <Text color={palette.subtext}>· {modelStr}</Text>}
-      {ctx && <Text color={ctx.color}>· [{ctx.bar}] {ctx.text}</Text>}
-      {cwdStr && <Text color={palette.subtext}>· 📂 {cwdStr}</Text>}
-      {props.sessionId && <Text dimColor>· 🔖 {props.sessionId.slice(0, 8)}</Text>}
+    // 两端对齐（OpenCode 式）：左=状态徽章+模型，右=上下文+目录+会话。
+    <Box justifyContent="space-between">
+      <Box gap={1}>
+        <Text backgroundColor={isSpinning ? palette.yellow : palette.surface} color={isSpinning ? '#1e2030' : meta.color}> {meta.emoji} {isSpinning ? spinner + ' ' : ''}{meta.label} </Text>
+        {modelStr && <Text color={palette.subtext}>{modelStr}</Text>}
+      </Box>
+      <Box gap={1}>
+        {ctx && <Text color={ctx.color}>[{ctx.bar}] {ctx.text}</Text>}
+        {cwdStr && <Text color={palette.subtext}>📂 {cwdStr}</Text>}
+        {props.sessionId && <Text dimColor>🔖 {props.sessionId.slice(0, 8)}</Text>}
+      </Box>
     </Box>
   )
 }

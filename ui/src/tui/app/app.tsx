@@ -549,17 +549,12 @@ export function App({ port }: { port: UiPort }) {
                 ))}
               </Box>
             )}
-            {/* 输入框：surface 背景块 + 左侧 accent 竖线（OpenCode 同款） */}
-            <Box
-              borderStyle="round"
-              borderTop={false}
-              borderBottom={false}
-              borderRight={false}
-              borderColor={palette.accent}
-              backgroundColor={palette.surface}
-              paddingX={1}
-            >
-              <MultilineInput value={input} onChange={(v) => { setInput(v); setSuggestCursor(null) }} onSubmit={handleSubmit} focus={browseIdx === null} placeholder="向狗蛋布置任务，或输入 / 命令…" />
+            {/* 输入框：高亮背景块 + accent 实色竖线（OpenCode 同款，视觉焦点） */}
+            <Box>
+              <Text color={palette.accent}>▌</Text>
+              <Box flexDirection="column" backgroundColor={palette.surfaceHi} paddingX={1} flexGrow={1}>
+                <MultilineInput value={input} onChange={(v) => { setInput(v); setSuggestCursor(null) }} onSubmit={handleSubmit} focus={browseIdx === null} placeholder="向狗蛋布置任务，或输入 / 命令…" />
+              </Box>
             </Box>
             <Box marginTop={0}>
               <Text color={palette.cyan}>Enter 发送</Text>
