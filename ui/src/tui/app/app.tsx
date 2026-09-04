@@ -581,11 +581,11 @@ export function App({ port }: { port: UiPort }) {
     }]
   }
 
-  // 滚动裁切：计算总行数与可见窗口，scrolled > 0 表示有内容被滚出顶部。
+  // 滚动裁切：按行裁切（单块超长也能正确截取），scrolled > 0 表示有内容被滚出顶部。
   const totalLines = blocksForViewport.reduce((n, b) => n + b.lines, 0)
   const maxScroll = Math.max(0, totalLines - viewportHeight)
   const scrolled = Math.min(scroll, maxScroll)
-  const visibleBlocks = sliceViewport(blocksForViewport, viewportHeight, scroll)
+  const visibleBlocks = sliceViewport(blocksForViewport, viewportHeight, scroll, termWidth)
 
   return (
     <Box flexDirection="column" height={termHeight} padding={0}>
@@ -601,14 +601,14 @@ export function App({ port }: { port: UiPort }) {
           </Box>
         ) : (
           visibleBlocks.map((b) => (
-            <MessageBlock key={b.index} kind={b.kind} color={b.color} focused={browse === b.index}>
+            <MessageBlock key={b.index} kind={b.kind} color={b.color} focused={browse === b.index} showHeader={b.showHeader}>
               {b.isCollapsed ? (
                 // 折叠状态：思考块和工具块各自显示折叠提示（选中时提示可展开）
                 <Text dimColor>{b.kind === 'thinking'
                   ? (browse === b.index ? '（思考已折叠 · 回车展开）' : '（思考已折叠）')
                   : (browse === b.index ? '（结果已折叠 · 回车展开）' : '（结果已折叠）')}</Text>
               ) : (
-                <Text>{b.shownText}</Text>
+                <Text>{b.slicedText}</Text>
               )}
             </MessageBlock>
           ))
