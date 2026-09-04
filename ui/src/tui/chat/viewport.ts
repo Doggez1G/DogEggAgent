@@ -7,12 +7,13 @@ function stripAnsi(str: string): string {
   return str.replace(/\x1b\[[0-9;]*m/g, '')
 }
 
-// 粗略估算一个消息块占用的终端行数（角色头 1 + 正文换行 + 上下边框 2），用于消息视口的自动滚动裁切。
+// 估算一个消息块占用的终端行数：角色头(1) + 正文行 + marginBottom(1) = body + 2。
+// MessageBlock 渲染结构：1行角色头 + 缩进正文 + 1行底部留白。
 export function estimateBlockLines(text: string, width: number): number {
   const clean = stripAnsi(text)
   const lineWidth = Math.max(10, width - 6)
   const body = clean.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / lineWidth)), 0)
-  return body + 3
+  return body + 2
 }
 
 // 渲染后的块（markdown 已渲染 + 展开/折叠状态已决定 + 行数已估算）。

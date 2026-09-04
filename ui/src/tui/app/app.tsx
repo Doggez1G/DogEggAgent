@@ -527,18 +527,25 @@ export function App({ port }: { port: UiPort }) {
   // 联想匹配提取一次（渲染里多处用，避免重复调用）。
   const suggestMatches = view.kind === 'none' ? matchCommands(input) : []
 
-  // 估算输入区占用行数：输入框(1) + 提示(1) + 可选 browse/suggest 提示。
-  let inputAreaLines = 3 // 输入框 + Enter提示 + 基础间距
+  // 精确计算各区域占用行数：
+  // TopBar: 内容1行 + marginBottom1行 = 2行
+  // StatusBar: 1行
+  // 输入区: none视图 = 输入框(1) + "Enter发送"提示(1) = 2行；有browse提示+1；有suggest列表+N+1
+  //          overlay视图 = 输入行(1) + overlay内容(动态)
+  const topBarLines = 2
+  const statusBarLines = 1
+  let inputAreaLines = 2 // 输入框 + Enter提示
   if (view.kind === 'none') {
-    if (browse !== null) inputAreaLines++ // browse 提示行
-    if (suggestMatches.length > 0) inputAreaLines += suggestMatches.length + 1 // 联想列表 + 提示
+    if (browse !== null) inputAreaLines++
+    if (suggestMatches.length > 0) inputAreaLines += suggestMatches.length + 1
+  } else if (view.kind === 'info') {
+    inputAreaLines = 1 + Math.min(12, Math.max(4, view.lines.length + 2))
   } else {
-    // overlay 模式：输入行(1) + overlay 内容（估算至少 3 行）
-    inputAreaLines = view.kind === 'info' ? Math.min(10, 4) : 4
+    inputAreaLines = 6 // overlay 估算
   }
 
-  // 状态栏(1) + TopBar(1) + 输入区 = chat 可用高度。
-  const viewportHeight = Math.max(3, termHeight - 1 - inputAreaLines - 1)
+  // chat 可用高度 = 终端高度 - TopBar - 输入区 - StatusBar
+  const viewportHeight = Math.max(3, termHeight - topBarLines - inputAreaLines - statusBarLines)
 
   const headerInfo = configSnapshot
     ? (configSnapshot.defaultProvider ? `${configSnapshot.defaultProvider}/${configSnapshot.defaultModel ?? '?'}` : '未配置 provider（请先 /config）')
@@ -584,9 +591,9 @@ export function App({ port }: { port: UiPort }) {
     <Box flexDirection="column" height={termHeight} padding={0}>
       <TopBar info={headerInfo} />
 
-      {/* 消息视口：固定高度 = termHeight - TopBar(1) - 输入区 - StatusBar(1)。
-          用固定 height 而非 flexGrow，确保 Ink 严格裁切——消息再多也不挤压其他组件。 */}
-      <Box flexDirection="column" height={viewportHeight} overflowY="hidden" paddingBottom={1}>
+      {/* 消息视口：固定高度，overflowY 裁切——消息再多也不挤压其他组件。
+          不用 padding/margin（行数已在 viewportHeight 中精确计算）。 */}
+      <Box flexDirection="column" height={viewportHeight} overflowY="hidden">
         {chat.blocks.length === 0 && !chat.partial ? (
           <Box flexDirection="column" paddingY={1}>
             <Text color="#94e2d5">🐶🥚 欢迎使用 DogEggAgent</Text>
@@ -605,9 +612,6 @@ export function App({ port }: { port: UiPort }) {
               )}
             </MessageBlock>
           ))
-        )}
-        {scrolled > 0 && (
-          <Text dimColor>↑ {scrolled} 行历史（PageUp/PageDown 滚动）</Text>
         )}
       </Box>
 
