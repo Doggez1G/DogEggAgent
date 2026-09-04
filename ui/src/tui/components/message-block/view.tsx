@@ -3,13 +3,15 @@ import { Box, Text } from 'ink'
 import { palette } from '../../theme'
 import type { Block } from '../../../shared/block'
 
-// DogEgg 消息卡片系统——统一结构语言：每类消息 = 左竖线 + 背景容器，色彩区分角色：
-//   user:      accent 蓝  竖线 + surface 背景    （你说话）
-//   assistant: 无容器正文（最大阅读区，内联 🐶 前缀）
-//   thinking:  purple 紫竖线 + surfaceAlt 背景  （思考卡片）
-//   tool:      cyan 青竖线  + surfaceAlt 背景    （工具卡片）
-//   error:     red 红竖线   + surface 背景
-//   notice / auto_compact: faint 裸文本（最弱）
+// DogEgg 消息块系统——头行在上、内容整体缩进在下，全块统一容器：
+//
+//   ▌🥚 你                    ← 头行：实色竖条(角色色) + emoji + 名称
+//     你好，帮我看看结构        ← 内容整体缩进 2 格（同背景）
+//
+// 五色角色系统（▌竖条色）：
+//   accent 蓝=你  green 绿=DogEgg  purple 紫=思考  cyan 青=工具  red 红=错误
+// 背景两档：surface（user/assistant/error）、surfaceAlt（thinking/tool）。
+// assistant 也容器化（与其它块同构）；notice/auto_compact 保持 faint 裸文本。
 // 展开由 expanded 控制——切换时 App 清屏重挂 Static 重绘。
 export function MessageBlock(props: { block: Block; expanded?: boolean }) {
   const b = props.block
@@ -21,19 +23,20 @@ export function MessageBlock(props: { block: Block; expanded?: boolean }) {
   )
 }
 
-// 左竖线卡片容器：只有左边框（round 风格的 │），配背景色。
-function Card(props: { color: string; bg: string; children: React.ReactNode }) {
+// 块容器：头行（▌ + label）在上，内容整体缩进在下，背景贯穿全宽。
+// collapsed=true 时只有头行一行（无内容区）。
+function BlockShell(props: { color: string; bg: string; label: React.ReactNode; children?: React.ReactNode; collapsed?: boolean }) {
   return (
-    <Box
-      borderStyle="round"
-      borderTop={false}
-      borderBottom={false}
-      borderRight={false}
-      borderColor={props.color}
-      backgroundColor={props.bg}
-      paddingX={1}
-    >
-      {props.children}
+    <Box flexDirection="column" backgroundColor={props.bg}>
+      <Text>
+        <Text color={props.color}>▌ </Text>
+        {props.label}
+      </Text>
+      {!props.collapsed && (
+        <Box paddingLeft={3} paddingRight={1}>
+          {props.children}
+        </Box>
+      )}
     </Box>
   )
 }
@@ -42,38 +45,27 @@ function renderBlock(b: Block, expanded: boolean): React.ReactNode {
   switch (b.kind) {
     case 'user':
       return (
-        <Card color={palette.accent} bg={palette.surface}>
-          <Text>🥚 {b.text}</Text>
-        </Card>
+        <BlockShell color={palette.accent} bg={palette.surface} label={<Text bold color={palette.accent}>🥚 你</Text>}>
+          <Text>{b.text}</Text>
+        </BlockShell>
       )
-    case 'assistant': {
-      // 首行内联 🐶 前缀（accent 色），正文 markdown 富文本。
-      const lines = b.text.split('\n')
-      const first = lines[0] ?? ''
-      const rest = lines.slice(1)
+    case 'assistant':
       return (
-        <>
-          <Text>
-            <Text color={palette.accent}>🐶 </Text>
-            <Text>{first}</Text>
-          </Text>
-          {rest.length > 0 && <Text>{rest.join('\n')}</Text>}
-        </>
+        <BlockShell color={palette.green} bg={palette.surface} label={<Text bold color={palette.green}>🐶 DogEgg</Text>}>
+          <Text>{b.text}</Text>
+        </BlockShell>
       )
-    }
     case 'thinking': {
       const full = b.full ?? b.text
+      if (!expanded) {
+        return (
+          <BlockShell color={palette.purple} bg={palette.surfaceAlt} collapsed label={<Text color={palette.subtext}>🐣 思考 · {full.length} 字（浏览模式 Enter 展开）</Text>} />
+        )
+      }
       return (
-        <Card color={palette.purple} bg={palette.surfaceAlt}>
-          {expanded ? (
-            <>
-              <Text color={palette.purple}>🐣 思考（展开）</Text>
-              <Text color={palette.subtext}>{full}</Text>
-            </>
-          ) : (
-            <Text color={palette.subtext}>🐣 思考 · {full.length} 字</Text>
-          )}
-        </Card>
+        <BlockShell color={palette.purple} bg={palette.surfaceAlt} label={<Text color={palette.purple}>🐣 思考（展开）</Text>}>
+          <Text color={palette.subtext}>{full}</Text>
+        </BlockShell>
       )
     }
     case 'tool': {
@@ -83,47 +75,35 @@ function renderBlock(b: Block, expanded: boolean): React.ReactNode {
       const callName = callLine.split(' ')[0] ?? '工具'
       const callArgs = truncateMiddle(callLine.slice(callName.length).trim(), 70)
       const summaryLines = lines.slice(1)
-      const head = (
+      const headLabel = (
         <Text>
           <Text color={palette.cyan}>🐾 {callName}</Text>
           <Text color={palette.subtext}>({callArgs})</Text>
           {summaryLines.length > 0 && <Text color={palette.subtext}> · {truncateMiddle(summaryLines[0]!.replace(/^[✓✕] /, ''), 50)}</Text>}
         </Text>
       )
+      if (!expanded || !b.full) {
+        return (
+          <BlockShell color={palette.cyan} bg={palette.surfaceAlt} collapsed label={headLabel} />
+        )
+      }
+      // 展开：头行在上，完整结果/diff 缩进在下（超长截断 50 行）。
+      const clipped = b.full.split('\n').slice(1) // 跳过调用行
+      const truncated = clipped.length > 50
       return (
-        <Card color={palette.cyan} bg={palette.surfaceAlt}>
-          {expanded && b.full ? (
-            <>
-              {head}
-              {(() => {
-                const clipped = b.full.split('\n').slice(1)
-                const truncated = clipped.length > 50
-                return (
-                  <>
-                    {clipped.slice(0, 50).map((l, i) => (
-                      <Text key={i} color={palette.subtext}>⎿ {l}</Text>
-                    ))}
-                    {truncated && <Text color={palette.faint}>…（共 {clipped.length} 行，完整输出见 /log）</Text>}
-                  </>
-                )
-              })()}
-            </>
-          ) : (
-            <>
-              {head}
-              {summaryLines.slice(1).map((l, i) => (
-                <Text key={i} color={palette.subtext}>⎿ {truncateMiddle(l, 100)}</Text>
-              ))}
-            </>
-          )}
-        </Card>
+        <BlockShell color={palette.cyan} bg={palette.surfaceAlt} label={headLabel}>
+          {clipped.slice(0, 50).map((l, i) => (
+            <Text key={i} color={palette.subtext}>⎿ {l}</Text>
+          ))}
+          {truncated && <Text color={palette.faint}>…（共 {clipped.length} 行，完整输出见 /log）</Text>}
+        </BlockShell>
       )
     }
     case 'error':
       return (
-        <Card color={palette.red} bg={palette.surface}>
-          <Text color={palette.red}>✕ {b.text}</Text>
-        </Card>
+        <BlockShell color={palette.red} bg={palette.surface} label={<Text color={palette.red}>✕ 出错了</Text>}>
+          <Text color={palette.red}>{b.text}</Text>
+        </BlockShell>
       )
     case 'auto_compact':
       return <Text color={palette.faint}>🥚 {b.text}</Text>
