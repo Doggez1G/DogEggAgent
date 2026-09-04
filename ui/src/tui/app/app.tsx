@@ -52,8 +52,17 @@ export function App({ port }: { port: UiPort }) {
   const currentCwdRef = useRef<string>('')
   // 标记是否为显式信息请求（/context /status 等），用于区分轮询的静默更新。
   const explicitInfoRef = useRef(false)
-  // Static 重挂载 key——会话切换/清空时清屏重绘。
+  // Static 重挂载 key——会话切换/清空/折叠展开切换时清屏重绘。
   const [staticKey, setStaticKey] = useState(0)
+  // 浏览模式：Ctrl+Up/Down 在块间移动焦点，Enter 切换折叠/展开。
+  const [browseIdx, setBrowseIdxState] = useState<number | null>(null)
+  const browseIdxRef = useRef<number | null>(null)
+  const setBrowseIdx = useCallback((i: number | null) => { browseIdxRef.current = i; setBrowseIdxState(i) }, [])
+  // 展开状态（块索引 → 展开）。
+  const [expanded, setExpanded] = useState<Set<number>>(new Set())
+  const expandedRef = useRef<Set<number>>(new Set())
+  const blocksRef = useRef(chat.blocks)
+  useEffect(() => { blocksRef.current = chat.blocks }, [chat.blocks])
   // 主题状态：切换主题时触发重渲染（palette 通过 Proxy 动态读取）。
   const [, setThemeTick] = useState(0)
   useEffect(() => onThemeChange(() => setThemeTick((t) => t + 1)), [])
@@ -116,6 +125,9 @@ export function App({ port }: { port: UiPort }) {
         clearScreen()
         setStaticKey((k) => k + 1)
         setSuggestCursor(null)
+        setBrowseIdx(null)
+        expandedRef.current = new Set()
+        setExpanded(new Set())
       }
       // 错误恢复：error 时自动预填上次提交的文本到输入框，用户可直接改或重新提交。
       if (msg.type === 'error' && inputHistoryRef.current.length > 0) {
@@ -321,14 +333,44 @@ export function App({ port }: { port: UiPort }) {
         }
         if (key.escape) { setSuggestCursor(null); return }
       }
-      // ↑/↓ 召回输入历史。
-      if (key.upArrow) {
+      // 浏览模式：Ctrl+Up/Ctrl+Down 在消息块间移动焦点（从任意方向进入）。
+      // Enter 切换折叠/展开（清屏重绘 Static）；Esc 退出回到输入。
+      const blockCount = blocksRef.current.length
+      if (key.ctrl && key.upArrow && blockCount > 0) {
+        const cur = browseIdxRef.current
+        setBrowseIdx(cur === null ? blockCount - 1 : Math.max(0, cur - 1))
+        return
+      }
+      if (key.ctrl && key.downArrow && blockCount > 0) {
+        const cur = browseIdxRef.current
+        setBrowseIdx(cur === null ? 0 : Math.min(blockCount - 1, cur + 1))
+        return
+      }
+      if (key.return && browseIdxRef.current !== null) {
+        const idx = browseIdxRef.current
+        const block = blocksRef.current[idx]
+        // 仅思考/工具块可展开（full 存在）。
+        if (block && (block.kind === 'thinking' || block.kind === 'tool') && block.full !== undefined) {
+          const next = new Set(expandedRef.current)
+          if (next.has(idx)) next.delete(idx)
+          else next.add(idx)
+          expandedRef.current = next
+          setExpanded(next)
+          // 折叠状态变化 → 清屏重绘 Static（已打印内容无法就地修改）。
+          clearScreen()
+          setStaticKey((k) => k + 1)
+        }
+        return
+      }
+      if (key.escape && browseIdxRef.current !== null) { setBrowseIdx(null); return }
+      // ↑/↓ 召回输入历史（仅非浏览模式）。
+      if (key.upArrow && browseIdxRef.current === null) {
         const history = inputHistoryRef.current
         if (history.length === 0) return
         const next = historyCursorRef.current < 0 ? history.length - 1 : Math.max(0, historyCursorRef.current - 1)
         historyCursorRef.current = next
         setInput(history[next] ?? '')
-      } else if (key.downArrow) {
+      } else if (key.downArrow && browseIdxRef.current === null) {
         const history = inputHistoryRef.current
         if (history.length === 0 || historyCursorRef.current < 0) return
         const next = historyCursorRef.current + 1
@@ -454,7 +496,8 @@ export function App({ port }: { port: UiPort }) {
                 ...(item.block.full !== undefined ? { full: renderMarkdown(item.block.full) } : {}),
               }
             : item.block
-          return <MessageBlock key={index} block={block} />
+          // 块原始索引 = items 索引 - 1（首项是 header）。
+          return <MessageBlock key={index} block={block} expanded={expanded.has(index - 1)} />
         }}
       </Static>
 
@@ -473,6 +516,20 @@ export function App({ port }: { port: UiPort }) {
           </Box>
         ) : null}
 
+        {/* 浏览模式状态条：显示当前焦点块的信息（焦点块在缓冲区里，无法就地高亮，用此条反馈） */}
+        {browseIdx !== null && (() => {
+          const block = chat.blocks[browseIdx]
+          const kindLabel: Record<string, string> = { user: '你的消息', assistant: 'DogEgg 回复', thinking: '思考', tool: '工具调用', error: '错误', notice: '提示', auto_compact: '压缩' }
+          const expandable = block ? (block.kind === 'thinking' || block.kind === 'tool') && block.full !== undefined : false
+          const isExpanded = block ? expanded.has(browseIdx) : false
+          return (
+            <Box flexDirection="column">
+              <Text color={palette.accent}>🔍 浏览 {browseIdx + 1}/{chat.blocks.length} · {block ? kindLabel[block.kind] ?? block.kind : ''}{expandable ? (isExpanded ? ' · 已展开' : ' · 已折叠') : ''}</Text>
+              <Text dimColor>Ctrl+↑↓ 切换块{expandable ? ' · Enter 展开/折叠' : ''} · Esc 退出浏览</Text>
+            </Box>
+          )
+        })()}
+
         {view.kind === 'none' && (
           <Box flexDirection="column">
             {suggestMatches.length > 0 && (
@@ -486,7 +543,7 @@ export function App({ port }: { port: UiPort }) {
             )}
             <Box>
               <Text color={palette.accent}>{'> '}</Text>
-              <MultilineInput value={input} onChange={(v) => { setInput(v); setSuggestCursor(null) }} onSubmit={handleSubmit} />
+              <MultilineInput value={input} onChange={(v) => { setInput(v); setSuggestCursor(null) }} onSubmit={handleSubmit} focus={browseIdx === null} />
             </Box>
           </Box>
         )}
