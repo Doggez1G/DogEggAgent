@@ -544,9 +544,9 @@ export function App({ port }: { port: UiPort }) {
     inputAreaLines = 6 // overlay 估算
   }
 
-  // chat 可用高度 = 终端高度 - TopBar - 输入区 - StatusBar - 安全余量。
-  // 安全余量 2 行：吸收 estimateBlockLines 与 Ink 实际渲染行数的偏差，防止底部被裁切。
-  const viewportHeight = Math.max(3, termHeight - topBarLines - inputAreaLines - statusBarLines - 2)
+  // chat 可用高度 = 终端高度 - TopBar - 输入区 - StatusBar。
+  // 用于块级裁切（决定保留哪些块）；实际渲染由 flexShrink + overflowY 兜底。
+  const viewportHeight = Math.max(3, termHeight - topBarLines - inputAreaLines - statusBarLines)
 
   const headerInfo = configSnapshot
     ? (configSnapshot.defaultProvider ? `${configSnapshot.defaultProvider}/${configSnapshot.defaultModel ?? '?'}` : '未配置 provider（请先 /config）')
@@ -601,9 +601,9 @@ export function App({ port }: { port: UiPort }) {
     <Box flexDirection="column" height={termHeight} padding={0}>
       <TopBar info={headerInfo} />
 
-      {/* 消息视口：固定高度 + column-reverse 让最新消息始终在底部可见。
-          overflowY=hidden 裁切顶部（旧内容），底部（最新）不受影响。 */}
-      <Box flexDirection="column-reverse" height={viewportHeight} overflowY="hidden">
+      {/* 消息视口：flexShrink=1 + minHeight=3 让它在空间不足时收缩而非挤压其他组件。
+          column-reverse + overflowY=hidden：最新消息在底部，旧内容从顶部裁切。 */}
+      <Box flexDirection="column-reverse" minHeight={3} flexShrink={1} overflowY="hidden">
         {chat.blocks.length === 0 && !chat.partial ? (
           <Box flexDirection="column" paddingY={1}>
             <Text color="#94e2d5">🐶🥚 欢迎使用 DogEggAgent</Text>
@@ -624,8 +624,8 @@ export function App({ port }: { port: UiPort }) {
         )}
       </Box>
 
-      {/* 输入区 + overlay 一体：输入框始终在顶部，overlay 在下方展开（视觉一体） */}
-      <Box flexDirection="column">
+      {/* 输入区 + overlay：flexShrink=0 固定高度不被压缩。 */}
+      <Box flexDirection="column" flexShrink={0}>
         {/* 输入框行：始终显示。none 视图聚焦主输入，其他视图显示禁用态或 prompt 输入 */}
         {view.kind === 'none' && (
           <Box flexDirection="column">
@@ -749,8 +749,10 @@ export function App({ port }: { port: UiPort }) {
         )}
       </Box>
 
-      {/* StatusBar 始终在底部——不随 overlay 消失 */}
-      <StatusBar state={chat.status} provider={statusBarData.provider} model={statusBarData.model} sessionId={statusBarData.sessionId} tokens={statusBarData.tokens} windowTokens={statusBarData.windowTokens} cwd={statusBarData.cwd} />
+      {/* StatusBar 始终在底部——flexShrink=0 不被压缩。 */}
+      <Box flexShrink={0}>
+        <StatusBar state={chat.status} provider={statusBarData.provider} model={statusBarData.model} sessionId={statusBarData.sessionId} tokens={statusBarData.tokens} windowTokens={statusBarData.windowTokens} cwd={statusBarData.cwd} />
+      </Box>
     </Box>
   )
 }
