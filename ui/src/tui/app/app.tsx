@@ -544,8 +544,9 @@ export function App({ port }: { port: UiPort }) {
     inputAreaLines = 6 // overlay 估算
   }
 
-  // chat 可用高度 = 终端高度 - TopBar - 输入区 - StatusBar
-  const viewportHeight = Math.max(3, termHeight - topBarLines - inputAreaLines - statusBarLines)
+  // chat 可用高度 = 终端高度 - TopBar - 输入区 - StatusBar - 安全余量。
+  // 安全余量 2 行：吸收 estimateBlockLines 与 Ink 实际渲染行数的偏差，防止底部被裁切。
+  const viewportHeight = Math.max(3, termHeight - topBarLines - inputAreaLines - statusBarLines - 2)
 
   const headerInfo = configSnapshot
     ? (configSnapshot.defaultProvider ? `${configSnapshot.defaultProvider}/${configSnapshot.defaultModel ?? '?'}` : '未配置 provider（请先 /config）')

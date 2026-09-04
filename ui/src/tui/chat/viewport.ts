@@ -8,10 +8,10 @@ function stripAnsi(str: string): string {
 }
 
 // 估算一个消息块占用的终端行数：角色头(1) + 正文行 + marginBottom(1) = body + 2。
-// MessageBlock 渲染结构：1行角色头 + 缩进正文 + 1行底部留白。
+// MessageBlock 渲染结构：左侧色条(1字符) + gap(1) + 正文 → 正文宽度 = termWidth - 2。
 export function estimateBlockLines(text: string, width: number): number {
   const clean = stripAnsi(text)
-  const lineWidth = Math.max(10, width - 6)
+  const lineWidth = Math.max(10, width - 2) // 色条(1) + gap(1)
   const body = clean.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / lineWidth)), 0)
   return body + 2
 }
@@ -19,7 +19,7 @@ export function estimateBlockLines(text: string, width: number): number {
 // 将文本按终端宽度拆成显示行列表（每个元素是一行）。
 function splitToLines(text: string, width: number): string[] {
   const clean = stripAnsi(text)
-  const lineWidth = Math.max(10, width - 6)
+  const lineWidth = Math.max(10, width - 2) // 色条(1) + gap(1)
   const lines: string[] = []
   for (const para of clean.split('\n')) {
     if (para.length === 0) { lines.push(''); continue }
