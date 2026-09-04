@@ -3,35 +3,42 @@ import { Box, Text } from 'ink'
 import { palette } from '../../theme'
 import type { Block } from '../../../shared/block'
 
-// DogEgg 品牌化消息渲染——三层视觉层次：轮次 > 块 > 行。
-//   轮次：每条用户消息前画 dim 分隔线（对话轮次的边界）
-//   块：  emoji 前缀 + 主题色头行（❯ user / 🐶 assistant / 🐣 thinking / 🐾 tool）
-//   行：  正文普通色，辅助信息（工具结果等）dim 缩进
-// 所有块统一 marginBottom=1 空行分隔——折叠/展开切换时 App 清屏重挂 Static 重绘。
-export function MessageBlock(props: { block: Block; expanded?: boolean; width?: number }) {
+// DogEgg 品牌化消息渲染——强视觉区分设计：
+//   user:      圆角气泡框（accent 色，收缩到内容宽度）——消息最醒目的边界
+//   assistant: 🐶 DogEgg 绿色粗体头行 + 正文（与 user 的蓝色区分角色）
+//   thinking:  折叠=dim 单行；展开=头行+dim 全文
+//   tool:      调用行用背景色块（动作事件的强锚点）+ ⎿ dim 结果
+//   error:     红色头行+正文
+//   notice / auto_compact: dim 单行
+// 折叠/展开由 expanded prop 控制——切换时 App 清屏并重挂 Static 重绘全部块。
+export function MessageBlock(props: { block: Block; expanded?: boolean }) {
   const b = props.block
   const expanded = props.expanded ?? false
-  const divider = '─'.repeat(Math.max(20, Math.min(80, (props.width ?? 80) - 1)))
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {renderBlock(b, expanded, divider)}
+      {renderBlock(b, expanded)}
     </Box>
   )
 }
 
-function renderBlock(b: Block, expanded: boolean, divider: string): React.ReactNode {
+function renderBlock(b: Block, expanded: boolean): React.ReactNode {
   switch (b.kind) {
     case 'user':
       return (
-        <>
-          <Text dimColor>{divider}</Text>
+        <Box
+          borderStyle="round"
+          borderColor={palette.accent}
+          paddingX={1}
+          alignSelf="flex-start"
+          maxWidth="100%"
+        >
           <Text color={palette.accent}>❯ {b.text}</Text>
-        </>
+        </Box>
       )
     case 'assistant':
       return (
         <>
-          <Text bold color={palette.accent}>🐶 DogEgg</Text>
+          <Text bold color={palette.green}>🐶 DogEgg</Text>
           <Text>{b.text}</Text>
         </>
       )
@@ -53,11 +60,14 @@ function renderBlock(b: Block, expanded: boolean, divider: string): React.ReactN
       const callLine = lines[0] ?? ''
       const callName = callLine.split(' ')[0] ?? '工具'
       const callArgs = truncateMiddle(callLine.slice(callName.length).trim(), 80)
+      const callBadge = (
+        <Text backgroundColor={palette.subtext} color={palette.cyan}> 🐾 {callName}({callArgs}) </Text>
+      )
       if (!expanded || !b.full) {
-        // 折叠：调用行 + 结果摘要（dim）。
+        // 折叠：调用行（背景块）+ 结果摘要（dim）。
         return (
           <>
-            <Text bold color={palette.cyan}>🐾 {callName}({callArgs})</Text>
+            {callBadge}
             {lines.slice(1).map((l, i) => (
               <Text key={i} dimColor>  ⎿ {truncateMiddle(l, 100)}</Text>
             ))}
@@ -70,7 +80,8 @@ function renderBlock(b: Block, expanded: boolean, divider: string): React.ReactN
       const truncated = clipped.length > 50
       return (
         <>
-          <Text bold color={palette.cyan}>🐾 {callName}({callArgs})（展开）</Text>
+          {callBadge}
+          <Text bold dimColor>（已展开）</Text>
           {clipped.slice(0, 50).map((l, i) => (
             <Text key={i} dimColor>  ⎿ {l}</Text>
           ))}

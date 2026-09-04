@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react'
-import { Box, Static, Text, useInput, useStdout } from 'ink'
+import { Box, Static, Text, useInput } from 'ink'
 import TextInput from 'ink-text-input'
 import type { AgentToUiMessage, PermissionDecision, Config, UiPort } from '@dogegg/bridge'
 import { TopBar, MessageBlock, StatusBar, ListPicker, MultilineInput } from '../components'
@@ -40,8 +40,6 @@ function relTime(iso: string): string {
 // 架构（Claude Code 式）：已完成的消息块经 <Static> 打印进终端滚动缓冲区，
 // 用户用终端原生滚动查看历史；Ink 只重绘底部动态区（未完成块+流式+输入+状态栏）。
 export function App({ port }: { port: UiPort }) {
-  const { stdout } = useStdout()
-  const termWidth = stdout.columns || 80
   const [chat, dispatch] = useReducer(reducer, { blocks: [], status: 'idle', partial: null, toolActive: false } as ChatState)
   const [view, setViewState] = useState<View>({ kind: 'none' })
   const [input, setInput] = useState('')
@@ -499,7 +497,7 @@ export function App({ port }: { port: UiPort }) {
               }
             : item.block
           // 块原始索引 = items 索引 - 1（首项是 header）。
-          return <MessageBlock key={index} block={block} expanded={expanded.has(index - 1)} width={termWidth} />
+          return <MessageBlock key={index} block={block} expanded={expanded.has(index - 1)} />
         }}
       </Static>
 
