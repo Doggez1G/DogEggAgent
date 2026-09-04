@@ -23,6 +23,9 @@ export function clearScreen(): void {
 }
 
 export function renderTui(port: UiPort): void {
+  // 启动清屏——新界面的仪式感（同 Claude Code）：历史缓冲区仍可用（非 alt-screen），
+  // 用户滚动依然能看到本会话从启动开始的全部输出。
+  clearScreen()
   process.on('exit', () => {
     try { process.stdin.setRawMode?.(false) } catch { /* stdin 已关闭 */ }
   })

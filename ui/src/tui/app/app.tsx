@@ -516,15 +516,23 @@ export function App({ port }: { port: UiPort }) {
           </Box>
         ) : null}
 
-        {/* 浏览模式状态条：显示当前焦点块的信息（焦点块在缓冲区里，无法就地高亮，用此条反馈） */}
+        {/* 浏览模式状态条：显示当前焦点块的信息+内容预览（焦点块在缓冲区里，无法就地高亮，用此条反馈） */}
         {browseIdx !== null && (() => {
           const block = chat.blocks[browseIdx]
           const kindLabel: Record<string, string> = { user: '你的消息', assistant: 'DogEgg 回复', thinking: '思考', tool: '工具调用', error: '错误', notice: '提示', auto_compact: '压缩' }
           const expandable = block ? (block.kind === 'thinking' || block.kind === 'tool') && block.full !== undefined : false
           const isExpanded = block ? expanded.has(browseIdx) : false
+          // 内容预览：取块文本前 2 行（去除 ANSI），每行截断 60 字符。
+          const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '')
+          const previewLines = block ? stripAnsi(block.text).split('\n').slice(0, 2).map((l) => l.length > 60 ? l.slice(0, 60) + '…' : l) : []
           return (
-            <Box flexDirection="column">
-              <Text color={palette.accent}>🔍 浏览 {browseIdx + 1}/{chat.blocks.length} · {block ? kindLabel[block.kind] ?? block.kind : ''}{expandable ? (isExpanded ? ' · 已展开' : ' · 已折叠') : ''}</Text>
+            <Box flexDirection="column" marginTop={1}>
+              <Text>
+                <Text backgroundColor={palette.subtext} color={palette.text}> 🔍 {browseIdx + 1}/{chat.blocks.length} {block ? kindLabel[block.kind] ?? block.kind : ''}{expandable ? (isExpanded ? ' · 已展开' : ' · 已折叠') : ''} </Text>
+              </Text>
+              {previewLines.map((l, i) => (
+                <Text key={i} dimColor>  ┃ {l}</Text>
+              ))}
               <Text dimColor>Ctrl+↑↓ 切换块{expandable ? ' · Enter 展开/折叠' : ''} · Esc 退出浏览</Text>
             </Box>
           )

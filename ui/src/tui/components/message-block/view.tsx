@@ -39,6 +39,7 @@ function renderBlock(b: Block, expanded: boolean): React.ReactNode {
       return (
         <>
           <Text bold color={palette.green}>🐶 DogEgg</Text>
+          <Text dimColor>{'┈'.repeat(24)}</Text>
           <Text>{b.text}</Text>
         </>
       )

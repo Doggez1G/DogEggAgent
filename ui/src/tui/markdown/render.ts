@@ -42,15 +42,35 @@ function inlineText(tokens: MdToken[] | undefined): string {
     .join('')
 }
 
-// 把 markdown 渲染成「干净纯文本 + 代码块 ANSI 高亮」。
-// 非 code 部分去掉 # / 反引号 / ** 等语法噪音，保留标题、列表、引用的可读结构。
-// code 部分用 cli-highlight 加 ANSI 色（keyword/string/function/number/comment 等）。
+// 行内富文本 ANSI：bold/italic/codespan 保留终端样式（Ink Text 会透传 ANSI 序列）。
+const BOLD = '\x1b[1m'
+const ITALIC = '\x1b[3m'
+const CYAN = '\x1b[36m'
+const RESET = '\x1b[22m\x1b[23m\x1b[39m'
+
+function inlineRich(tokens: MdToken[] | undefined): string {
+  if (!tokens) return ''
+  return tokens
+    .map((t) => {
+      if (t.type === 'codespan') return CYAN + (t.text ?? '') + RESET
+      if (t.type === 'text' || t.type === 'escape') return t.text ?? ''
+      if (t.type === 'strong') return BOLD + inlineRich(t.tokens) + RESET
+      if (t.type === 'em' || t.type === 'del') return ITALIC + inlineRich(t.tokens) + RESET
+      if (t.type === 'link') return t.text ?? ''
+      if (t.type === 'br') return '\n'
+      return t.raw ?? ''
+    })
+    .join('')
+}
+
+// 把 markdown 渲染成「终端富文本 + 代码块 ANSI 高亮」。
+// 标题/列表/引用保留结构；strong/em/codespan 用 ANSI 样式；code 用 cli-highlight。
 export function renderMarkdown(md: string): string {
   const tokens = new Lexer().lex(md) as unknown as MdToken[]
   const lines: string[] = []
   for (const t of tokens) {
-    if (t.type === 'heading') lines.push((t.text ?? '').trim())
-    else if (t.type === 'paragraph') lines.push(inlineText(t.tokens).trim())
+    if (t.type === 'heading') lines.push(BOLD + (t.text ?? '').trim() + '\x1b[22m')
+    else if (t.type === 'paragraph') lines.push(inlineRich(t.tokens).trim())
     else if (t.type === 'code') {
       const code = (t.text ?? '').replace(/\n$/, '')
       const lang = t.lang ?? undefined
@@ -66,9 +86,9 @@ export function renderMarkdown(md: string): string {
       }
     }
     else if (t.type === 'list') {
-      for (const item of t.items ?? []) lines.push('• ' + inlineText(item.tokens).trim())
+      for (const item of t.items ?? []) lines.push('• ' + inlineRich(item.tokens).trim())
     } else if (t.type === 'blockquote') {
-      for (const l of inlineText(t.tokens).split('\n')) lines.push('│ ' + l)
+      for (const l of inlineRich(t.tokens).split('\n')) lines.push('│ ' + l)
     } else if (t.type === 'hr') lines.push('────────')
     else if (t.type === 'space') continue
     else if (t.raw) lines.push(t.raw.trim())

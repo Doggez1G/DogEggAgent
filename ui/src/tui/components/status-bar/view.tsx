@@ -29,8 +29,14 @@ function contextBar(tokens?: number, windowTokens?: number): { bar: string; colo
   const filled = Math.round(ratio * 8)
   const bar = '█'.repeat(filled) + '░'.repeat(8 - filled)
   const over = ratio >= COMPACTION_THRESHOLD
-  const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 100000 ? 0 : 1)}k` : String(n))
-  return { bar, color: over ? palette.yellow : palette.subtext, text: `${k(tokens)}/${k(windowTokens)}` }
+  return { bar, color: over ? palette.yellow : palette.subtext, text: `${fmtTokens(tokens)}/${fmtTokens(windowTokens)}` }
+}
+
+// token 数格式化：1e6+ → M，1e3+ → k，其余原样。
+function fmtTokens(n: number): string {
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
+  if (n >= 1e3) return `${Math.round(n / 1e3)}k`
+  return String(n)
 }
 
 // 状态栏：Emoji + spinner + 状态 + provider/model + context 进度条 + cwd + session。

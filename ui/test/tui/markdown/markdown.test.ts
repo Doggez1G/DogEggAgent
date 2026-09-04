@@ -1,21 +1,29 @@
 import { describe, it, expect } from 'vitest'
 import { renderMarkdown } from '../../../src/tui/markdown'
 
+// 去除 ANSI 转义便于断言纯文本结构。
+const plain = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '')
+
 describe('renderMarkdown', () => {
-  it('strips heading markers', () => {
-    expect(renderMarkdown('# 标题')).toBe('标题')
+  it('strips heading markers (styled bold)', () => {
+    const out = renderMarkdown('# 标题')
+    expect(plain(out)).toBe('标题')
+    expect(out).toContain('\x1b[1m') // 标题保留终端粗体样式
   })
 
-  it('strips inline bold and code markers', () => {
-    expect(renderMarkdown('这是 **加粗** 和 `code`')).toBe('这是 加粗 和 code')
+  it('renders inline bold and code as ANSI styles', () => {
+    const out = renderMarkdown('这是 **加粗** 和 `code`')
+    expect(plain(out)).toBe('这是 加粗 和 code')
+    expect(out).toContain('\x1b[1m加粗') // strong → bold
+    expect(out).toContain('\x1b[36mcode') // codespan → cyan
   })
 
   it('normalizes list bullets', () => {
-    expect(renderMarkdown('- a\n- b')).toBe('• a\n• b')
+    expect(plain(renderMarkdown('- a\n- b'))).toBe('• a\n• b')
   })
 
   it('keeps code block content without fences', () => {
-    expect(renderMarkdown('```\nconst x = 1\n```')).toBe('const x = 1')
+    expect(plain(renderMarkdown('```\nconst x = 1\n```'))).toBe('const x = 1')
   })
 
   it('leaves plain text unchanged', () => {
