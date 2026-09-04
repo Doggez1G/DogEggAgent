@@ -3,6 +3,18 @@
 > 基于 TUI vs WebUI 功能对等性分析 + 用户反馈的 12 项改进需求
 > 创建日期：2026-08-29
 > 状态：**已完成**（所有 Phase 0-5 已实施，typecheck + 167 测试 + 构建均通过）
+>
+> ### 实施结果与计划的偏差（2026-09-04 补记）
+>
+> 实施过程中方案有如下演进，以实际代码为准（见 `docs/learning/09-tui.md` 与 ADR-0008）：
+>
+> 1. **#10 滚动 / #12 鼠标**：计划保留 PageUp/PageDown + 步长优化，最终**整体被 Static 架构取代**——TUI 放弃 alt-screen，历史打印进终端滚动缓冲区，滚动交给终端原生（滚轮/滚动条），PageUp/PageDown、视口裁切、行数估算全部删除（ADR-0008）。
+> 2. **#12 展开键**：计划用 Ctrl+Enter 展开/折叠，实施发现多数终端把 Ctrl+Enter 发送为 `\n`（Ink 解析为普通 Enter 且 ctrl 修饰丢失），**改为浏览模式中 Enter 直接切换**（输入框在浏览模式下失焦，不冲突）。
+> 3. **#9 主题**：最终 5 套（mocha/tokyonight/gruvbox/onedark/dogegg），11 色 token（surface 两档/border/faint/purple），切换走清屏 + Static 重挂载；未持久化到 config。
+> 4. **#3 状态栏轮询**：间隔 2s（非 3s）；另外 agent 在每次状态迁移时附带发 `status_state`（含最新 token 估算），双路更新。
+> 5. **#4 多行输入**：主输入替换为自定义 `MultilineInput`（Ctrl+J/Alt+Enter 换行 + usePaste 粘贴——Windows 终端不报告 Shift 修饰符，Shift+Enter 不可检测）；`ink-text-input` 仅存于 config 的 prompt 标量视图。
+> 6. **#7 会话搜索**：sessionPicker 视图同时具备搜索 + `d` 删除 + CWD 过滤（计划未含删除/CWD）。
+> 7. **测试数**：文中"167"为实施中期数字，随测试增删会漂移，以 `npm run test:run` 实时输出为准。
 
 ---
 

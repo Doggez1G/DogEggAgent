@@ -578,9 +578,9 @@ markdown 用 `react-markdown` + `rehype-highlight` 组件式渲染（不走 `dan
     "dev": "npm run build && npm run start",
     "dev:web": "concurrently -n server,web -c yellow,cyan \"cross-env VITE_DEV=1 PORT=3001 tsx main-web.ts\" \"wait-on tcp:3001 && vite\"",
     "build": "node build.mjs",
-    "build:web": "vite build && node build-web.mjs",
-    "start": "node dist/index.js",
-    "start:web": "node dist/server.js",
+    "build:web": "vite build",
+    "start": "node dist/dogegg.js",
+    "start:web": "node dist/dogegg.js -web",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p agent && tsc --noEmit -p ui && tsc --noEmit -p bridge && tsc --noEmit -p server",
     "test": "vitest",
     "test:run": "vitest run"

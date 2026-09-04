@@ -4,6 +4,7 @@
 > 日期：2026-08-27
 > 前置：基于 `2026-08-26-dog-egg-agent-design.md`（下称「原设计」）的 v0.1.0 实现现状
 > 更新：2026-09-03 — 三包扩展为四包 + barrel import 强制 + shared/config 移至 tui/config + bridge zod schema + 跨模块重复消除
+> 2026-09-04 更新：新增 `bin/dogegg.ts` 统一 CLI 入口（组合根迁移，main.ts 弃用）；build-web.mjs 已删除（build:web 纯 Vite）；产物为 `dist/dogegg.js`（shebang + npm bin 字段）。TUI 重构为 Static 架构（见 ADR-0008）。
 
 ## 1. 目标与范围
 

@@ -92,16 +92,25 @@ type ConfigPath =
   | { kind: 'model'; providerIndex: number; modelIndex: number }
   | { kind: 'selectProvider' }
   | { kind: 'selectModel' }
+  | { kind: 'selectShell' }
+  | { kind: 'selectTheme' }
+  | { kind: 'selectTool'; bucket: 'allow' | 'reject' | 'ask' }
 ```
 
 `parentPath(path)` 返回父层——用于 Esc/← 返回。
+
+三个新 selector 层（TUI 专属增强）：
+
+- **selectShell**：`shellProgram` 从 `detectShells()` 检测结果中选择（execFileSync 无 shell 探测 + 缓存），另留手动输入兜底。检测逻辑在 `tui/config/shells.ts`（TUI 同进程直接探测；server 的 /api/shells 是 WebUI 等价物）。
+- **selectTheme**：5 套主题运行时切换——直接调前端 `setTheme(key)`，不走 config_set（纯 UI 偏好）。切换触发清屏 + Static 重挂载，历史按新主题重绘。
+- **selectTool**：权限桶添加工具从 `KNOWN_TOOLS`（shared/tools.ts：read_file/write_file/edit_file/shell）中选择，排除已在桶中的项——替代早期手输名字输入。
 
 ### buildEntries 生成字段列表
 
 根据当前 path 和 config 生成一层字段列表：
 
 ```ts
-// ui/src/tui/overlays/config/build.ts
+// ui/src/tui/config/build.ts（overlays/config 只是 re-export barrel）
 function buildEntries(config, path, ctx): Entry[] {
   switch (path.kind) {
     case 'root':

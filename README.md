@@ -90,7 +90,7 @@ dogegg -web            # 任意目录启动 WebUI
 ### 核心设计约束
 
 - 后端不 import 前端，前端不 import 后端；二者都只依赖 `bridge/`
-- 只有组合根（main.ts / main-web.ts）同时 import agent 与前端
+- 只有组合根（bin/dogegg.ts；dev:web 另用 main-web.ts）同时 import agent 与前端
 - Server 不 import `@dogegg/ui`——前端是静态文件被 serve
 - bridge 契约全部可序列化——error 用 `{ message, name? }` 而非 Error 对象
 
@@ -104,8 +104,8 @@ dogegg -web            # 任意目录启动 WebUI
 | `npm run test:run` | Vitest 跑四包测试 |
 | `npm run dev` | TUI 开发（build + start） |
 | `npm run dev:web` | WebUI 开发（Vite + tsx） |
-| `npm run build` | TUI 构建（esbuild） |
-| `npm run build:web` | WebUI 构建（Vite + esbuild） |
+| `npm run build` | 统一 CLI 构建（esbuild → dist/dogegg.js，含 TUI + WebUI server） |
+| `npm run build:web` | WebUI 前端构建（Vite → dist/web/） |
 
 ### 文档
 

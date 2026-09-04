@@ -198,7 +198,6 @@ for (;;) {
 
 ### 手动 vs 自动的 UI 反馈
 
-- 手动 `/compact`：弹 info overlay 显示「压缩前 X → 压缩后 Y tokens」。
-- 自动压缩：不弹 overlay，在对话流插一条 dim 提示块（不打断对话流）。
+手动和自动的 UI 反馈已统一：reducer 对 `compaction` 消息一律在对话流插一条 dim 提示块（`🥚 Context compacted: X → Y tokens`），不弹 overlay。
 
-通过 `compaction` 消息的 `source: 'manual' | 'auto'` 字段区分。
+`compaction` 消息的 `source: 'manual' | 'auto'` 字段仍保留在契约中，但不再驱动 UI 差异（TUI 与 WebUI 均如此——早期"手动弹 overlay"的行为已移除）。

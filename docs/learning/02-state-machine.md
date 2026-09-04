@@ -119,7 +119,7 @@ finished / cancelled / error / compacting ──reset──▶ idle
 
 两个地方：
 
-1. **agent.ts 的 `emitState(input)`**：算下一态后 emit `state` 事件给 UI（状态栏据此更新）。
+1. **agent.ts 的 `emitState(input)`**：算下一态后 emit `state` 事件，并**附带发一条 `status_state`**（含最新 token 估算）——状态栏在每次状态迁移时实时更新（见 `agent/src/core/agent.ts`）。
 2. **loop/run.ts 的 `trans` 闭包**：loop 内部每次迁移都经 `trans`，确保状态事件 emit + 日志记录。
 
 ```ts

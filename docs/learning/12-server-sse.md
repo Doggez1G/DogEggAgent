@@ -96,3 +96,9 @@ startServer({ sseHandler, postHandler, staticDir, port: 3000 })
 - 用 `execFileSync`（无 shell）检测系统可用 shell（powershell / pwsh / cmd / bash / zsh / sh）。
 - 结果缓存——首次调用后不再重复检测。
 - 返回 `{ value, label }[]` 供设置面板的 Shell Program 下拉框使用。
+
+### 启动入口与 shell 检测补记
+
+- **生产启动走统一 CLI**：`dogegg -web`（`bin/dogegg.ts` → `dist/dogegg.js`），server 的 `startServer` 由它装配；`main-web.ts` 仅用于 `dev:web` 开发模式（tsx 直跑 + Vite dev server 代理）。`staticDir` 由 `import.meta.dirname` 解析——构建产物下即 `dist/web/`，启动前校验存在（缺失提示先跑 `npm run build:web`）。
+- **`shells/detect.ts` 已改 ESM**：顶层 `import { execFileSync } from 'node:child_process'`（早期函数内 `require()` 在 ESM/tsx 下抛 ReferenceError，已修复）。
+- **TUI 有独立副本**：`ui/src/tui/config/shells.ts` 复刻了同一检测逻辑（TUI 同进程直接调用，不经 HTTP）——已知重复点，两处需同步维护候选名单。

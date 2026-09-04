@@ -1,5 +1,7 @@
 # DogEggAgent 设计文档
 
+> **状态：历史设计快照**（v0.1.0 需求与契约的原始决策依据）。§13 TUI 界面设计与 §14 视觉系统已被后续重写取代——TUI 现为 Static 架构（无 alt-screen/视口裁切，5 套运行时主题），见 ADR-0008 与 docs/learning/09-tui.md；消息契约与配置以 bridge/src/contract/ 源码为准。
+
 > 状态：已确认，待进入实现计划
 > 日期：2026-08-26
 

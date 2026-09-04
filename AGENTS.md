@@ -20,7 +20,7 @@ agent ←→ bridge ←→ ui
 - `agent` 不 import `@dogegg/ui`；`ui` 不 import `@dogegg/agent`；二者都只依赖 `@dogegg/bridge`。
 - `bridge` 不依赖任何兄弟包。
 - `server` 可 import `@dogegg/agent` 和 `@dogegg/bridge`，但不 import `@dogegg/ui`（前端是静态文件被 serve）。
-- 只有组合根（`main.ts` / `main-web.ts`）同时 import agent 与前端。
+- 只有组合根（`bin/dogegg.ts`；dev:web 另用 `main-web.ts`）同时 import agent 与前端。
 
 ### 2.2 模块 = 文件夹
 

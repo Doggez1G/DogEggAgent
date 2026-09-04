@@ -80,7 +80,7 @@ session 存 `cwd`（创建会话时的工作目录）。`saveSession` 写入 `th
 
 ```ts
 // agent/src/session/list.ts
-export function listSessions(baseDir = defaultSessionsDir()): { id, updatedAt, preview }[] {
+export function listSessions(baseDir = defaultSessionsDir()): { id, updatedAt, preview, cwd }[] {
   return readdirSync(baseDir)
     .filter((f) => f.endsWith('.json'))
     .map((f) => {
@@ -177,3 +177,10 @@ class PermissionManager {
 - `permissions_request` → agent 返回 `permissions_list { tools: string[] }`
 - 选中某项 → `permission_revoke { tool }` → agent 调 `revoke()` 后刷新列表
 - 无授权时显示提示
+
+### TUI 会话管理增强
+
+- **CWD 过滤**：session picker 只显示 `s.cwd` 匹配当前工作目录的会话（路径归一化：反斜杠→正斜杠、小写、去尾斜杠）——Claude 式"每个目录独立的会话"。`currentCwdRef` 从 `status_state` 消息填充（启动时主动请求一次）。
+- **搜索**：选择器内直接输入按预览/ID 实时过滤。
+- **删除**：`d` 键删除当前选中会话（确认菜单 → `delete_session`），`session_deleted` 回包后刷新列表。
+- **`/cd` 运行时切换**：`set_cwd` 消息切换 agent 工作目录（校验目录存在），影响后续工具执行与新会话落盘的 cwd。

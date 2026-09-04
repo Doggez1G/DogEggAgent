@@ -143,7 +143,7 @@ tools/
 5. **最后读 context + session + config**：理解数据管理——这是 agent 的记忆。
 6. **UI 最后读**：理解渲染和交互——这是用户看到的。
 
-从 `main.ts` 开始，追踪一条消息的完整路径：
+从 `bin/dogegg.ts` 开始（统一 CLI 入口），追踪一条消息的完整路径：
 
 ```
 用户输入 "帮我读 package.json"

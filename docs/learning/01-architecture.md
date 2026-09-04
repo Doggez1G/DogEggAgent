@@ -119,29 +119,30 @@ uiPort.post(msg)    → agentListeners.forEach(l => l(msg))
 
 将来接 WebUI 时，在 server 包新增 `sse.ts`（SSE 下行 + POST 上行）实现同样的 Port 接口，agent 和 ui 一行不改。server 包归 server 域而非 bridge 契约域（ADR-0002）。
 
-## 组合根：main.ts / main-web.ts
+## 组合根：bin/dogegg.ts
 
-TUI 组合根（`main.ts`），全项目唯一同时 import agent 和 ui 的文件，约 25 行：
-
-```ts
-// main.ts
-const config = loadConfig()                        // @dogegg/agent
-const { agentPort, uiPort } = createChannelPair()  // @dogegg/bridge
-initLogger(join(homedir(), '.dogegg', 'logs'))     // @dogegg/agent
-new Agent(agentPort, config, process.cwd())        // 构造时自订阅 port
-renderTui(uiPort)                                  // @dogegg/ui
-```
-
-WebUI 组合根（`main-web.ts`），import agent + server（不 import ui——前端是静态文件）：
+统一 CLI 组合根（`bin/dogegg.ts`），全项目唯一同时 import agent 和 ui + server 的文件——按 `-web` 参数分发 TUI 或 WebUI：
 
 ```ts
-// main-web.ts
+// bin/dogegg.ts（esbuild 打包为 dist/dogegg.js，shebang + npm bin 字段）
+const isWeb = args.includes('-web') || args.includes('--web')
 const config = loadConfig()
-const { agentPort, uiPort, sseHandler, postHandler } = createSseChannel()  // @dogegg/server
-initLogger(join(homedir(), '.dogegg', 'logs'))
-new Agent(agentPort, config, process.cwd())
-startServer({ uiPort, sseHandler, postHandler, staticDir, port: 3000 })    // @dogegg/server
+if (isWeb) {
+  // WebUI：SSE 通道 + Agent + startServer（静态资源 dist/web/，缺失时报错退出）
+  const { agentPort, sseHandler, postHandler } = createSseChannel()
+  new Agent(agentPort, config, process.cwd())
+  startServer({ sseHandler, postHandler, staticDir: join(import.meta.dirname, 'web'), port })
+} else {
+  // TUI：内存通道 + Agent + renderTui
+  const { agentPort, uiPort } = createChannelPair()
+  new Agent(agentPort, config, process.cwd())
+  renderTui(uiPort)
+}
 ```
+
+全局安装后（`npm link` 或 `npm install -g`）在任意目录执行 `dogegg` 启动 TUI、`dogegg -web` 启动 WebUI——cwd 即当前终端目录（Claude 式启动）。
+
+`main-web.ts` 仅在 `dev:web` 开发模式下由 tsx 直跑（VITE_DEV=1，前端交给 Vite dev server）。`main.ts` 已无脚本引用（遗留）。
 
 组合根不含业务逻辑，只做接线。Agent 构造时 `this.port.onMessage(cb)` 自订阅——之后一切由 port 消息驱动。
 

@@ -11,7 +11,7 @@ ui/src/webui/
 ├─ app/
 │  ├─ app.tsx                    # App 根组件：grid 布局 + state + onMessage + 模态层
 │  └─ view-state.ts             # ThemeName + Modal 类型 + COMMAND_TO_MODAL + SessionItem
-├─ components/                   # 16 个组件，每个 module=folder（view.tsx + index.ts + .module.css）
+├─ components/                   # 17 个组件，每个 module=folder（view.tsx + index.ts + .module.css）
 │  ├─ sidebar/                   # 品牌 + 搜索 + 项目/会话树 + 设置 + 主题切换
 │  ├─ top-bar/                   # 运行状态 + 模型/cwd chip + 连接状态 + Cmd+K 入口
 │  ├─ chat-view/                 # 消息列表 + MarkdownRenderer + 空状态 + 自动滚动

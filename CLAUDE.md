@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 DogEggAgent 是一个自研的**代码编辑型 agent**，第一目标是学习并理解 agent 的实现。技术栈：TypeScript / Node.js ≥ 20，npm workspaces 四包（`agent` / `ui` / `bridge` / `server`），Ink TUI + React DOM WebUI 双前端，zod 校验，JSON 持久化，原生 `fetch` + 手写 SSE。
 
-核心架构原则：**后端（agent）与前端（ui）完全解耦，仅通过 `bridge/` 的消息契约 + Port 通道关联**。agent 与 ui 互不 import，都只依赖 `@dogegg/bridge`；唯一同时 import agent 与前端的是根 `main.ts`（TUI）或 `main-web.ts`（WebUI，组合根）。此规则由 `bridge/test/architecture.test.ts` 强制。
+核心架构原则：**后端（agent）与前端（ui）完全解耦，仅通过 `bridge/` 的消息契约 + Port 通道关联**。agent 与 ui 互不 import，都只依赖 `@dogegg/bridge`；唯一同时 import agent 与前端的是 `bin/dogegg.ts`（统一 CLI 组合根；`main-web.ts` 仅 dev:web 开发模式使用）。此规则由 `bridge/test/architecture.test.ts` 强制。
 
 ## 包结构
 
