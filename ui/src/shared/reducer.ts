@@ -6,6 +6,9 @@ export interface ChatState {
   blocks: Block[]
   status: State
   partial: { kind: 'assistant' | 'thinking'; text: string } | null
+  // 最后一个 tool 块是否尚未收到 tool_end——未完成的块内容还会变，
+  // TUI（Static 输出模式）不能把它固化打印，需留在动态区渲染。
+  toolActive: boolean
 }
 
 // reducer 的输入：后端消息 + UI 本地动作（local_user 本地即时显示）。
@@ -127,7 +130,7 @@ export function reducer(state: ChatState, msg: Action): ChatState {
       return msg.role === 'assistant' ? flush(state) : state
     case 'tool_start': {
       const flushed = flush(state)
-      return { ...flushed, status: 'executing', blocks: [...flushed.blocks, { kind: 'tool', color: 'cyan', text: `${msg.name} ${JSON.stringify(msg.input)}`, toolId: msg.id, toolInput: msg.input }] }
+      return { ...flushed, status: 'executing', toolActive: true, blocks: [...flushed.blocks, { kind: 'tool', color: 'cyan', text: `${msg.name} ${JSON.stringify(msg.input)}`, toolId: msg.id, toolInput: msg.input }] }
     }
     case 'tool_end': {
       // 拒绝/失败工具也有 tool_end（error 标记），此处统一渲染为 ✕ 或 ✓。
@@ -135,16 +138,16 @@ export function reducer(state: ChatState, msg: Action): ChatState {
       // full 里附带 diff 预览（edit_file/write_file/shell 的参数格式化），不只是工具返回的 content。
       const blocks = [...state.blocks]
       const idx = blocks.findIndex((b) => b.toolId === msg.id)
-      if (idx >= 0) {
-        const target = blocks[idx]!
-        const summary = msg.error ? `✕ ${msg.error}` : `✓ 完成（${msg.output.slice(0, 120)}${msg.output.length > 120 ? '…' : ''}）`
-        // 构建 full：工具调用 + 结果 + diff 预览（从 toolInput 格式化）
-        const diffPreview = formatToolDiff(msg.name, target.toolInput)
-        const fullParts = [target.text, msg.error ? `✕ ${msg.error}` : `✓ 完成\n${msg.output}`]
-        if (diffPreview) fullParts.push(diffPreview)
-        blocks[idx] = { ...target, text: `${target.text}\n${summary}`, full: fullParts.join('\n') }
-      }
-      return { ...state, blocks }
+      if (idx < 0) return state // 未找到匹配块不改 state（孤儿 tool_end）
+      const target = blocks[idx]!
+      const summary = msg.error ? `✕ ${msg.error}` : `✓ 完成（${msg.output.slice(0, 120)}${msg.output.length > 120 ? '…' : ''}）`
+      // 构建 full：工具调用 + 结果 + diff 预览（从 toolInput 格式化）
+      const diffPreview = formatToolDiff(msg.name, target.toolInput)
+      const fullParts = [target.text, msg.error ? `✕ ${msg.error}` : `✓ 完成\n${msg.output}`]
+      if (diffPreview) fullParts.push(diffPreview)
+      blocks[idx] = { ...target, text: `${target.text}\n${summary}`, full: fullParts.join('\n') }
+      // 找到匹配块才重置 toolActive——该块内容已固化，UI 可将其打印进缓冲区。
+      return { ...state, blocks, toolActive: false }
     }
     case 'state':
       // 转换到 cancelled/idle 时 flush partial——避免取消后残留的流式文本被
@@ -171,6 +174,7 @@ export function reducer(state: ChatState, msg: Action): ChatState {
         ...state,
         status: 'idle',
         partial: null,
+        toolActive: false,
         blocks: rebuildBlocksFromHistory(msg.messages, msg.thinking),
       }
     case 'compaction':
@@ -185,7 +189,7 @@ export function reducer(state: ChatState, msg: Action): ChatState {
       return state
     case 'history_cleared':
       // 清空历史——先 flush partial，然后在对话面板插入一条提示，再清空。
-      return { ...flush(state), blocks: [{ kind: 'notice', color: 'subtext', text: 'History cleared' }], partial: null }
+      return { ...flush(state), blocks: [{ kind: 'notice', color: 'subtext', text: 'History cleared' }], partial: null, toolActive: false }
     default:
       return state
   }

@@ -14,7 +14,7 @@ interface AppProps {
   connectionState?: 'connected' | 'reconnecting' | 'disconnected'
 }
 
-const initialState: ChatState = { blocks: [], status: 'idle', partial: null }
+const initialState: ChatState = { blocks: [], status: 'idle', partial: null, toolActive: false }
 
 export function App({ port, connectionState }: AppProps) {
   const [chat, dispatch] = useReducer(reducer, initialState)

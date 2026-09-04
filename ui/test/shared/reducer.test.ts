@@ -2,11 +2,11 @@ import { describe, it, expect } from 'vitest'
 import { reducer, type ChatState } from '../../src/shared/reducer'
 import type { AgentToUiMessage } from '@dogegg/bridge'
 
-const initial: ChatState = { blocks: [], status: 'idle', partial: null }
+const initial: ChatState = { blocks: [], status: 'idle', partial: null, toolActive: false }
 
 // 辅助：构造一条已落盘的 assistant partial 状态。
 function withPartial(kind: 'assistant' | 'thinking', text: string): ChatState {
-  return { blocks: [], status: kind === 'thinking' ? 'thinking' : 'responding', partial: { kind, text } }
+  return { blocks: [], status: kind === 'thinking' ? 'thinking' : 'responding', partial: { kind, text }, toolActive: false }
 }
 
 describe('reducer — local_user', () => {
