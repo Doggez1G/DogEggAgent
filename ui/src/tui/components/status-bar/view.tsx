@@ -2,12 +2,13 @@ import React, { useEffect, useState } from 'react'
 import { Box, Text } from 'ink'
 import { palette } from '../../theme'
 import { isStateRunning } from '../../../shared'
+import { COMPACTION_THRESHOLD } from '@dogegg/bridge'
 import type { State } from '@dogegg/bridge'
 
 // Braille spinner 帧序列——10 帧循环，80ms/帧（12.5fps），完整一圈 800ms。
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
-// 状态 → (颜色, Emoji, 中文描述) 映射——落地设计 §14。
+// 状态 → (颜色, Emoji, 中文描述) 映射。
 const STATE_META: Record<string, { color: string; emoji: string; label: string }> = {
   idle: { color: palette.subtext, emoji: '🥚', label: '空闲' },
   thinking: { color: palette.yellow, emoji: '🐣', label: '思考中' },
@@ -21,8 +22,19 @@ const STATE_META: Record<string, { color: string; emoji: string; label: string }
   compacting: { color: palette.cyan, emoji: '🥚', label: '压缩中' },
 }
 
-// 状态栏：品牌前缀 + Emoji + Braille spinner + 状态文字 + provider/model/session/tokens/cwd。
-// 运行态显示 spinner 旋转动画（useState + setInterval 定时切换帧），非运行态静态显示。
+// context 进度条：8 格块字符，超过压缩阈值时变黄提示。
+function contextBar(tokens?: number, windowTokens?: number): { bar: string; color: string; text: string } | null {
+  if (tokens === undefined || windowTokens === undefined || windowTokens <= 0) return null
+  const ratio = Math.min(1, tokens / windowTokens)
+  const filled = Math.round(ratio * 8)
+  const bar = '█'.repeat(filled) + '░'.repeat(8 - filled)
+  const over = ratio >= COMPACTION_THRESHOLD
+  const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 100000 ? 0 : 1)}k` : String(n))
+  return { bar, color: over ? palette.yellow : palette.subtext, text: `${k(tokens)}/${k(windowTokens)}` }
+}
+
+// 状态栏：Emoji + spinner + 状态 + provider/model + context 进度条 + cwd + session。
+// 运行态显示 spinner 旋转动画，非运行态静态显示。
 export function StatusBar(props: {
   state: string
   provider?: string
@@ -44,23 +56,20 @@ export function StatusBar(props: {
   }, [isSpinning])
 
   const spinner = isSpinning ? SPINNER_FRAMES[frame] : ''
-
-  const tokensStr = props.tokens !== undefined && props.windowTokens !== undefined
-    ? `${props.tokens}/${props.windowTokens}`
-    : ''
+  const ctx = contextBar(props.tokens, props.windowTokens)
   // cwd 缩短为 basename（完整路径太长放不进状态栏）。
   const cwdStr = props.cwd ? props.cwd.replace(/\\/g, '/').split('/').pop() ?? props.cwd : ''
+  const modelStr = props.provider && props.model ? `${props.provider}/${props.model}` : ''
 
   return (
     <Box gap={1}>
-      <Text backgroundColor={palette.subtext} color={meta.color}> ● </Text>
       <Text color={meta.color}>{meta.emoji}</Text>
       {isSpinning && <Text color={meta.color}>{spinner}</Text>}
       <Text bold color={meta.color}>{meta.label}</Text>
-      {props.provider && props.model && <Text dimColor>· {props.provider}/{props.model}</Text>}
-      {cwdStr && <Text dimColor>· {cwdStr}</Text>}
-      {props.sessionId && <Text dimColor>· #{props.sessionId}</Text>}
-      {tokensStr && <Text dimColor>· {tokensStr}</Text>}
+      {modelStr && <Text color={palette.subtext}>· {modelStr}</Text>}
+      {ctx && <Text color={ctx.color}>· [{ctx.bar}] {ctx.text}</Text>}
+      {cwdStr && <Text color={palette.subtext}>· 📂 {cwdStr}</Text>}
+      {props.sessionId && <Text dimColor>· 🔖 {props.sessionId.slice(0, 8)}</Text>}
     </Box>
   )
 }

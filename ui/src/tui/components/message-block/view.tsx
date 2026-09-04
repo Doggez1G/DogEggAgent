@@ -3,45 +3,48 @@ import { Box, Text } from 'ink'
 import { palette } from '../../theme'
 import type { Block } from '../../../shared/block'
 
-// DogEgg 品牌化消息渲染——emoji 前缀 + 主题色区分块类型：
-//   user:      ❯ 文本（accent 尖括号）
-//   assistant: 🐶 头行 + 正文（markdown 渲染后的纯文本）
-//   thinking:  🐣 折叠单行（字数）/ 展开显示 dim 全文
-//   tool:      🐾 调用行（cyan）+ ⎿ 结果摘要 / 展开显示完整结果与 diff
-//   error:     ✕ message（红）
-//   notice:    · text（dim）
-//   auto_compact: 🥚 压缩提示（dim）
-// 折叠/展开由 expanded prop 控制——切换时 App 清屏并重挂 Static 重绘全部块。
-export function MessageBlock(props: { block: Block; expanded?: boolean }) {
+// DogEgg 品牌化消息渲染——三层视觉层次：轮次 > 块 > 行。
+//   轮次：每条用户消息前画 dim 分隔线（对话轮次的边界）
+//   块：  emoji 前缀 + 主题色头行（❯ user / 🐶 assistant / 🐣 thinking / 🐾 tool）
+//   行：  正文普通色，辅助信息（工具结果等）dim 缩进
+// 所有块统一 marginBottom=1 空行分隔——折叠/展开切换时 App 清屏重挂 Static 重绘。
+export function MessageBlock(props: { block: Block; expanded?: boolean; width?: number }) {
   const b = props.block
   const expanded = props.expanded ?? false
+  const divider = '─'.repeat(Math.max(20, Math.min(80, (props.width ?? 80) - 1)))
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      {renderBlock(b, expanded, divider)}
+    </Box>
+  )
+}
+
+function renderBlock(b: Block, expanded: boolean, divider: string): React.ReactNode {
   switch (b.kind) {
     case 'user':
       return (
-        <Box flexDirection="column" marginBottom={1}>
+        <>
+          <Text dimColor>{divider}</Text>
           <Text color={palette.accent}>❯ {b.text}</Text>
-        </Box>
+        </>
       )
     case 'assistant':
       return (
-        <Box flexDirection="column" marginBottom={1}>
-          <Text>🐶 </Text>
+        <>
+          <Text bold color={palette.accent}>🐶 DogEgg</Text>
           <Text>{b.text}</Text>
-        </Box>
+        </>
       )
     case 'thinking': {
       const full = b.full ?? b.text
       if (!expanded) {
-        // 折叠：单行摘要（字数统计基于全文）。
-        return (
-          <Text dimColor>🐣 思考 · {full.length} 字</Text>
-        )
+        return <Text dimColor>🐣 思考 · {full.length} 字</Text>
       }
       return (
-        <Box flexDirection="column" marginBottom={1}>
-          <Text dimColor>🐣 思考（展开）</Text>
+        <>
+          <Text bold dimColor>🐣 思考（展开）</Text>
           <Text dimColor>{full}</Text>
-        </Box>
+        </>
       )
     }
     case 'tool': {
@@ -53,12 +56,12 @@ export function MessageBlock(props: { block: Block; expanded?: boolean }) {
       if (!expanded || !b.full) {
         // 折叠：调用行 + 结果摘要（dim）。
         return (
-          <Box flexDirection="column" marginBottom={1}>
-            <Text color={palette.cyan}>🐾 {callName}({callArgs})</Text>
+          <>
+            <Text bold color={palette.cyan}>🐾 {callName}({callArgs})</Text>
             {lines.slice(1).map((l, i) => (
               <Text key={i} dimColor>  ⎿ {truncateMiddle(l, 100)}</Text>
             ))}
-          </Box>
+          </>
         )
       }
       // 展开：调用行 + 完整结果/diff（超长截断到 50 行）。
@@ -66,27 +69,26 @@ export function MessageBlock(props: { block: Block; expanded?: boolean }) {
       const clipped = fullLines.slice(1) // 跳过调用行（已在标题显示）
       const truncated = clipped.length > 50
       return (
-        <Box flexDirection="column" marginBottom={1}>
-          <Text color={palette.cyan}>🐾 {callName}({callArgs})（展开）</Text>
+        <>
+          <Text bold color={palette.cyan}>🐾 {callName}({callArgs})（展开）</Text>
           {clipped.slice(0, 50).map((l, i) => (
             <Text key={i} dimColor>  ⎿ {l}</Text>
           ))}
           {truncated && <Text dimColor>  …（共 {clipped.length} 行，完整输出见 /log）</Text>}
-        </Box>
+        </>
       )
     }
     case 'error':
       return (
-        <Text color={palette.red}>✕ {b.text}</Text>
+        <>
+          <Text bold color={palette.red}>✕ 出错了</Text>
+          <Text color={palette.red}>{b.text}</Text>
+        </>
       )
     case 'auto_compact':
-      return (
-        <Text dimColor>🥚 {b.text}</Text>
-      )
+      return <Text dimColor>🥚 {b.text}</Text>
     default: // notice
-      return (
-        <Text dimColor>· {b.text}</Text>
-      )
+      return <Text dimColor>· {b.text}</Text>
   }
 }
 
