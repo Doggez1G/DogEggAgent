@@ -528,32 +528,26 @@ export function App({ port }: { port: UiPort }) {
   const suggestMatches = view.kind === 'none' ? matchCommands(input) : []
 
   // 精确计算各区域占用行数：
-  // TopBar: 内容1行 + marginBottom1行 = 2行
-  // StatusBar: 1行
-  // 输入区: none视图 = 输入框(1) + "Enter发送"提示(1) = 2行；有browse提示+1；有suggest列表+N+1
-  //          overlay视图 = 输入行(1) + overlay内容(动态)
-  const topBarLines = 2
+  const topBarLines = 2 // TopBar 内容(1) + marginBottom(1)
   const statusBarLines = 1
-  let inputAreaLines = 2 // 输入框 + Enter提示
+  let inputAreaLines = 2 // 输入框(1) + "Enter发送"提示(1)
   if (view.kind === 'none') {
     if (browse !== null) inputAreaLines++
     if (suggestMatches.length > 0) inputAreaLines += suggestMatches.length + 1
   } else if (view.kind === 'info') {
     inputAreaLines = 1 + Math.min(12, Math.max(4, view.lines.length + 2))
   } else {
-    inputAreaLines = 6 // overlay 估算
+    inputAreaLines = 6
   }
 
-  // chat 可用高度 = 终端高度 - TopBar - 输入区 - StatusBar。
-  // 用于块级裁切（决定保留哪些块）；实际渲染由 flexShrink + overflowY 兜底。
+  // chat 可用高度 = 终端高度 - TopBar - 输入区 - StatusBar
   const viewportHeight = Math.max(3, termHeight - topBarLines - inputAreaLines - statusBarLines)
 
   const headerInfo = configSnapshot
     ? (configSnapshot.defaultProvider ? `${configSnapshot.defaultProvider}/${configSnapshot.defaultModel ?? '?'}` : '未配置 provider（请先 /config）')
     : '加载配置中…'
 
-  // markdown 渲染（助手/思考块）+ 展开/折叠状态 + 行数估算 + 滚动窗口裁切。
-  // useMemo 缓存 renderedBlocks——chat.blocks 不变时不重复解析 markdown（流式时只 partial 变）。
+  // markdown 渲染（助手/思考块）+ 展开/折叠状态。
   const isMd = (kind: BlockKind) => kind === 'assistant' || kind === 'thinking'
   const renderedBlocks = useMemo(() =>
     chat.blocks.map((b) => ({
@@ -566,12 +560,12 @@ export function App({ port }: { port: UiPort }) {
   )
   const displayBlocks = buildDisplayBlocks(renderedBlocks, expanded, termWidth)
 
-  // 流式 partial 块也纳入视口裁切范围——否则它超出 viewportHeight 挤压其他组件。
-  // 将 partial 转为临时 DisplayBlock 追加到 displayBlocks 末尾参与裁切。
-  let blocksForViewport = displayBlocks
+  // 将 partial 追加为最后一个块（最新的内容）。
+  type VBlock = typeof displayBlocks[number] & { shownText: string; isCollapsed: boolean; lines: number }
+  const blocksForViewport: VBlock[] = [...displayBlocks]
   if (chat.partial) {
     const partialText = chat.partial.kind === 'thinking' ? chat.partial.text : renderMarkdown(chat.partial.text)
-    blocksForViewport = [...displayBlocks, {
+    blocksForViewport.push({
       ...chat.partial,
       kind: chat.partial.kind === 'thinking' ? 'thinking' : 'assistant',
       color: chat.partial.kind === 'thinking' ? 'yellow' : 'text',
@@ -579,21 +573,22 @@ export function App({ port }: { port: UiPort }) {
       lines: estimateBlockLines(partialText, termWidth),
       shownText: partialText,
       isCollapsed: false,
-    }]
+    } as VBlock)
   }
 
-  // 滚动裁切：从底部保留块，丢弃顶部超出窗口的块。
-  // scroll=0 时只保留能放进 viewportHeight 的最后几个块。
-  // 保守策略：宁可少保留一个块（少显示旧内容），也不能多保留导致溢出裁切最新内容。
+  // 块级裁切：从底部（最新）开始保留，直到估算行数用完预算。
+  // 保守策略：宁可少显示旧块，不可超出视口导致最新内容被裁。
+  // partial 块始终保留（即使估算超出预算）——它是正在输出的最新内容。
   const totalLines = blocksForViewport.reduce((n, b) => n + b.lines, 0)
   const maxScroll = Math.max(0, totalLines - viewportHeight)
   const scrolled = Math.min(scroll, maxScroll)
-  const visibleBlocks: typeof blocksForViewport = []
+  const budget = viewportHeight - scrolled
+  const visibleBlocks: VBlock[] = []
   let accLines = 0
-  const budget = viewportHeight - scrolled // 可见行数预算
   for (let i = blocksForViewport.length - 1; i >= 0; i--) {
     const b = blocksForViewport[i]!
-    if (accLines + b.lines > budget) break // 超出预算就停——保守
+    const isPartial = i === blocksForViewport.length - 1 && !!chat.partial
+    if (!isPartial && accLines + b.lines > budget) break
     visibleBlocks.unshift(b)
     accLines += b.lines
   }
