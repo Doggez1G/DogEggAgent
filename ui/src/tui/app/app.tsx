@@ -582,17 +582,18 @@ export function App({ port }: { port: UiPort }) {
     }]
   }
 
-  // 滚动裁切：按块保留/丢弃（不做行级文本截取——估算不准反而导致内容被裁）。
-  // scroll=0 时只保留底部能放下的块；overflowY=hidden + column-reverse 兜底。
+  // 滚动裁切：从底部保留块，丢弃顶部超出窗口的块。
+  // scroll=0 时只保留能放进 viewportHeight 的最后几个块。
+  // 保守策略：宁可少保留一个块（少显示旧内容），也不能多保留导致溢出裁切最新内容。
   const totalLines = blocksForViewport.reduce((n, b) => n + b.lines, 0)
   const maxScroll = Math.max(0, totalLines - viewportHeight)
   const scrolled = Math.min(scroll, maxScroll)
-  // 从底部开始保留块，丢弃顶部超出窗口的块。
   const visibleBlocks: typeof blocksForViewport = []
   let accLines = 0
+  const budget = viewportHeight - scrolled // 可见行数预算
   for (let i = blocksForViewport.length - 1; i >= 0; i--) {
     const b = blocksForViewport[i]!
-    if (accLines + b.lines > viewportHeight + scrolled && accLines > 0) break
+    if (accLines + b.lines > budget) break // 超出预算就停——保守
     visibleBlocks.unshift(b)
     accLines += b.lines
   }
@@ -602,15 +603,15 @@ export function App({ port }: { port: UiPort }) {
       <TopBar info={headerInfo} />
 
       {/* 消息视口：flexShrink=1 + minHeight=3 让它在空间不足时收缩而非挤压其他组件。
-          column-reverse + overflowY=hidden：最新消息在底部，旧内容从顶部裁切。 */}
-      <Box flexDirection="column-reverse" minHeight={3} flexShrink={1} overflowY="hidden">
+          正常 column 布局 + overflowY=hidden：块级裁切保证只渲染能放下的块。 */}
+      <Box flexDirection="column" minHeight={3} flexShrink={1} overflowY="hidden">
         {chat.blocks.length === 0 && !chat.partial ? (
           <Box flexDirection="column" paddingY={1}>
             <Text color="#94e2d5">🐶🥚 欢迎使用 DogEggAgent</Text>
             <Text dimColor>输入任务开始对话，输入 /help 查看命令{configSnapshot && configSnapshot.providers.length === 0 ? '；首次请先 /config 配置 provider' : ''}</Text>
           </Box>
         ) : (
-          [...visibleBlocks].reverse().map((b) => (
+          visibleBlocks.map((b) => (
             <MessageBlock key={b.index} kind={b.kind} color={b.color} focused={browse === b.index}>
               {b.isCollapsed ? (
                 <Text dimColor>{b.kind === 'thinking'
