@@ -25,14 +25,19 @@ export function useTurnTracking(port: UiPort): {
   // 追踪最新 config——onMessage 闭包不能直接读 config state（不在 effect deps 中）。
   const configRef = useRef<Config | null>(null)
   const lastSubmitText = useRef<string>('')
+  // pendingPermission 的 ref 镜像——订阅回调是首渲染闭包，读 state 恒为 null（分支永不生效）。
+  const pendingRef = useRef<{ id: string; tool: string; input: unknown } | null>(null)
 
   useEffect(() => {
     const off = port.onMessage((msg: AgentToUiMessage) => {
       if (msg.type === 'config_state' || msg.type === 'config_updated') {
         configRef.current = msg.config
       } else if (msg.type === 'permission_request') {
-        setPendingPermission({ id: msg.id, tool: msg.tool, input: msg.input })
-      } else if (msg.type === 'state' && msg.to !== 'waiting_permission' && pendingPermission) {
+        pendingRef.current = { id: msg.id, tool: msg.tool, input: msg.input }
+        setPendingPermission(pendingRef.current)
+      } else if (msg.type === 'state' && msg.to !== 'waiting_permission' && pendingRef.current) {
+        // 权限等待期间状态离开 waiting_permission（如 cancel）→ 关闭审批横幅。
+        pendingRef.current = null
         setPendingPermission(null)
       } else if (msg.type === 'session_ready') {
         setFilesTouched([])
@@ -67,6 +72,7 @@ export function useTurnTracking(port: UiPort): {
 
   const resolve = useCallback((id: string, tool: string, decision: ToolDecision) => {
     permissionDecisions.current.set(tool, decision)
+    pendingRef.current = null
     port.post({ type: 'permission_decision', id, decision })
     setPendingPermission(null)
   }, [port])
