@@ -53,6 +53,7 @@ interface AgentContext {
 - 控制器持 ctx 稳定引用、调用时读——accessor 探针（旧 turn-runner 的 6 个闭包）结构性消灭。
 - **派生值在命令时刻解析成值传入**：`submit(text, params)` / `compact(params)`——provider 解析三处（current/turnParams/summarize）归一为 agent.ts 的 `resolveTurnParams()` 一处。
 - `summarize` 闭包闭合在 ctx 上（调用时读当前配置），构造一次传给 Compactor 单例。
+- **两个轮次参数类型的区分**：`TurnParams`（门面 → TurnRunner，仅 provider 连接与模型参数，命令时刻解析成值）与 `TurnInput`（TurnRunner → AgentLoop，完整轮输入含 context/permission/signal）——名字相近但生命周期不同：前者是一次命令的快照值，后者是正在运行的一轮。
 - 状态机归一：loop 与 agent 的 emitState fire 同一台 `ctx.machine`，`machine.sync()` 删除；emit() 纯化为「转发 + 日志」。
 - **SDK 接缝（预留）**：`requestPermission` 回调已是策略注入点（无头 SDK 可注入程序化决议）；turn/session/config 各自的控制器命令面即未来 SDK 门面的分组依据。
 
