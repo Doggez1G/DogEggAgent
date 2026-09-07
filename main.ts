@@ -4,12 +4,12 @@
 
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { Agent, loadConfig, Logger } from '@dogegg/agent'
+import { Agent, ConfigStore, Logger } from '@dogegg/agent'
 import { InMemoryChannel } from '@dogegg/bridge'
 import { renderTui } from '@dogegg/ui'
 
 // 加载配置（找不到文件返回空配置，不抛错——让 TUI 能启动、引导用户 /config）。
-const config = loadConfig()
+const config = new ConfigStore().load()
 
 // 同进程通道：agentPort 与 uiPort 对偶，同步投递（与旧 emit/send 时序一致）。
 const channel = new InMemoryChannel()

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { compactContext } from '../../src/context/compact'
+import { Compactor } from '../../src/context/compact/compactor'
 import type { Message } from '@dogegg/bridge'
 
 // 构造一个超长 context（超过窗口 80%），触发压缩。
@@ -12,12 +12,12 @@ function makeLongContext(): Message[] {
   return msgs
 }
 
-describe('compactContext', () => {
+describe('Compactor', () => {
   it('未达阈值时不压缩', async () => {
     const context: Message[] = [{ role: 'user', content: '短消息' }]
-    const result = await compactContext({
+    const compactor = new Compactor(async () => '摘要')
+    const result = await compactor.compact({
       context, systemPrompt: 's', tools: [], windowTokens: 100000,
-      summarize: async () => '摘要',
     })
     expect(result.compacted).toBe(false)
     expect(result.context).toBe(context) // 原样返回
@@ -25,9 +25,9 @@ describe('compactContext', () => {
 
   it('达阈值且有旧历史时压缩', async () => {
     const context = makeLongContext()
-    const result = await compactContext({
+    const compactor = new Compactor(async (old) => `摘要了 ${old.length} 条`)
+    const result = await compactor.compact({
       context, systemPrompt: 's', tools: [], windowTokens: 100, // 极小窗口强制触发
-      summarize: async (old) => `摘要了 ${old.length} 条`,
     })
     expect(result.compacted).toBe(true)
     expect(result.context.length).toBeLessThan(context.length)
@@ -38,15 +38,15 @@ describe('compactContext', () => {
   })
 
   it('R1: 只压缩 context，不接收也不修改 history', async () => {
-    // compactContext 的签名只接收 context——它根本碰不到 history。
-    // 此测试验证函数签名不含 history（编译期保证）+ 返回的新 context 与传入无关。
+    // compact 的签名只接收 context——它根本碰不到 history。
+    // 此测试验证签名不含 history（编译期保证）+ 返回的新 context 与传入无关。
     const context = makeLongContext()
     const originalLength = context.length
-    const result = await compactContext({
+    const compactor = new Compactor(async () => '摘要')
+    const result = await compactor.compact({
       context, systemPrompt: 's', tools: [], windowTokens: 100,
-      summarize: async () => '摘要',
     })
-    // 传入的 context 数组不被原地修改（compactContext 返回新数组）
+    // 传入的 context 数组不被原地修改（compact 返回新数组）
     expect(context.length).toBe(originalLength)
     expect(result.context).not.toBe(context)
   })

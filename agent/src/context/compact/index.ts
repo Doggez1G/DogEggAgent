@@ -1,5 +1,5 @@
 export { shouldCompact } from './trigger'
 export { splitForCompaction } from './split'
 export { summarizeHistory } from './summarize'
-export { compactContext, type CompactResult } from './compact'
+export { Compactor, type CompactResult } from './compactor'
 export { enforceContextLimit } from './enforce'

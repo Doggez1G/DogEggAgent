@@ -2,51 +2,60 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
-import { runLoop } from '../../src/loop'
-import type { LoopDeps, LoopResult } from '../../src/loop'
+import { AgentLoop } from '../../src/loop'
+import type { LoopServices, LoopResult, TurnInput } from '../../src/loop'
 import { PermissionManager } from '../../src/permission'
-import { ReadFileTool } from '../../src/tools'
-import type { LlmStreamEvent } from '../../src/llm/types'
+import { ReadFileTool, ToolRegistry } from '../../src/tools'
+import type { LlmClient, LlmStreamEvent } from '../../src/llm/types'
 
 const dir = mkdtempSync(join(tmpdir(), 'dogegg-loop-'))
 writeFileSync(join(dir, 'a.txt'), 'hi')
 
-// 伪 adapter：脚本返回事件序列，含 done（最终 message）；其余事件转发给 emit。
-// 返回 ChatResult { message, reasoning? }（与真实 adapter 一致）。
-function fakeAdapter(script: (messages: unknown[]) => LlmStreamEvent[]): unknown {
+// 伪 client：脚本返回事件序列，含 done（最终 message）；其余事件转发给 emit。
+// 返回 ChatResult { message, reasoning? }（与真实 client 一致）。
+function fakeClient(script: () => LlmStreamEvent[]): LlmClient {
   return {
-    async chat(_req: unknown, _signal: unknown, emit: (e: LlmStreamEvent) => void) {
-      const events = script([])
+    async chat(_req: unknown, _signal: AbortSignal, emit: (e: LlmStreamEvent) => void) {
       let message: unknown = null
       let reasoning: string | undefined
-      for (const e of events) {
+      for (const e of script()) {
         if (e.type === 'done') { message = (e as { message: unknown }).message; reasoning = (e as { reasoning?: string }).reasoning }
         else emit(e)
       }
       return { message, reasoning }
     },
-  }
+  } as unknown as LlmClient
 }
 
-// 最小 LoopDeps：填齐新签名（context 替代 history、新增 summarize）。
-function baseDeps(overrides: Partial<LoopDeps>): LoopDeps {
+// 最小 LoopServices：构造期稳定服务。
+function baseServices(overrides: Partial<LoopServices>): LoopServices {
   return {
-    client: fakeAdapter(() => [{ type: 'done', message: { role: 'assistant', content: 'ok' } }]) as LoopDeps['client'],
-    model: 'm', maxOutput: 10, maxRetries: 0, reasoning: false,
-    context: [], tools: [], systemPrompt: 's', windowTokens: 100000, maxIterations: 10,
-    permission: new PermissionManager({ allow: [], reject: [], ask: [] }),
-    cwd: dir, shellProgram: undefined, signal: new AbortController().signal,
-    emit: () => {}, requestPermission: async () => 'allow_once', checkCancelled: () => false,
-    trans: () => {},
+    registry: new ToolRegistry(),
+    emit: () => {},
+    requestPermission: async () => 'allow_once',
+    checkCancelled: () => false,
     summarize: async () => '',
     ...overrides,
   }
 }
 
-describe('runLoop', () => {
+// 最小 TurnInput：单轮参数。
+function baseTurn(overrides: Partial<TurnInput>): TurnInput {
+  return {
+    client: fakeClient(() => [{ type: 'done', message: { role: 'assistant', content: 'ok' } }]),
+    model: 'm', maxOutput: 10, maxRetries: 0, reasoning: false,
+    context: [], systemPrompt: 's', windowTokens: 100000,
+    permission: new PermissionManager({ allow: [], reject: [], ask: [] }),
+    maxIterations: 10,
+    cwd: dir, shellProgram: undefined, signal: new AbortController().signal,
+    ...overrides,
+  }
+}
+
+describe('AgentLoop', () => {
   it('执行工具后返回最终答案', async () => {
     let call = 0
-    const adapter = fakeAdapter(() => {
+    const client = fakeClient(() => {
       call++
       if (call === 1) {
         return [
@@ -62,11 +71,13 @@ describe('runLoop', () => {
     })
 
     const events: unknown[] = []
-    const result: LoopResult = await runLoop(baseDeps({
-      client: adapter as LoopDeps['client'],
-      tools: [new ReadFileTool()],
-      permission: new PermissionManager({ allow: ['read_file'], reject: [], ask: [] }),
+    const loop = new AgentLoop(baseServices({
+      registry: new ToolRegistry([new ReadFileTool()]),
       emit: (e) => events.push(e),
+    }))
+    const result: LoopResult = await loop.run(baseTurn({
+      client,
+      permission: new PermissionManager({ allow: ['read_file'], reject: [], ask: [] }),
     }))
 
     expect(events.some((e) => (e as { type: string }).type === 'tool_start')).toBe(true)
@@ -78,10 +89,11 @@ describe('runLoop', () => {
 
   it('把初始 context（含 user 消息）传给模型', async () => {
     let received: { role: string; content: string | null }[] = []
-    const adapter = { async chat(req: { messages: { role: string; content: string | null }[] }) { received = req.messages; return { message: { role: 'assistant', content: 'ok' } } } }
+    const client = { async chat(req: { messages: { role: string; content: string | null }[] }) { received = req.messages; return { message: { role: 'assistant', content: 'ok' } } } }
 
-    const result = await runLoop(baseDeps({
-      client: adapter as unknown as LoopDeps['client'],
+    const loop = new AgentLoop(baseServices({}))
+    const result = await loop.run(baseTurn({
+      client: client as unknown as LlmClient,
       context: [{ role: 'user', content: '帮我修 bug' }],
     }))
 

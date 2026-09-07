@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { Agent } from '../../src/core'
-import { loadConfig } from '../../src/config'
+import { ConfigStore } from '../../src/config'
 import { InMemoryChannel } from '@dogegg/bridge'
 import type { AgentToUiMessage, UiToAgentMessage } from '@dogegg/bridge'
 
-const cfg = loadConfig({ providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x/v1', apiKey: 'k', models: [{ name: 'm' }] }] })
+const cfg = new ConfigStore().load({ providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x/v1', apiKey: 'k', models: [{ name: 'm' }] }] })
 
 // Agent 现在通过 Port 收发消息——不再有 on()/send() 公共方法。
 // 测试用 InMemoryChannel 构造对偶 port，agent 订阅 agentPort，测试从 uiPort 发消息、收消息。
@@ -52,7 +52,7 @@ describe('Agent command routing', () => {
     const { agentPort, uiPort } = new InMemoryChannel()
     const types: string[] = []
     // eslint-disable-next-line no-new
-    new Agent(agentPort, loadConfig({}), process.cwd())
+    new Agent(agentPort, new ConfigStore().load({}), process.cwd())
     uiPort.onMessage((m: AgentToUiMessage) => types.push(m.type))
     await new Promise<void>((resolve) => { uiPort.post({ type: 'submit', text: 'hi' }); queueMicrotask(() => resolve()) })
     expect(types).toContain('notice')

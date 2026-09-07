@@ -9,11 +9,11 @@ import { transition, type TransitionInput } from './state'
 import { PendingPermissions } from './pending'
 import { ConfigEditor } from '../config/editor'
 import { resolveCurrent } from '../config/resolve'
-import { saveConfig } from '../config/loader'
-import { loadSystemPrompt, estimateContextTokens, compactContext, summarizeHistory } from '../context'
+import { ConfigStore } from '../config'
+import { ContextAssembler, Compactor, summarizeHistory } from '../context'
 import { ToolRegistry } from '../tools'
 import { clientFor, type LlmClient } from '../llm'
-import { runLoop } from '../loop/run'
+import { AgentLoop } from '../loop'
 import { SessionStore } from '../session'
 import { PermissionManager } from '../permission'
 import { newId, CancelledError, Logger } from '../shared'
@@ -51,6 +51,10 @@ export class Agent {
   private readonly logger: Logger
   private readonly registry: ToolRegistry
   private readonly clientOverride: LlmClient | undefined
+  private assembler: ContextAssembler
+  private readonly configs: ConfigStore
+  private readonly compactor: Compactor
+  private readonly loop: AgentLoop
 
   constructor(
     private port: AgentPort,
@@ -64,6 +68,16 @@ export class Agent {
     this.clientOverride = opts.client
     this.editor = new ConfigEditor(config)
     this.permission = new PermissionManager(config.permission)
+    this.assembler = new ContextAssembler(config.systemPrompt, this.registry)
+    this.configs = new ConfigStore()
+    this.compactor = new Compactor(this.summarize)
+    this.loop = new AgentLoop({
+      registry: this.registry,
+      emit: (e) => this.emit(e),
+      requestPermission: (tool, input) => this.requestPermission(tool, input),
+      checkCancelled: () => this.cancelled,
+      summarize: this.summarize,
+    })
     // 自订阅：UI 发来的消息都经 port 路由到 send。
     this.port.onMessage((msg) => { this.send(msg).catch(() => {}) })
   }
@@ -120,7 +134,7 @@ export class Agent {
   }
 
   private estimateCurrentTokens(): number {
-    return estimateContextTokens(loadSystemPrompt(this.config.systemPrompt), this.context, this.registry.schemas())
+    return this.assembler.estimate(this.context)
   }
 
   // 统一的 status_state 发射——status_request 与 set_cwd 共用，避免字段重复。
@@ -269,7 +283,7 @@ export class Agent {
         break
       }
       case 'system_request':
-        try { this.emit({ type: 'system_state', path: this.config.systemPrompt ?? '内置', content: loadSystemPrompt(this.config.systemPrompt) }) }
+        try { this.emit({ type: 'system_state', path: this.config.systemPrompt ?? '内置', content: this.assembler.systemPrompt() }) }
         catch { this.emit({ type: 'notice', text: 'system prompt 加载失败（路径不存在或无法读取）' }) }
         break
       case 'log_request':
@@ -342,26 +356,20 @@ export class Agent {
     const cur = this.current()
     const { provider } = resolveCurrent(this.config)
     try {
-      const result = await runLoop({
+      const result = await this.loop.run({
         client: this.clientOverride ?? clientFor(provider.protocol, { baseURL: cur.baseURL, apiKey: cur.apiKey }),
         model: cur.model,
         maxOutput: cur.maxOutput,
         maxRetries: this.config.maxRetries,
         reasoning: cur.reasoning,
-        tools: this.registry.all(),
-        context: this.context,
-        systemPrompt: loadSystemPrompt(this.config.systemPrompt),
+        systemPrompt: this.assembler.systemPrompt(),
         windowTokens: cur.contextWindow,
-        maxIterations: this.config.maxIterations,
+        context: this.context,
         permission: this.permission,
+        maxIterations: this.config.maxIterations,
         cwd: this.cwd,
         shellProgram: this.config.shellProgram,
         signal: this.controller.signal,
-        emit: (e) => this.emit(e),
-        requestPermission: (tool, input) => this.requestPermission(tool, input),
-        checkCancelled: () => this.cancelled,
-        trans: (input) => this.emitState(input),
-        summarize: this.summarize,
       })
       // R1：loop 返回更新后的 context + 本轮新增消息 + thinking（成功/取消/错误都返回部分结果）。
       // context 已被 loop 修改（含压缩）；newMessages 同步 append 到 history。
@@ -399,12 +407,11 @@ export class Agent {
     const cur = this.current()
     this.emitState({ kind: 'compact_start' })
     try {
-      const result = await compactContext({
+      const result = await this.compactor.compact({
         context: this.context,
-        systemPrompt: loadSystemPrompt(this.config.systemPrompt),
+        systemPrompt: this.assembler.systemPrompt(),
         tools: this.registry.schemas(),
         windowTokens: cur.contextWindow,
-        summarize: this.summarize,
         force: true,
         signal: this.controller.signal,
       })
@@ -445,7 +452,9 @@ export class Agent {
     const savedAllowed = this.permission.snapshot()
     this.permission = new PermissionManager(this.config.permission)
     for (const t of savedAllowed) this.permission.apply(t, 'allow_always')
-    saveConfig(this.config)
+    // systemPrompt 路径可能被编辑——重建组装器让新路径生效。
+    this.assembler = new ContextAssembler(this.config.systemPrompt, this.registry)
+    this.configs.save(this.config)
     this.emit({ type: 'config_updated', config: this.config })
   }
 }

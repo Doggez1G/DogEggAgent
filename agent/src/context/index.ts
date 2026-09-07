@@ -3,4 +3,6 @@
 export { loadSystemPrompt, BUILTIN_PROMPT } from './prompt'
 export { truncate, TOOL_RESULT_CAP } from './message'
 export { estimateTokens, estimateContextTokens } from './token'
-export { shouldCompact, splitForCompaction, summarizeHistory, compactContext, enforceContextLimit, type CompactResult } from './compact'
+export { shouldCompact, splitForCompaction, summarizeHistory, enforceContextLimit } from './compact'
+export { Compactor, type CompactResult } from './compact'
+export { ContextAssembler } from './context-assembler'

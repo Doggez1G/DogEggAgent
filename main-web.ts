@@ -3,11 +3,11 @@
 
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { Agent, loadConfig, Logger } from '@dogegg/agent'
+import { Agent, ConfigStore, Logger } from '@dogegg/agent'
 import { HttpServer, Router, SseChannel } from '@dogegg/server'
 
 // 加载配置（找不到文件返回空配置，不抛错——让 server 能启动、引导用户 /config）。
-const config = loadConfig()
+const config = new ConfigStore().load()
 
 // SSE 通道：本身就是 AgentPort——agent 与 HTTP 路由共享同一实例。
 const channel = new SseChannel()

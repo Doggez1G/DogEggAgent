@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { Agent } from '../../src/core'
-import { loadConfig } from '../../src/config'
+import { ConfigStore } from '../../src/config'
 import { InMemoryChannel } from '@dogegg/bridge'
 import type { AgentToUiMessage, Message, UiToAgentMessage } from '@dogegg/bridge'
 import type { LlmStreamEvent, LlmClient } from '../../src/llm'
@@ -14,7 +14,7 @@ import type { LlmStreamEvent, LlmClient } from '../../src/llm'
 // ─────────────────────────────────────────────────────────────────────────────
 
 function makeConfig(permission = { allow: [] as string[], reject: [] as string[], ask: [] as string[] }) {
-  return loadConfig({
+  return new ConfigStore().load({
     providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x/v1', apiKey: 'k', models: [{ name: 'm' }] }],
     permission,
   })

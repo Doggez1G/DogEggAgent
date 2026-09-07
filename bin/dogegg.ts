@@ -5,7 +5,7 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
-import { Agent, loadConfig, Logger } from '@dogegg/agent'
+import { Agent, ConfigStore, Logger } from '@dogegg/agent'
 import { InMemoryChannel } from '@dogegg/bridge'
 import { renderTui } from '@dogegg/ui'
 import { HttpServer, Router, SseChannel } from '@dogegg/server'
@@ -14,7 +14,7 @@ const args = process.argv.slice(2)
 const isWeb = args.includes('-web') || args.includes('--web')
 
 // 加载配置（找不到文件返回空配置，不抛错——让程序能启动、引导用户 /config）。
-const config = loadConfig()
+const config = new ConfigStore().load()
 const logger = new Logger(join(homedir(), '.dogegg', 'logs'))
 
 if (isWeb) {
