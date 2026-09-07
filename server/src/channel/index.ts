@@ -1,1 +1,1 @@
-export { createSseChannel } from './sse'
+export { SseChannel } from './sse'

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { Agent } from '../../src/core'
 import { loadConfig } from '../../src/config'
-import { createChannelPair } from '@dogegg/bridge'
+import { InMemoryChannel } from '@dogegg/bridge'
 import type { AgentToUiMessage, Message, UiToAgentMessage } from '@dogegg/bridge'
 import type { LlmStreamEvent, ProviderAdapter } from '../../src/llm'
 
@@ -57,7 +57,7 @@ function makeAgent(opts: {
 } = {}) {
   const sessionsDir = opts.sessionsDir ?? mkdtempSync(join(tmpdir(), 'dogegg-turn-'))
   const cwd = opts.cwd ?? mkdtempSync(join(tmpdir(), 'dogegg-cwd-'))
-  const { agentPort, uiPort } = createChannelPair()
+  const { agentPort, uiPort } = new InMemoryChannel()
   const events: AgentToUiMessage[] = []
   // eslint-disable-next-line no-new
   new Agent(agentPort, makeConfig(opts.permission), cwd, { adapter: opts.adapter, sessionsDir })

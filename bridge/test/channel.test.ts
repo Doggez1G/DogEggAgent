@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { createChannelPair } from '../src/channel/in-memory'
+import { InMemoryChannel } from '../src/channel/in-memory'
 
-describe('createChannelPair', () => {
+describe('InMemoryChannel', () => {
   it('双向投递：agent→ui 与 ui→agent 各达对端', () => {
-    const { agentPort, uiPort } = createChannelPair()
+    const { agentPort, uiPort } = new InMemoryChannel()
     const toUi: string[] = []
     const toAgent: string[] = []
     uiPort.onMessage((m) => toUi.push(m.type))
@@ -17,7 +17,7 @@ describe('createChannelPair', () => {
   })
 
   it('退订后不再投递', () => {
-    const { agentPort, uiPort } = createChannelPair()
+    const { agentPort, uiPort } = new InMemoryChannel()
     const got: string[] = []
     const off = uiPort.onMessage((m) => got.push(m.type))
     off()

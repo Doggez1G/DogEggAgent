@@ -8,36 +8,32 @@ import { uiToAgentMessageSchema } from '@dogegg/bridge'
 const MAX_BODY_SIZE = 1024 * 1024
 
 // SSE 通道：实现 AgentPort 接口，用 HTTP SSE 下行 + POST 上行。
-// agent 侧通过 agentPort 收 UI 消息（POST → onMessage 回调）、发 UI 消息（→ SSE 流）。
+// agent 侧把本实例直接当作 agentPort（收 UI 消息经 postHandler 触发、发 UI 消息写 SSE 流）；
+// Router 把 GET /api/events 与 POST /api/message 接到 sseHandler/postHandler。
 // UI 侧直接消费 SSE 流（浏览器 EventSource）+ POST 上行（fetch），不需要 UiPort。
 // 多个浏览器标签页可同时连 SSE——它们都是同一 Agent 的观察者，共享同一事件流。
-export function createSseChannel(): {
-  agentPort: AgentPort
-  /** GET /api/events 的 HTTP handler——建立 SSE 连接，注册到活跃连接集合。 */
-  sseHandler: (req: IncomingMessage, res: ServerResponse) => void
-  /** POST /api/message 的 HTTP handler——读取 body，zod 校验，触发 agentPort 回调。 */
-  postHandler: (req: IncomingMessage, res: ServerResponse) => void
-} {
-  // agentPort 收到的 UI→agent 消息回调（由 postHandler 触发）。
-  const agentListeners = new Set<(m: UiToAgentMessage) => void>()
+export class SseChannel implements AgentPort {
+  // UI→agent 消息回调（由 postHandler 触发）。
+  private readonly agentListeners = new Set<(m: UiToAgentMessage) => void>()
   // 活跃的 SSE 连接——agent→UI 消息会写入所有连接。
-  const sseClients = new Set<ServerResponse>()
+  private readonly sseClients = new Set<ServerResponse>()
 
-  const agentPort: AgentPort = {
-    onMessage(cb) {
-      agentListeners.add(cb)
-      return () => { agentListeners.delete(cb) }
-    },
-    // agent → UI：序列化为 JSON，写入所有活跃 SSE 连接。
-    post(msg: AgentToUiMessage) {
-      const data = `data: ${JSON.stringify(msg)}\n\n`
-      for (const res of sseClients) {
-        try { res.write(data) } catch { /* 连接已断开，write 失败——清理在 close 事件里做 */ }
-      }
-    },
+  /** 订阅来自 UI 的消息，返回退订函数。 */
+  onMessage(cb: (m: UiToAgentMessage) => void): () => void {
+    this.agentListeners.add(cb)
+    return () => { this.agentListeners.delete(cb) }
   }
 
-  const sseHandler = (_req: IncomingMessage, res: ServerResponse) => {
+  // agent → UI：序列化为 JSON，写入所有活跃 SSE 连接。
+  post(msg: AgentToUiMessage): void {
+    const data = `data: ${JSON.stringify(msg)}\n\n`
+    for (const res of this.sseClients) {
+      try { res.write(data) } catch { /* 连接已断开，write 失败——清理在 close 事件里做 */ }
+    }
+  }
+
+  /** GET /api/events 的 HTTP handler——建立 SSE 连接，注册到活跃连接集合。 */
+  sseHandler(_req: IncomingMessage, res: ServerResponse): void {
     // SSE 响应头：text/event-stream + no-cache + keep-alive。
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -45,11 +41,12 @@ export function createSseChannel(): {
       'Connection': 'keep-alive',
     })
     res.write(': connected\n\n')
-    sseClients.add(res)
-    res.on('close', () => { sseClients.delete(res) })
+    this.sseClients.add(res)
+    res.on('close', () => { this.sseClients.delete(res) })
   }
 
-  const postHandler = (req: IncomingMessage, res: ServerResponse) => {
+  /** POST /api/message 的 HTTP handler——读取 body，zod 校验，触发 agentPort 回调。 */
+  postHandler(req: IncomingMessage, res: ServerResponse): void {
     let body = ''
     let tooLarge = false
     req.on('data', (chunk: Buffer) => {
@@ -74,7 +71,7 @@ export function createSseChannel(): {
           res.end(JSON.stringify({ error: 'Invalid message', details: result.error.issues }))
           return
         }
-        agentListeners.forEach((l) => l(result.data))
+        this.agentListeners.forEach((l) => l(result.data))
         res.writeHead(200, { 'Content-Type': 'text/plain' })
         res.end('ok')
       } catch {
@@ -89,6 +86,4 @@ export function createSseChannel(): {
       }
     })
   }
-
-  return { agentPort, sseHandler, postHandler }
 }

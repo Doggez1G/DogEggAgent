@@ -1,1 +1,1 @@
-export { detectShells } from './detect'
+export { ShellDetector } from './detect'

@@ -6,9 +6,9 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { Agent, loadConfig, initLogger } from '@dogegg/agent'
-import { createChannelPair } from '@dogegg/bridge'
+import { InMemoryChannel } from '@dogegg/bridge'
 import { renderTui } from '@dogegg/ui'
-import { createSseChannel, startServer } from '@dogegg/server'
+import { HttpServer, Router, SseChannel } from '@dogegg/server'
 
 const args = process.argv.slice(2)
 const isWeb = args.includes('-web') || args.includes('--web')
@@ -19,11 +19,11 @@ const logsDir = join(homedir(), '.dogegg', 'logs')
 
 if (isWeb) {
   // ── WebUI 模式 ──
-  // SSE 通道：agentPort 与 sseHandler/postHandler 对偶。
-  const { agentPort, sseHandler, postHandler } = createSseChannel()
+  // SSE 通道：本身就是 AgentPort，agent 与 HTTP 路由共享同一实例。
+  const channel = new SseChannel()
   initLogger(logsDir)
   // eslint-disable-next-line no-new
-  new Agent(agentPort, config, process.cwd())
+  new Agent(channel, config, process.cwd())
 
   // 静态资源目录：与 dist/dogegg.js 同级的 web/ 目录。
   const staticDir = join(import.meta.dirname, 'web')
@@ -34,13 +34,13 @@ if (isWeb) {
   }
 
   const port = Number(process.env.PORT) || 3000
-  startServer({ sseHandler, postHandler, staticDir, port })
+  new HttpServer({ router: new Router({ channel }), staticDir, port }).start()
 } else {
   // ── TUI 模式 ──
   // 同进程通道：agentPort 与 uiPort 对偶，同步投递。
-  const { agentPort, uiPort } = createChannelPair()
+  const channel = new InMemoryChannel()
   initLogger(logsDir)
   // eslint-disable-next-line no-new
-  new Agent(agentPort, config, process.cwd())
-  renderTui(uiPort)
+  new Agent(channel.agentPort, config, process.cwd())
+  renderTui(channel.uiPort)
 }

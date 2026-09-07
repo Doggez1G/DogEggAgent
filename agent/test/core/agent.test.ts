@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest'
 import { Agent } from '../../src/core'
 import { loadConfig } from '../../src/config'
-import { createChannelPair } from '@dogegg/bridge'
+import { InMemoryChannel } from '@dogegg/bridge'
 import type { AgentToUiMessage, UiToAgentMessage } from '@dogegg/bridge'
 
 const cfg = loadConfig({ providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x/v1', apiKey: 'k', models: [{ name: 'm' }] }] })
 
 // Agent 现在通过 Port 收发消息——不再有 on()/send() 公共方法。
-// 测试用 createChannelPair 构造对偶 port，agent 订阅 agentPort，测试从 uiPort 发消息、收消息。
+// 测试用 InMemoryChannel 构造对偶 port，agent 订阅 agentPort，测试从 uiPort 发消息、收消息。
 function makeAgent() {
-  const { agentPort, uiPort } = createChannelPair()
+  const { agentPort, uiPort } = new InMemoryChannel()
   const types: string[] = []
   // agent 构造时自订阅 port，所以 new 之后即开始监听
   // eslint-disable-next-line no-new
@@ -49,7 +49,7 @@ describe('Agent command routing', () => {
 
   it('R2: 未配置时 submit 发 notice 引导 /config 而非静默', async () => {
     // 空配置（无 provider）：isConfigured 为 false，submit 发 notice 而非静默丢弃。
-    const { agentPort, uiPort } = createChannelPair()
+    const { agentPort, uiPort } = new InMemoryChannel()
     const types: string[] = []
     // eslint-disable-next-line no-new
     new Agent(agentPort, loadConfig({}), process.cwd())

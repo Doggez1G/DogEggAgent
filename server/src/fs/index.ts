@@ -1,1 +1,1 @@
-export { listDirs, resolveFsPath } from './browse'
+export { FsBrowser } from './browse'

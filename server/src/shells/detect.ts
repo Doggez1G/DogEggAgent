@@ -10,28 +10,29 @@ const CANDIDATES = [
   { cmd: 'sh', value: 'sh', label: 'sh' },
 ]
 
-// 检测结果缓存——首次检测后不再重复（shell 列表在运行时不会变）。
-let cached: { value: string; label: string }[] | null = null
-
 // 检测系统可用的 shell 程序列表。
-// 用 execFileSync（无 shell）避免 shell 注入；结果缓存，首次调用后不再重复检测。
-export function detectShells(): { value: string; label: string }[] {
-  if (cached) return cached
-  const found: { value: string; label: string }[] = []
-  for (const c of CANDIDATES) {
-    try {
-      execFileSync(c.cmd, ['--version'], { timeout: 3000, stdio: 'pipe' })
-      found.push({ value: c.value, label: c.label })
-    } catch {
-      // cmd --version 在 Windows 会失败，尝试无参数调用。
+// 用 execFileSync（无 shell）避免 shell 注入；结果缓存在实例字段——shell 列表运行时不会变，首次检测后不再重复。
+export class ShellDetector {
+  private cached: { value: string; label: string }[] | null = null
+
+  detect(): { value: string; label: string }[] {
+    if (this.cached) return this.cached
+    const found: { value: string; label: string }[] = []
+    for (const c of CANDIDATES) {
       try {
-        execFileSync(c.cmd, ['/c', 'exit 0'], { timeout: 3000, stdio: 'pipe' })
+        execFileSync(c.cmd, ['--version'], { timeout: 3000, stdio: 'pipe' })
         found.push({ value: c.value, label: c.label })
       } catch {
-        // shell not available — skip
+        // cmd --version 在 Windows 会失败，尝试无参数调用。
+        try {
+          execFileSync(c.cmd, ['/c', 'exit 0'], { timeout: 3000, stdio: 'pipe' })
+          found.push({ value: c.value, label: c.label })
+        } catch {
+          // shell not available — skip
+        }
       }
     }
+    this.cached = found
+    return found
   }
-  cached = found
-  return found
 }
