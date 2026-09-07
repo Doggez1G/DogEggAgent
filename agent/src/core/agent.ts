@@ -12,7 +12,7 @@ import { resolveCurrent } from '../config/resolve'
 import { saveConfig } from '../config/loader'
 import { loadSystemPrompt, estimateContextTokens, compactContext, summarizeHistory } from '../context'
 import { getAllTools, toolSchemas } from '../tools'
-import { adapterFor } from '../llm'
+import { adapterFor, type ProviderAdapter } from '../llm'
 import { runLoop } from '../loop/run'
 import { saveSession, loadSession, listSessions, deleteSession, defaultSessionsDir } from '../session'
 import { PermissionManager } from '../permission'
@@ -23,6 +23,14 @@ import { log, readLogTail, sessionLogPath, newId, CancelledError } from '../shar
 //
 // 构造后自订阅 port 消息——外部不再调 send()，一切通过 port.post(UiToAgentMessage) 驱动。
 // emit() 内部走 port.post()（加日志埋点），agent 只有消息这一个进出通道。
+// Agent 构造选项：仅测试接缝——生产组合根不传，行为与旧签名完全一致。
+export interface AgentOptions {
+  /** 覆盖 adapterFor() 的 LLM adapter（表征测试注入假 adapter 用）。 */
+  adapter?: ProviderAdapter
+  /** 会话持久化目录——缺省 ~/.dogegg/sessions。 */
+  sessionsDir?: string
+}
+
 export class Agent {
   private history: Message[] = []
   private context: Message[] = []
@@ -35,12 +43,17 @@ export class Agent {
   private controller: AbortController | null = null
   private editor: ConfigEditor
   private permission: PermissionManager
+  private readonly sessionsDir: string
+  private readonly adapterOverride: ProviderAdapter | undefined
 
   constructor(
     private port: AgentPort,
     private config: Config,
     private cwd: string,
+    opts: AgentOptions = {},
   ) {
+    this.sessionsDir = opts.sessionsDir ?? defaultSessionsDir()
+    this.adapterOverride = opts.adapter
     this.editor = new ConfigEditor(config)
     this.permission = new PermissionManager(config.permission)
     // 自订阅：UI 发来的消息都经 port 路由到 send。
@@ -124,7 +137,7 @@ export class Agent {
     const { provider } = resolveCurrent(this.config)
     const cur = this.current()
     return summarizeHistory(
-      { adapter: adapterFor(provider.protocol), providerBaseURL: cur.baseURL, apiKey: cur.apiKey, model: cur.model },
+      { adapter: this.adapterOverride ?? adapterFor(provider.protocol), providerBaseURL: cur.baseURL, apiKey: cur.apiKey, model: cur.model },
       old,
       signal,
     )
@@ -159,14 +172,14 @@ export class Agent {
         this.sessionId = newId()
         this.permission.reset() // 会话隔离：allow_always 只对当前会话生效
         // 立即保存空会话——让 list_sessions 能返回新会话（侧栏即时显示）。
-        try { saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed(), defaultSessionsDir(), this.cwd, this.thinking) } catch { /* 磁盘错误忽略 */ }
+        try { saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed(), this.sessionsDir, this.cwd, this.thinking) } catch { /* 磁盘错误忽略 */ }
         this.emit({ type: 'session_ready', id: this.sessionId, messages: this.history })
         break
       }
       case 'resume_session': {
         if (this.running) { this.emit({ type: 'notice', text: '运行中，请稍候' }); return }
         try {
-          const s = loadSession(cmd.id)
+          const s = loadSession(cmd.id, this.sessionsDir)
           this.history = s.history
           this.context = s.context
           this.thinking = s.thinking
@@ -226,7 +239,7 @@ export class Agent {
 
       // ── 纯查询（任意时刻放行）──
       case 'list_sessions':
-        try { this.emit({ type: 'session_list', sessions: listSessions() }) }
+        try { this.emit({ type: 'session_list', sessions: listSessions(this.sessionsDir) }) }
         catch { this.emit({ type: 'notice', text: '会话列表读取失败' }) }
         break
       case 'config_request':
@@ -295,7 +308,7 @@ export class Agent {
         // 删除会话文件——运行中阻塞（不能删正在使用的会话）。
         if (this.running) { this.emit({ type: 'notice', text: '运行中，请稍候' }); return }
         try {
-          deleteSession(cmd.id)
+          deleteSession(cmd.id, this.sessionsDir)
           this.emit({ type: 'session_deleted', id: cmd.id })
           // 如果删除的是当前会话，发一个 notice 提示。
           if (cmd.id === this.sessionId) {
@@ -325,7 +338,7 @@ export class Agent {
     const { provider } = resolveCurrent(this.config)
     try {
       const result = await runLoop({
-        adapter: adapterFor(provider.protocol),
+        adapter: this.adapterOverride ?? adapterFor(provider.protocol),
         providerBaseURL: cur.baseURL,
         apiKey: cur.apiKey,
         model: cur.model,
@@ -367,7 +380,7 @@ export class Agent {
       // 无论成功/失败/取消，turn 结束后状态回到 idle（成功路径 loop 停在 finished，需复位）。
       this.running = false
       this.emitState({ kind: 'reset' })
-      try { saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed(), defaultSessionsDir(), this.cwd, this.thinking) }
+      try { saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed(), this.sessionsDir, this.cwd, this.thinking) }
       catch { this.emit({ type: 'notice', text: '会话保存失败（磁盘空间不足或权限问题）' }) }
     }
   }
@@ -394,7 +407,7 @@ export class Agent {
       })
       if (result.compacted) {
         this.context = result.context
-        saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed(), defaultSessionsDir(), this.cwd, this.thinking)
+        saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed(), this.sessionsDir, this.cwd, this.thinking)
         this.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after, source: 'manual' })
       } else {
         // context 为空——没有消息可压。
