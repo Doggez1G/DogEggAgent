@@ -3,8 +3,8 @@ import type { ConfigPath } from './navigation'
 import type { Entry, TreeCtx } from './entries'
 import { nan } from './label'
 import { detectShells } from './shells'
-import { THEMES, getCurrentTheme, setTheme } from '../theme'
-import { KNOWN_TOOLS } from '../../shared'
+import { THEMES, getCurrentTheme, setTheme } from '../../theme'
+import { KNOWN_TOOLS } from '../../../shared'
 
 // 生成给定路径下的一层字段列表。依据 config + path 决定展示哪些字段、它们的交互形态。
 export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): Entry[] {

@@ -1,44 +1,26 @@
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react'
-import { Box, Static, Text, useInput } from 'ink'
+import { Box, Static, Text } from 'ink'
 import TextInput from 'ink-text-input'
-import type { AgentToUiMessage, PermissionDecision, Config, UiPort } from '@dogegg/bridge'
+import type { AgentToUiMessage, Config, UiPort } from '@dogegg/bridge'
 import { TopBar, MessageBlock, StatusBar, ListPicker, MultilineInput, StreamingBlock } from '../components'
 import { palette, onThemeChange } from '../theme'
 import { renderMarkdown } from '../markdown'
-import { clearScreen, resetSigintTimer } from './entry'
-import { reducer, type ChatState, type Block } from '../chat'
-import { parseCommand, matchCommands } from '../input'
-import { buildEntries, entryLabel, parentPath, type TreeCtx } from '../overlays/config'
-import { type View } from './view-state'
-
-const DECISIONS: PermissionDecision[] = ['allow_once', 'allow_always', 'reject']
-const DECISION_LABELS = ['允许一次', '始终允许（本次会话）', '拒绝']
+import { clearScreen } from './entry'
+import { reducer, type ChatState, type Block, parseCommand, matchCommands } from '../../shared'
+import { buildEntries, entryLabel, parentPath, type TreeCtx } from '../features/config'
+import { useKeyRouting } from './use-key-routing'
+import { DECISION_LABELS } from '../features/permission/decisions'
+import { filterSessions, relTime } from '../features/sessions/filter'
+import { type View } from '../view-state'
 
 // Static items 的类型：首项是品牌头（启动打印一次），其余是已完成的消息块。
 type StaticItem = { type: 'header' } | { type: 'block'; block: Block }
 
-// 会话搜索过滤：按预览文本模糊匹配（大小写不敏感）。
-function filterSessions(sessions: { id: string; preview: string; updatedAt: string }[], query: string): { id: string; preview: string; updatedAt: string }[] {
-  if (!query) return sessions
-  const q = query.toLowerCase()
-  return sessions.filter((s) => s.preview.toLowerCase().includes(q) || s.id.toLowerCase().includes(q))
-}
-
-// 相对时间格式化：now/m/h/d。
-function relTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const m = Math.floor(diff / 60000)
-  if (m < 1) return '刚刚'
-  if (m < 60) return `${m}分钟前`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h}小时前`
-  const d = Math.floor(h / 24)
-  return `${d}天前`
-}
-
 // App 是 UI 的唯一入口。通过 UiPort 收发消息，不依赖 Agent——解耦落点。
 // 架构（Claude Code 式）：已完成的消息块经 <Static> 打印进终端滚动缓冲区，
 // 用户用终端原生滚动查看历史；Ink 只重绘底部动态区（未完成块+流式+输入+状态栏）。
+// 职责边界：本组件做「状态接线 + 布局装配」；键盘路由在 use-key-routing（分派到 features/*/keys），
+// 消息分域在下方两个 effect（chat 状态 / UI 视图）。
 export function App({ port }: { port: UiPort }) {
   const [chat, dispatch] = useReducer(reducer, { blocks: [], status: 'idle', partial: null, toolActive: false } as ChatState)
   const [view, setViewState] = useState<View>({ kind: 'none' })
@@ -77,14 +59,55 @@ export function App({ port }: { port: UiPort }) {
   const viewRef = useRef<View>(view)
   const configRef = useRef<Config | null>(null)
   const configIntent = useRef<'model' | 'config' | null>(null)
-  const suppressEnterRef = useRef(false)
   const statusRef = useRef(chat.status) // 镜像 chat.status 供 useInput 读取（闭包防过期）
 
   const setView = useCallback((v: View) => { viewRef.current = v; setViewState(v) }, [])
   const updateConfig = useCallback((c: Config) => { configRef.current = c; setConfigSnapshot(c) }, [])
   const openMenu = useCallback((title: string, items: { label: string; onSelect: () => void }[]) => setView({ kind: 'menu', title, items, cursor: 0 }), [setView])
+  // 折叠切换/会话切换的清屏 + Static 重挂载（Static 已输出内容无法就地修改）。
+  const clearScreenRemount = useCallback(() => { clearScreen(); setStaticKey((k) => k + 1) }, [])
 
   useEffect(() => { statusRef.current = chat.status }, [chat.status])
+
+  // 配置树变更入口：翻译成 config_set/add/remove 消息发给后端。
+  const treeCtx: TreeCtx = {
+    set: (path, value) => port.post({ type: 'config_set', path, value }),
+    add: (path, value) => port.post({ type: 'config_add', path, value }),
+    remove: (path, index, providerIndex) => port.post({ type: 'config_remove', path, index, providerIndex }),
+  }
+
+  // ── 键盘路由：按 view.kind 分派到 features/*/keys（本组件不再内联按键逻辑）──
+  const { suppressEnter } = useKeyRouting({
+    port,
+    viewRef,
+    setView,
+    statusRef,
+    configRef,
+    treeCtx: {
+      set: (path, value) => port.post({ type: 'config_set', path, value }),
+      add: (path, value) => port.post({ type: 'config_add', path, value }),
+      remove: (path, index, providerIndex) => port.post({ type: 'config_remove', path, index, providerIndex }),
+    },
+    input,
+    setInput,
+    suggest: { get: () => suggestCursorRef.current, set: setSuggestCursor },
+    browse: {
+      get: () => browseIdxRef.current,
+      set: setBrowseIdx,
+      blocks: () => blocksRef.current,
+      isExpanded: (i) => expandedRef.current.has(i),
+      toggle: (i) => {
+        const next = new Set(expandedRef.current)
+        if (next.has(i)) next.delete(i)
+        else next.add(i)
+        expandedRef.current = next
+        setExpanded(next)
+      },
+    },
+    infoScroll: setInfoScroll,
+    history: { items: inputHistoryRef.current, cursor: historyCursorRef.current, setCursor: (c) => { historyCursorRef.current = c } },
+    clearScreenRemount,
+  })
 
   // 运行中轮询 context_request（2s 间隔）——让 StatusBar 的 tokens 实时更新。
   useEffect(() => {
@@ -93,13 +116,6 @@ export function App({ port }: { port: UiPort }) {
     const timer = setInterval(() => port.post({ type: 'context_request' }), 2000)
     return () => clearInterval(timer)
   }, [port, chat.status])
-
-  // 配置树变更入口：翻译成 config_set/add/remove 消息发给后端。
-  const treeCtx: TreeCtx = {
-    set: (path, value) => port.post({ type: 'config_set', path, value }),
-    add: (path, value) => port.post({ type: 'config_add', path, value }),
-    remove: (path, index, providerIndex) => port.post({ type: 'config_remove', path, index, providerIndex }),
-  }
 
   // /model 快捷：provider → model 两级选择器。
   const openModelPicker = useCallback((config: Config) => {
@@ -121,14 +137,13 @@ export function App({ port }: { port: UiPort }) {
     setView({ kind: 'config', path: { kind: 'root' }, cursor: 0, preview: null })
   }, [updateConfig, setView])
 
-  // 订阅后端消息：dispatch 到 reducer + 按 msg.type 切换 overlay。
+  // ── 消息订阅：dispatch 到 reducer + 按 msg.type 切换 overlay ──
   useEffect(() => {
     const off = port.onMessage((msg: AgentToUiMessage) => {
       dispatch(msg)
       // 会话切换/清空：清屏 + Static 重挂载（Static 已输出的内容无法撤回）。
       if (msg.type === 'session_ready' || msg.type === 'history_cleared') {
-        clearScreen()
-        setStaticKey((k) => k + 1)
+        clearScreenRemount()
         setSuggestCursor(null)
         setBrowseIdx(null)
         expandedRef.current = new Set()
@@ -211,189 +226,9 @@ export function App({ port }: { port: UiPort }) {
     port.post({ type: 'config_request' })
     port.post({ type: 'status_request' })
     return off
-  }, [port, openMenu, openModelPicker, openConfigTree, updateConfig, setView])
+  }, [port, openMenu, openModelPicker, openConfigTree, updateConfig, setView, clearScreenRemount, setSuggestCursor, setBrowseIdx])
 
-  // 键盘路由：按 view 类型分发到不同处理。
-  useInput((inputChar, key) => {
-    // Ctrl+C：全局拦截——优先级最高，覆盖所有 view 类型。
-    if (key.ctrl && inputChar === 'c') {
-      resetSigintTimer()
-      const status = statusRef.current
-      const running = status !== 'idle' && status !== 'finished' && status !== 'cancelled' && status !== 'error'
-      if (running) {
-        port.post({ type: 'cancel' })
-      } else if (viewRef.current.kind !== 'menu') {
-        // 空闲且没在菜单里 → 弹退出确认（和 /quit 一致）
-        suppressEnterRef.current = true
-        queueMicrotask(() => { suppressEnterRef.current = false })
-        setView({ kind: 'menu', title: '退出 DogEggAgent？', items: [
-          { label: '确认退出', onSelect: () => { port.post({ type: 'quit' }); setView({ kind: 'none' }) } },
-          { label: '取消', onSelect: () => setView({ kind: 'none' }) },
-        ], cursor: 0 })
-      }
-      return
-    }
-    // 命令提交的回车会被 TextInput 与 useInput 各处理一次：吞掉紧随命令后的第一次回车，避免误触发 overlay。
-    if (key.return && suppressEnterRef.current) { suppressEnterRef.current = false; return }
-    const v = viewRef.current
-
-    if (v.kind === 'permission') {
-      if (key.upArrow) setView({ ...v, cursor: (v.cursor + DECISIONS.length - 1) % DECISIONS.length })
-      else if (key.downArrow) setView({ ...v, cursor: (v.cursor + 1) % DECISIONS.length })
-      else if (key.return) { port.post({ type: 'permission_decision', id: v.id, decision: DECISIONS[v.cursor]! }); setView({ kind: 'none' }) }
-      else if (key.escape) { port.post({ type: 'permission_decision', id: v.id, decision: 'reject' }); setView({ kind: 'none' }) }
-    } else if (v.kind === 'menu') {
-      if (key.upArrow) setView({ ...v, cursor: (v.cursor + v.items.length - 1) % Math.max(1, v.items.length) })
-      else if (key.downArrow) setView({ ...v, cursor: (v.cursor + 1) % Math.max(1, v.items.length) })
-      else if (key.return) { v.items[v.cursor]?.onSelect() }
-      else if (key.escape) setView({ kind: 'none' })
-    } else if (v.kind === 'prompt') {
-      // prompt（标量输入）的 Esc：返回 config 编辑器原位（而非无法退出）。
-      if (key.escape) setView({ kind: 'config', path: v.returnPath ?? { kind: 'root' }, cursor: v.returnCursor ?? 0, preview: null })
-    } else if (v.kind === 'sessionPicker') {
-      // 会话选择器：搜索过滤 + ↑↓ 导航 + 回车切换 + d 删除 + esc 返回。
-      if (key.escape) { setView({ kind: 'none' }) }
-      else if (key.return) {
-        const filtered = filterSessions(v.sessions, v.query)
-        const s = filtered[v.cursor]
-        if (s) { port.post({ type: 'resume_session', id: s.id }); setView({ kind: 'none' }) }
-      } else if (key.upArrow) {
-        const filtered = filterSessions(v.sessions, v.query)
-        setView({ ...v, cursor: (v.cursor + filtered.length - 1) % Math.max(1, filtered.length) })
-      } else if (key.downArrow) {
-        const filtered = filterSessions(v.sessions, v.query)
-        setView({ ...v, cursor: (v.cursor + 1) % Math.max(1, filtered.length) })
-      } else if (inputChar === 'd' && v.query === '') {
-        // d 键删除当前选中会话（仅在未搜索时生效——避免输入 d 搜索时误触发）。
-        const filtered = filterSessions(v.sessions, v.query)
-        const s = filtered[v.cursor]
-        if (s) {
-          suppressEnterRef.current = true
-          queueMicrotask(() => { suppressEnterRef.current = false })
-          setView({ kind: 'menu', title: `删除会话 ${s.id}？`, items: [
-            { label: '确认删除', onSelect: () => { port.post({ type: 'delete_session', id: s.id }) } },
-            { label: '取消', onSelect: () => setView({ kind: 'none' }) },
-          ], cursor: 0 })
-        }
-      } else if (inputChar && !key.ctrl && !key.meta) {
-        // 搜索输入：累积字符更新过滤
-        if (inputChar === '\u007f' || inputChar === '\b') {
-          const newQuery = v.query.slice(0, -1)
-          setView({ ...v, query: newQuery, cursor: 0 })
-        } else if (inputChar >= ' ') {
-          const newQuery = v.query + inputChar
-          setView({ ...v, query: newQuery, cursor: 0 })
-        }
-      }
-    } else if (v.kind === 'config') {
-      const cfg = configRef.current
-      const entries = cfg ? buildEntries(cfg, v.path, treeCtx) : []
-      const entry = entries[v.cursor]
-      if (key.upArrow) setView({ ...v, cursor: (v.cursor + entries.length - 1) % Math.max(1, entries.length), preview: null })
-      else if (key.downArrow) setView({ ...v, cursor: (v.cursor + 1) % Math.max(1, entries.length), preview: null })
-      else if (key.leftArrow || key.rightArrow) {
-        if (entry?.kind === 'bool') setView({ ...v, preview: !(v.preview ?? entry.value) })
-        else setView({ kind: 'config', path: parentPath(v.path) ?? { kind: 'root' }, cursor: 0, preview: null })
-      } else if (key.return) {
-        if (entry?.kind === 'goto') setView({ kind: 'config', path: entry.subPath, cursor: 0, preview: null })
-        else if (entry?.kind === 'scalar') setView({ kind: 'prompt', title: `输入 ${entry.label}`, value: entry.value, returnPath: v.path, returnCursor: v.cursor, onSubmit: (val) => { entry.save(val); setView({ kind: 'config', path: v.path, cursor: v.cursor, preview: null }) } })
-        else if (entry?.kind === 'prompt') setView({ kind: 'prompt', title: entry.title, value: '', returnPath: v.path, returnCursor: v.cursor, onSubmit: (val) => { entry.save(val); setView({ kind: 'config', path: v.path, cursor: v.cursor, preview: null }) } })
-        else if (entry?.kind === 'bool') { entry.save(v.preview ?? entry.value); setView({ kind: 'config', path: v.path, cursor: v.cursor, preview: null }) }
-        else if (entry?.kind === 'action') {
-          entry.run()
-          // 操作后的导航行为：
-          // - 有 del 的 action（按 Enter 删除）：返回父层（项已删，不留空页）
-          // - 无 del 的 action（选择/添加）：留在同页，cursor 不变
-          if (entry.del) {
-            setView({ kind: 'config', path: parentPath(v.path) ?? { kind: 'root' }, cursor: 0, preview: null })
-          }
-        }
-      } else if (key.escape) {
-        const parent = parentPath(v.path)
-        if (parent) setView({ kind: 'config', path: parent, cursor: 0, preview: null })
-        else setView({ kind: 'none' })
-      } else if (inputChar === 'd' && entry) {
-        // d 键删除：执行 del 后留在同页，clamp cursor 防越界（删最后一项时 cursor 回退）。
-        if ((entry.kind === 'goto' || entry.kind === 'action') && entry.del) {
-          entry.del()
-          setView({ ...v, cursor: Math.min(v.cursor, Math.max(0, entries.length - 2)), preview: null })
-        }
-      }
-    } else if (v.kind === 'none') {
-      // 斜杠命令联想提示：输入以 / 开头且有匹配时，↑↓ 选择、回车/Tab 补全。
-      const matches = matchCommands(input)
-      if (matches.length > 0) {
-        if (key.upArrow) { setSuggestCursor(suggestCursorRef.current === null ? matches.length - 1 : (suggestCursorRef.current - 1 + matches.length) % matches.length); return }
-        if (key.downArrow) { setSuggestCursor(suggestCursorRef.current === null ? 0 : (suggestCursorRef.current + 1) % matches.length); return }
-        if (key.tab || inputChar === '\t') {
-          const idx = suggestCursorRef.current ?? (matches.length === 1 ? 0 : null)
-          if (idx !== null) {
-            setInput(matches[idx]!.cmd)
-            setSuggestCursor(null)
-          }
-          return
-        }
-        if (key.escape) { setSuggestCursor(null); return }
-      }
-      // 浏览模式：Ctrl+Up/Ctrl+Down 在消息块间移动焦点（从任意方向进入）。
-      // Enter 切换折叠/展开（清屏重绘 Static）；Esc 退出回到输入。
-      const blockCount = blocksRef.current.length
-      if (key.ctrl && key.upArrow && blockCount > 0) {
-        const cur = browseIdxRef.current
-        setBrowseIdx(cur === null ? blockCount - 1 : Math.max(0, cur - 1))
-        return
-      }
-      if (key.ctrl && key.downArrow && blockCount > 0) {
-        const cur = browseIdxRef.current
-        setBrowseIdx(cur === null ? 0 : Math.min(blockCount - 1, cur + 1))
-        return
-      }
-      if (key.return && browseIdxRef.current !== null) {
-        const idx = browseIdxRef.current
-        const block = blocksRef.current[idx]
-        // 仅思考/工具块可展开（full 存在）。
-        if (block && (block.kind === 'thinking' || block.kind === 'tool') && block.full !== undefined) {
-          const next = new Set(expandedRef.current)
-          if (next.has(idx)) next.delete(idx)
-          else next.add(idx)
-          expandedRef.current = next
-          setExpanded(next)
-          // 折叠状态变化 → 清屏重绘 Static（已打印内容无法就地修改）。
-          clearScreen()
-          setStaticKey((k) => k + 1)
-        }
-        return
-      }
-      if (key.escape && browseIdxRef.current !== null) { setBrowseIdx(null); return }
-      // ↑/↓ 召回输入历史（仅非浏览模式）。
-      if (key.upArrow && browseIdxRef.current === null) {
-        const history = inputHistoryRef.current
-        if (history.length === 0) return
-        const next = historyCursorRef.current < 0 ? history.length - 1 : Math.max(0, historyCursorRef.current - 1)
-        historyCursorRef.current = next
-        setInput(history[next] ?? '')
-      } else if (key.downArrow && browseIdxRef.current === null) {
-        const history = inputHistoryRef.current
-        if (history.length === 0 || historyCursorRef.current < 0) return
-        const next = historyCursorRef.current + 1
-        if (next >= history.length) {
-          // 到底部——清空输入框，退出历史浏览。
-          historyCursorRef.current = -1
-          setInput('')
-        } else {
-          historyCursorRef.current = next
-          setInput(history[next] ?? '')
-        }
-      }
-    } else if (v.kind === 'info') {
-      // 信息面板：esc 关闭，↑/↓ 翻页（固定 15 行窗口）。
-      const page = 10
-      if (key.escape) { setView({ kind: 'none' }) }
-      else if (key.upArrow) setInfoScroll((s) => Math.min(s + page, Math.max(0, v.lines.length - 1)))
-      else if (key.downArrow) setInfoScroll((s) => Math.max(0, s - page))
-    }
-  })
-
+  // ── 命令提交流程：联想拦截 → parseCommand → 确认弹层 → intent 标记 ──
   const handleSubmit = (raw: string) => {
     // 联想补全拦截：有联想匹配且选中了项时，回车补全到输入框而非提交。
     const matches = matchCommands(raw)
@@ -411,8 +246,7 @@ export function App({ port }: { port: UiPort }) {
       port.post({ type: 'submit', text: result.text })
     } else if (result.kind === 'help') {
       // /help 改为 info overlay 呈现命令列表，不再塞消息块。
-      suppressEnterRef.current = true
-      queueMicrotask(() => { suppressEnterRef.current = false })
+      suppressEnter()
       setInfoScroll(0)
       setView({ kind: 'info', title: '帮助', lines: [
         '/new 新建会话      /config 编辑配置',
@@ -427,8 +261,7 @@ export function App({ port }: { port: UiPort }) {
     } else {
       // /clear 和 /quit 需确认弹层（不可逆操作）。
       if (result.msg.type === 'clear_history') {
-        suppressEnterRef.current = true
-        queueMicrotask(() => { suppressEnterRef.current = false })
+        suppressEnter()
         openMenu('清空当前会话历史？此操作不可撤销。', [
           { label: '确认清空', onSelect: () => { port.post({ type: 'clear_history' }); setView({ kind: 'none' }) } },
           { label: '取消', onSelect: () => setView({ kind: 'none' }) },
@@ -437,8 +270,7 @@ export function App({ port }: { port: UiPort }) {
         return
       }
       if (result.msg.type === 'quit') {
-        suppressEnterRef.current = true
-        queueMicrotask(() => { suppressEnterRef.current = false })
+        suppressEnter()
         openMenu('退出 DogEggAgent？', [
           { label: '确认退出', onSelect: () => { port.post({ type: 'quit' }); setView({ kind: 'none' }) } },
           { label: '取消', onSelect: () => setView({ kind: 'none' }) },
@@ -458,8 +290,7 @@ export function App({ port }: { port: UiPort }) {
       // 所有会打开 overlay 的命令统一吞掉提交回车——
       // port 是同步通道，agent 回响应可能立即设 view 为 menu/info，
       // 不吞的话同一个回车被 useInput 在新 view 里处理（误选中第一项）。
-      suppressEnterRef.current = true
-      queueMicrotask(() => { suppressEnterRef.current = false })
+      suppressEnter()
       port.post(result.msg)
     }
     setInput('')
@@ -576,8 +407,7 @@ export function App({ port }: { port: UiPort }) {
               value={view.value}
               onChange={(val) => setView({ ...view, value: val })}
               onSubmit={(val) => {
-                suppressEnterRef.current = true
-                queueMicrotask(() => { suppressEnterRef.current = false })
+                suppressEnter()
                 view.onSubmit(val)
               }}
             />

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildEntries, parentPath, entryLabel } from '../../../src/tui/overlays/config'
+import { buildEntries, parentPath, entryLabel } from '../../../src/tui/features/config'
 import { configSchema, type Config } from '@dogegg/bridge'
 
 const ctx = { set: () => {}, add: () => {}, remove: () => {} }
