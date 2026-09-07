@@ -1,4 +1,4 @@
 {
   "extends": "./tsconfig.base.json",
-  "include": ["main.ts", "main-web.ts", "bin/dogegg.ts", "root-types.d.ts"]
+  "include": ["main-web.ts", "bin/dogegg.ts", "root-types.d.ts"]
 }

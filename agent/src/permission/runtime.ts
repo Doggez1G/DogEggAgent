@@ -1,5 +1,5 @@
 import type { PermissionDecision } from '@dogegg/bridge'
-import { classify, type PermissionConfig } from './classify'
+import { classifyPermission as classify, type PermissionConfig } from '@dogegg/bridge'
 
 // 两层权限的运行时层：配置三桶静态分类 + 运行时 allow_always 会话内提升。
 // 用户对某工具选 allow_always 后，本会话内该工具不再询问（挪进 sessionAllowed）。
@@ -10,7 +10,7 @@ export class PermissionManager {
   constructor(private cfg: PermissionConfig) {}
 
   classify(tool: string): 'allow' | 'reject' | 'ask' {
-    return classify(this.cfg, this.sessionAllowed, tool)
+    return classify(this.cfg, tool, this.sessionAllowed)
   }
 
   apply(tool: string, decision: PermissionDecision): void {
