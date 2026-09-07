@@ -60,7 +60,7 @@ function findConfig(): string | null {
 ## 加载与默认值填充
 
 ```ts
-// agent/src/config/loader/config-store.ts —— OOP 重构后：ConfigStore 类
+// agent/src/config/store.ts —— OOP 重构后：ConfigStore 类
 class ConfigStore {
   load(raw?: unknown): Config {
     let data = raw ?? (findConfig() ? JSON.parse(readFileSync(...)) : {})

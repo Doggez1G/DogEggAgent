@@ -1,6 +1,6 @@
 # OOP 重构设计：后端全仓类化（校准版）
 
-> 状态：已实施（2026-09-07 完成，Phase 0–3 全部落地；172 测试 + 五路 typecheck + build 全绿）
+> 状态：已实施；结构部分被后续纵切重构承接（见 2026-09-07-backend-restructure-design.md——core/loop 解体为 turn/、conversation 归 session、ctx 单一所有权）（2026-09-07 完成，Phase 0–3 全部落地；172 测试 + 五路 typecheck + build 全绿）
 > 日期：2026-09-07
 > 前置：四包 workspaces 架构（2026-08-27 模块化重构）、Static 架构 TUI（ADR-0008）均已稳定
 > 结论来源：2026-09-07 讨论——「全仓类化」校准为「**公共 API 全类 + 纯函数私有化收编 + 契约层保持纯数据**」；前端（ui 包）暂缓，本次只做后端（agent / bridge / server）。

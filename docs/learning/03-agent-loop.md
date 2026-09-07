@@ -16,7 +16,7 @@ Agent Loop 是 code agent 的心脏——它实现了"问模型 → 有工具调
 ## AgentLoop 类（run 方法）
 
 ```ts
-// agent/src/loop/agent-loop.ts —— OOP 重构后：构造注入跨轮次服务（LoopServices），run() 收单轮参数（TurnInput）
+// agent/src/turn/loop.ts —— OOP 重构后：构造注入跨轮次服务（LoopServices），run() 收单轮参数（TurnInput）
 export class AgentLoop {
   constructor(private readonly services: LoopServices) {
     this.compactor = new Compactor(services.summarize)   // 压缩编排收编为 Compactor 类
@@ -129,7 +129,7 @@ loop 操作的是 context 的拷贝——push、压缩都在这个拷贝上。�
 每条 assistant/tool 消息同时 push 到 `context`（发给模型）和 `newMessages`（返回给 agent 同步到 history）。但 history 不受压缩影响——压缩只改 context，history 是完整原文。
 
 ```ts
-// agent/src/core/conversation.ts applyTurnResult()
+// agent/src/session/conversation.ts applyTurnResult()
 this.context = result.context         // 更新 context（可能被压缩）
 this.history.push(...result.newMessages)  // 同步到 history（不被压缩）
 ```

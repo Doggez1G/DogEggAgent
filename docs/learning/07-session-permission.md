@@ -21,7 +21,7 @@
 ### 原子写
 
 ```ts
-// agent/src/session/session-store.ts（OOP 重构后：SessionStore 类，baseDir 构造注入）
+// agent/src/session/store.ts（OOP 重构后：SessionStore 类，baseDir 构造注入）
 class SessionStore {
   save(snapshot: SessionSnapshot): void {
     const { id, history, context, allowedTools, cwd, thinking } = snapshot
@@ -57,7 +57,7 @@ class SessionStore {
 ### 删除会话
 
 ```ts
-// agent/src/session/session-store.ts（SessionStore 续）
+// agent/src/session/store.ts（SessionStore 续）
   delete(id): void {
     const target = this.file(id)
   if (existsSync(target)) unlinkSync(target)
@@ -82,7 +82,7 @@ session 存 `cwd`（创建会话时的工作目录）。`SessionStore.save()` �
 ### 会话列表
 
 ```ts
-// agent/src/session/session-store.ts（SessionStore 续）
+// agent/src/session/store.ts（SessionStore 续）
   list(): { id, updatedAt, preview, cwd }[] {
     return readdirSync(this.baseDir)
     .filter((f) => f.endsWith('.json'))
@@ -147,7 +147,7 @@ function classify(cfg, sessionAllowed, tool): 'allow' | 'reject' | 'ask' {
 ### PermissionManager
 
 ```ts
-// agent/src/permission/runtime.ts
+// agent/src/permission/manager.ts
 class PermissionManager {
   private sessionAllowed = new Set<string>()  // 运行时 allow_always 提升
 

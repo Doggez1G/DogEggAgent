@@ -84,33 +84,89 @@ describe('architecture: 模块边界（index 只做 re-export）', () => {
     expect(violators).toEqual([])
   })
 
-  it('非 index 文件不直接 import 模块私有文件（应通过 index.ts barrel）', () => {
-    // 检测 import 路径指向已知有 barrel 的模块的私有文件。
-    // 已知 barrel 目录：shared, core, core/state, tools, context, context/token, context/message,
-    // llm, llm/streaming, permission, session, config, config/editor, config/loader, config/resolve
-    // 这些目录都有 index.ts，import 应指向目录而非内部文件。
-    const barrelDirs = [
-      'shared/errors', 'shared/id', 'shared/logger',
-      'core/state', 'core/pending',
-      'tools/types', 'tools/registry',
-      'context/token', 'context/message', 'context/compact', 'context/prompt',
-      'llm/types', 'llm/adapter-for', 'llm/streaming',
-      'permission/classify', 'permission/runtime',
-      'session/store', 'session/list',
-    ]
-    // 检查 agent 和 ui 包内非 index 文件的 import。
-    const violators = [
-      ...walk(pkgDir.agent),
-      ...walk(pkgDir.ui),
-    ]
-      .filter((f) => !f.endsWith('/index.ts') && !f.endsWith('/index.tsx') && (f.endsWith('.ts') || f.endsWith('.tsx')))
+  it('跨域 import 必须走域门面（../X 一层，禁止 ../X/深路径）', () => {
+    // 纵切重构立法：分类文件夹的 index 仅供域内组装，跨域只允许一层路径。
+    // 例：允许 '../config'，禁止 '../config/editor'（后者绕过域门面）。
+    const violators = walk(pkgDir.agent)
+      .filter((f) => f.endsWith('.ts') && !f.endsWith('index.ts'))
       .flatMap((f) => {
-        const src = readFileSync(f, 'utf8')
-        const lines = src.split('\n').map((l) => l.trim())
-        return lines
-          .filter((l) => l.startsWith('import '))
-          .filter((l) => barrelDirs.some((d) => l.includes(`/${d}'`) || l.includes(`/${d}"`)))
-          .map((l) => `${f}: ${l}`)
+        const domain = domainOf(f)
+        return importsOf(f)
+          .filter((imp) => imp.startsWith('../') && !imp.startsWith('../..'))
+          .filter((imp) => {
+            const segs = imp.split('/')
+            if (segs.length <= 2) return false // '../ctx'、'../tools' 一层——合法
+            return segs[1] !== domain // 深路径且跨域 → 违规
+          })
+          .map((imp) => `${f}: ${imp}`)
+      })
+    expect(violators).toEqual([])
+  })
+})
+
+// ── agent 子域定位（纵切立法用）─────────────────────────────────────────────
+function domainOf(p: string): string {
+  const rel = p.slice(pkgDir.agent.length + 1).split(/[/\\]/).join('/')
+  const segs = rel.split('/')
+  return segs.length === 1 ? 'ROOT' : segs[0]!
+}
+
+// 相对 import 解析为目标域。单段 rel 二义：根文件（agent/ctx/index）→ ROOT，否则是域 barrel → 该域。
+function resolveTarget(fromFile: string, spec: string): string | null {
+  if (!spec.startsWith('.')) return null
+  const rel = join(fromFile, '..', spec).slice(pkgDir.agent.length + 1).split(/[/\\]/).join('/')
+  const segs = rel.split('/')
+  if (segs.length === 1) {
+    return ['agent', 'ctx', 'index'].includes(segs[0]!) ? 'ROOT' : segs[0]!
+  }
+  return segs[0]!
+}
+
+describe('architecture: agent 子域矩阵（纵切立法，2026-09-07 spec §6）', () => {
+  // 允许依赖矩阵。改矩阵 = 显式设计决策：同时改这里与 spec。
+  // ROOT = agent/src 根文件（agent.ts 门面 / ctx.ts 可变状态持有者 / index.ts 包出口）。
+  const ALLOWED: Record<string, string[]> = {
+    turn: ['session', 'llm', 'tools', 'context', 'permission', 'shared', 'ROOT'],
+    session: ['shared', 'ROOT'],
+    config: ['ROOT'],
+    tools: [],
+    llm: [],
+    context: ['tools'],
+    permission: [],
+    shared: [],
+  }
+
+  it('agent 域间依赖只允许矩阵内的边（能力模块互不依赖，无回穿）', () => {
+    const violators = walk(pkgDir.agent)
+      .filter((f) => f.endsWith('.ts') && !f.endsWith('index.ts'))
+      .flatMap((f) => {
+        const domain = domainOf(f)
+        if (domain === 'ROOT') return [] // 根（门面与 ctx）依赖一切，不受矩阵约束
+        return importsOf(f)
+          .map((imp) => resolveTarget(f, imp))
+          .filter((t): t is string => t !== null)
+          .filter((t) => t !== domain)
+          .filter((t) => !(ALLOWED[domain] ?? []).includes(t))
+          .map((t) => `${domain} -> ${t} (${f})`)
+      })
+    expect(violators).toEqual([])
+  })
+
+  it('跨域 import 必须走域门面（../X 一层，禁止 ../X/深路径）', () => {
+    // 纵切重构立法：分类文件夹的 index 仅供域内组装，跨域只允许一层路径。
+    // 例：允许 '../config'，禁止 '../config/editor'（后者绕过域门面）。
+    const violators = walk(pkgDir.agent)
+      .filter((f) => f.endsWith('.ts') && !f.endsWith('index.ts'))
+      .flatMap((f) => {
+        const domain = domainOf(f)
+        return importsOf(f)
+          .filter((imp) => imp.startsWith('../') && !imp.startsWith('../..'))
+          .filter((imp) => {
+            const segs = imp.split('/')
+            if (segs.length <= 2) return false // '../ctx'、'../tools' 一层——合法
+            return segs[1] !== domain // 深路径且跨域 → 违规
+          })
+          .map((imp) => `${f}: ${imp}`)
       })
     expect(violators).toEqual([])
   })

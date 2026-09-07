@@ -19,7 +19,7 @@ DogEggAgent 最核心的设计之一——**两份独立的数据**：
 每条新消息（user/assistant/tool）产生时同时 push 到两者：
 
 ```ts
-// agent/src/core/turn-runner.ts runTurn()
+// agent/src/turn/turn-runner.ts runTurn()
 this.history.push(userMsg)
 this.context.push(userMsg)
 
@@ -66,7 +66,7 @@ assistant 的 `content` 可能为 null（纯 tool_calls），tool_calls 不在 c
 ## 工具结果截断
 
 ```ts
-// agent/src/context/message/truncate.ts
+// agent/src/context/truncate.ts
 const TOOL_RESULT_CAP = 8000
 
 function truncate(text: string, cap = TOOL_RESULT_CAP): string {
@@ -85,7 +85,7 @@ shell 输出可能几千行——截断到 8000 字符，末尾标注。截断�
 - **手动**：用户输入 `/compact`，无条件压缩（只要 context 非空）。
 
 ```ts
-// agent/src/context/compact/trigger.ts
+// agent/src/context/compaction/trigger.ts
 import { COMPACTION_THRESHOLD } from '@dogegg/bridge'
 function shouldCompact(used: number, windowTokens: number): boolean {
   return used > windowTokens * COMPACTION_THRESHOLD  // 80% 而非 100%——留缓冲
@@ -97,7 +97,7 @@ function shouldCompact(used: number, windowTokens: number): boolean {
 ### 压缩流程
 
 ```ts
-// agent/src/context/compact/compactor.ts（OOP 重构后：Compactor 类，summarize 构造注入）
+// agent/src/turn/compactor.ts（OOP 重构后：Compactor 类，summarize 构造注入）
 class Compactor {
   async compact(input: {
     context: Message[], systemPrompt, tools, windowTokens,
@@ -133,7 +133,7 @@ class Compactor {
 压缩是「软」手段——靠 LLM 摘要把旧消息压成一段。但若单条消息极大（如一次 shell 输出几万 token），或压缩失败降级仍用未压缩 context，压缩后 context 可能仍超阈值。此时 `enforceContextLimit` 作为硬上限兜底：
 
 ```ts
-// agent/src/context/compact/enforce.ts
+// agent/src/context/token/enforce.ts
 export function enforceContextLimit(input: {
   systemPrompt: string; context: Message[]; tools: object[]; windowTokens: number; threshold?: number
 }): { context: Message[]; dropped: number } {
@@ -154,7 +154,7 @@ export function enforceContextLimit(input: {
 ### 摘要调用
 
 ```ts
-// agent/src/context/compact/summarize.ts
+// agent/src/turn/summarize.ts
 async function summarizeHistory(deps, old: Message[], signal?): Promise<string> {
   const assistant = await deps.adapter.chat({
     ...,

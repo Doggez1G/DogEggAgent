@@ -78,7 +78,7 @@ export { EditFileTool } from './tool'
 loop 串行调用 `ToolExecutor.execute()`，它处理参数解析、权限分支、执行/拒绝：
 
 ```ts
-// agent/src/loop/tool-executor.ts —— OOP 重构后：单工具执行收编为类
+// agent/src/turn/tool-executor.ts —— OOP 重构后：单工具执行收编为类
 class ToolExecutor {
   constructor(private readonly services: {
     registry: ToolRegistry

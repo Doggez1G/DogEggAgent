@@ -160,7 +160,7 @@ async function streamOnce(req, signal, emit): Promise<{ message: Message; reason
 OpenAI 的流式响应是 SSE 格式——每行 `data: {JSON}`，最后 `data: [DONE]`。解析器是闭包式有状态函数：
 
 ```ts
-// agent/src/llm/streaming/openai/parser.ts
+// agent/src/llm/provider/openai/parser.ts
 export function createOpenAiStreamParser() {
   let content = ''
   let reasoning = ''                       // 累积推理内容

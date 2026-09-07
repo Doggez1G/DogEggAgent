@@ -52,7 +52,7 @@ type TransitionInput =
 ## 迁移函数 + VALID_FROM 守卫
 
 ```ts
-// agent/src/core/state/transition.ts
+// agent/src/turn/state.ts
 
 // 合法迁移来源表：每个 input kind 只能从特定状态触发。
 // 不在表中的 (input, state) 组合返回原态（不迁移），防止逻辑错误导致非法状态序列。
@@ -119,11 +119,11 @@ finished / cancelled / error / compacting ──reset──▶ idle
 
 两个地方：
 
-1. **agent.ts 的 `emitState(input)`**：算下一态后 emit `state` 事件，并**附带发一条 `status_state`**（含最新 token 估算）——状态栏在每次状态迁移时实时更新（见 `agent/src/core/agent.ts`）。
+1. **agent.ts 的 `emitState(input)`**：算下一态后 emit `state` 事件，并**附带发一条 `status_state`**（含最新 token 估算）——状态栏在每次状态迁移时实时更新（见 `agent/src/agent.ts`）。
 2. **loop/run.ts 的 `trans` 闭包**：loop 内部每次迁移都经 `trans`，确保状态事件 emit + 日志记录。
 
 ```ts
-// agent/src/core/agent.ts
+// agent/src/agent.ts
 private emitState(input: TransitionInput): void {
   const next = transition(this.state, input)
   if (next !== this.state) this.emit({ type: 'state', from: this.state, to: next })
