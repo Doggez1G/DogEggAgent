@@ -1,4 +1,4 @@
-// 主题调色板——完整设计 token（对齐 WebUI 的多层背景体系）：
+// 主题调色板——纯数据（可变状态归 ThemeRegistry，见 registry.ts）：
 //   surface    层次1背景：user 横幅、输入框、状态徽章
 //   surfaceAlt 层次2背景：thinking/tool 卡片（与 surface 色相区分，形成层次）
 //   border     框线（Banner 等容器边框，比 subtext 暗一档，细腻不吵）
@@ -55,32 +55,5 @@ export const THEMES: Record<string, { label: string; palette: Palette }> = {
 }
 
 export const DEFAULT_THEME = 'mocha'
-
-let currentTheme = DEFAULT_THEME
-
-export function getCurrentTheme(): string { return currentTheme }
-
-export function getCurrentPalette(): Palette {
-  return THEMES[currentTheme]?.palette ?? THEMES[DEFAULT_THEME]!.palette
-}
-
-let themeChangeCallbacks: (() => void)[] = []
-
-export function onThemeChange(cb: () => void): () => void {
-  themeChangeCallbacks.push(cb)
-  return () => { themeChangeCallbacks = themeChangeCallbacks.filter((c) => c !== cb) }
-}
-
-export function setTheme(name: string): void {
-  if (!THEMES[name] || name === currentTheme) return
-  currentTheme = name
-  themeChangeCallbacks.forEach((cb) => cb())
-}
-
-export const palette: Palette = new Proxy({} as Palette, {
-  get(_target, prop: string) {
-    return getCurrentPalette()[prop as keyof Palette]
-  },
-})
 
 export type BlockColor = string

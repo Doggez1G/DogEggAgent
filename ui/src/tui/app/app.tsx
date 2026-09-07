@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Box, Static, Text } from 'ink'
 import type { Config, UiPort } from '@dogegg/bridge'
 import { TopBar, MessageBlock, StatusBar, MultilineInput, StreamingBlock } from '../components'
-import { palette, onThemeChange } from '../theme'
+import { palette, themeRegistry } from '../theme'
 import { renderMarkdown } from '../markdown'
 import { clearScreen } from './entry'
 import { reducer, type ChatState, type Block, parseCommand, matchCommands } from '../../shared'
@@ -50,14 +50,7 @@ export function App({ port }: { port: UiPort }) {
   const expandedRef = useRef<Set<number>>(new Set())
   const blocksRef = useRef(chat.blocks)
   useEffect(() => { blocksRef.current = chat.blocks }, [chat.blocks])
-  // 主题状态：切换主题时触发重渲染（palette 通过 Proxy 动态读取）。
-  const [, setThemeTick] = useState(0)
-  useEffect(() => onThemeChange(() => {
-    // 主题切换：清屏 + Static 重挂载——历史消息也按新主题重渲染（缓冲区内容无法就地改色）。
-    clearScreen()
-    setStaticKey((k) => k + 1)
-    setThemeTick((t) => t + 1)
-  }), [])
+  // 主题切换：清屏 + Static 重挂载（静态区重渲染；动态区经 staticKey 变更整体重渲染）。
   const inputHistoryRef = useRef<string[]>([])
   const historyCursorRef = useRef<number>(-1) // 输入历史游标（-1=未在浏览历史）
   // view/config 用 ref 镜像，避免 Ink useInput 回调闭包过期（useState 在回调里拿到的是旧值）。
@@ -71,6 +64,7 @@ export function App({ port }: { port: UiPort }) {
   const openMenu = useCallback((title: string, items: { label: string; onSelect: () => void }[]) => setView({ kind: 'menu', title, items, cursor: 0 }), [setView])
   // 折叠切换/会话切换的清屏 + Static 重挂载（Static 已输出内容无法就地修改）。
   const clearScreenRemount = useCallback(() => { clearScreen(); setStaticKey((k) => k + 1) }, [])
+  useEffect(() => themeRegistry.onChange(clearScreenRemount), [clearScreenRemount])
   // 会话切换/清空后的 UI 复位。
   const onSessionCleared = useCallback(() => {
     setSuggestCursor(null)

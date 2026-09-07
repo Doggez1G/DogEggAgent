@@ -1,2 +1,3 @@
-export { palette, type BlockColor, THEMES, DEFAULT_THEME, getCurrentTheme, getCurrentPalette, setTheme, onThemeChange, type Palette } from './palette'
+export { type Palette, THEMES, DEFAULT_THEME, type BlockColor } from './palette'
+export { ThemeRegistry, themeRegistry, palette } from './registry'
 export { KIND_ICON, TOKEN_COLOR, KIND_ROLE } from './token-map'
