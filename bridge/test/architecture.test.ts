@@ -171,3 +171,22 @@ describe('architecture: agent 子域矩阵（纵切立法，2026-09-07 spec §6�
     expect(violators).toEqual([])
   })
 })
+
+
+describe('architecture: 前端边界（UI 批次立法）', () => {
+  it('tui 与 webui 互不依赖（两个前端各自独立）', () => {
+    const tuiImports = walk('ui/src/tui').flatMap((f) => importsOf(f))
+    const webuiImports = walk('ui/src/webui').flatMap((f) => importsOf(f))
+    expect(tuiImports.some((i) => i.includes('/webui') || i.includes('\webui'))).toBe(false)
+    expect(webuiImports.some((i) => i.includes('/tui') || i.includes('\tui'))).toBe(false)
+  })
+
+  it('features 视图与组件不得 import 装配层 app/', () => {
+    const offenders = ['ui/src/tui/features', 'ui/src/webui/features', 'ui/src/tui/components', 'ui/src/webui/components']
+      .flatMap((dir) => walk(dir).filter((f) => f.endsWith('.ts') || f.endsWith('.tsx')))
+      // 样式共享（.module.css）不算逻辑依赖——立法管的是代码装配层。
+      .filter((f) => importsOf(f).filter((i) => !i.endsWith('.css')).some((i) => i.includes('/app/') || i.startsWith('./app')))
+      .map((f) => f)
+    expect(offenders).toEqual([])
+  })
+})

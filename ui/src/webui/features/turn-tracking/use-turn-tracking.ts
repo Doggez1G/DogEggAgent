@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentToUiMessage, Config, UiPort } from '@dogegg/bridge'
 import { getToolPermission } from '../../../shared'
 import { applyToolStart, applyToolEnd, extractFilesTouched, type ToolCallEntry, type ToolDecision } from './logic/tool-tracking'
-import type { FileTouched } from '../../app/view-state'
+import type { FileTouched } from '../../view-state'
 
 // 工具执行与审批生命周期：toolCalls 追踪、filesTouched 提取、权限挂起与决策关联。
 // 独立订阅 port——只关心 permission_request / tool_start / tool_end / session_ready / history_cleared / error。

@@ -7,7 +7,7 @@ import { usePanelData } from '../features/info-panel/use-panel-data'
 import { useTurnTracking } from '../features/turn-tracking/use-turn-tracking'
 import { useUiChrome } from '../features/chrome/use-ui-chrome'
 import { getCommandFeedback, isStateRunning } from '../../shared'
-import { COMMAND_TO_MODAL } from './view-state'
+import { COMMAND_TO_MODAL } from '../view-state'
 import styles from './app.module.css'
 
 // App：三栏布局——侧栏 + 顶栏 + 聊天 + 输入 + 右侧信息面板。

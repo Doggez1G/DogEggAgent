@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { UiPort } from '@dogegg/bridge'
-import type { SessionItem } from '../../app/view-state'
+import type { SessionItem } from '../../view-state'
 
 // 会话数据域：列表 + 已知项目集合（即使会话全删，项目保留到显式删除）。
 // 独立订阅 port——只关心 session_list / session_deleted。

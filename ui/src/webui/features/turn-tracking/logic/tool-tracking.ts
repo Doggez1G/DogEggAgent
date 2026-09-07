@@ -1,5 +1,5 @@
 import type { AgentToUiMessage } from '@dogegg/bridge'
-import type { FileTouched } from '../../../app/view-state'
+import type { FileTouched } from '../../../view-state'
 
 // 工具调用追踪的纯逻辑（无 React 依赖，可单测）。
 // permission_request.id 与 tool_start.id 不同（后端分别生成），决策按 toolName 关联。

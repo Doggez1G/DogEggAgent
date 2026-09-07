@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ThemeName, Modal } from '../../app/view-state'
+import type { ThemeName, Modal } from '../../view-state'
 
 // UI chrome 数据域：modal 总管、toast/highlight 计时器、面板折叠、主题、Cmd+K。
 // 与数据域（chat/panel/tracking/sessions）正交——只管「界面外壳」。
