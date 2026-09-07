@@ -4,9 +4,11 @@ import { createOpenAiStreamParser } from './parser'
 import { buildRequest } from './request'
 import { HttpError, NetworkError, StreamTimeoutError } from './errors'
 
-// 流式超时常量：绝对超时 600s（推理模型长思考 + 长回答可轻松超过旧值 120s——那会掐断正常生成），
-// 空闲超时 60s（连续 60s 无任何字节才算失联；部分兼容端点对推理阶段不流式，静默数分钟是正常的）。
-const ABSOLUTE_TIMEOUT_MS = 600_000
+// 超时模型（两级，均不含总时长上限——持续出字节的流是健康的，生成长度由 maxOutput 决定）：
+// 1. 连接超时 CONNECT_TIMEOUT_MS：fetch 发起 → 响应头返回（含 DNS/TLS/服务端处理首响）。
+// 2. 空闲超时 IDLE_TIMEOUT_MS：相邻 chunk 的最大间隔（首个 chunk 前的 body 等待同样受它约束）。
+// 两级超时统一抛 StreamTimeoutError（retry 层可重试）；用户取消走 AbortError，互不混淆。
+const CONNECT_TIMEOUT_MS = 60_000
 const IDLE_TIMEOUT_MS = 60_000
 
 // 单次流式请求：fetch → 逐行读 SSE 流 → 喂 parser → 累积最终 message + reasoning。
@@ -15,14 +17,25 @@ const IDLE_TIMEOUT_MS = 60_000
 export async function streamOnce(conn: LlmClientConn, req: ChatRequest, signal: AbortSignal, emit: (e: LlmStreamEvent) => void): Promise<{ message: Message; reasoning?: string }> {
   const { url, init } = buildRequest(req, conn)
 
+  // 连接超时：独立 controller 承载——超时 abort 与用户 abort 需区分归因。
+  const connectCtrl = new AbortController()
+  let connectTimedOut = false
+  const onUserAbort = () => connectCtrl.abort()
+  signal.addEventListener('abort', onUserAbort, { once: true })
+  const connectTimer = setTimeout(() => { connectTimedOut = true; connectCtrl.abort() }, CONNECT_TIMEOUT_MS)
+
   let res: Response
   try {
-    res = await fetch(url, { ...init, signal })
+    res = await fetch(url, { ...init, signal: connectCtrl.signal })
   } catch (e) {
-    // fetch reject：网络错误（DNS 失败、连接拒绝、ECONNRESET 等），可重试。
-    if ((e as Error).name === 'AbortError') throw e
-    throw new NetworkError(e)
+    clearTimeout(connectTimer)
+    signal.removeEventListener('abort', onUserAbort)
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError') // 用户取消
+    if (connectTimedOut) throw new StreamTimeoutError('connect')        // 连接超时（可重试）
+    throw new NetworkError(e)                                           // 网络错误（可重试）
   }
+  clearTimeout(connectTimer)
+  // 注意：onUserAbort 监听保留——body 阶段用户 abort 仍需中断（fetch body 绑定 connectCtrl.signal）。
 
   if (!res.ok || !res.body) {
     const retryAfter = res.headers.get('retry-after')
@@ -43,11 +56,6 @@ export async function streamOnce(conn: LlmClientConn, req: ChatRequest, signal: 
   let finalMessage: Message | null = null
   let finalReasoning: string | undefined
 
-  // 绝对超时计时器——从请求开始算，超过 ABSOLUTE_TIMEOUT_MS 则中止。
-  const absoluteTimer = setTimeout(() => {
-    timeout = new StreamTimeoutError('absolute')
-    reader.cancel(timeout).catch(() => {})
-  }, ABSOLUTE_TIMEOUT_MS)
 
   try {
     for (;;) {
@@ -94,7 +102,7 @@ export async function streamOnce(conn: LlmClientConn, req: ChatRequest, signal: 
       }
     }
   } finally {
-    clearTimeout(absoluteTimer)
+    signal.removeEventListener('abort', onUserAbort)
   }
 
   if (!finalMessage) {

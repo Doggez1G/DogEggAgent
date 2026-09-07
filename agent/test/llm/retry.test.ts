@@ -27,7 +27,7 @@ describe('error classification', () => {
 
   it('StreamTimeoutError is retryable', () => {
     expect(new StreamTimeoutError('idle').retryable).toBe(true)
-    expect(new StreamTimeoutError('absolute').retryable).toBe(true)
+    expect(new StreamTimeoutError('connect').retryable).toBe(true)
   })
 
   it('isRetryable: AbortError is not retryable', () => {

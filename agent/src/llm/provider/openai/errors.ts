@@ -28,8 +28,8 @@ export class NetworkError extends Error {
 
 // 流式超时错误——provider 接受连接但长时间不返回数据。
 export class StreamTimeoutError extends Error {
-  constructor(public readonly kind: 'idle' | 'absolute') {
-    super(kind === 'idle' ? '流式空闲超时（长时间无数据）' : '流式绝对超时（超过总时限）')
+  constructor(public readonly kind: 'connect' | 'idle') {
+    super(kind === 'connect' ? '流式连接超时（服务器未及时响应）' : '流式空闲超时（长时间无数据）')
     this.name = 'StreamTimeoutError'
   }
   get retryable(): boolean { return true }
