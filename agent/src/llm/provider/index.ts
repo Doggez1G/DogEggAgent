@@ -1,1 +1,1 @@
-export { openAiAdapter } from './openai'
+export { OpenAiClient } from './openai'

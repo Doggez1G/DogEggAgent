@@ -130,10 +130,8 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
       // 用外部传入的 signal（由 Agent 持有，cancel 时 abort），使取消能真正中断在飞的 fetch 与工具。
       let result
       try {
-        result = await deps.adapter.chat(
+        result = await deps.client.chat(
           {
-            baseURL: deps.providerBaseURL,
-            apiKey: deps.apiKey,
             model: deps.model,
             systemPrompt: deps.systemPrompt,
             messages: context,

@@ -12,7 +12,7 @@ import { resolveCurrent } from '../config/resolve'
 import { saveConfig } from '../config/loader'
 import { loadSystemPrompt, estimateContextTokens, compactContext, summarizeHistory } from '../context'
 import { ToolRegistry } from '../tools'
-import { adapterFor, type ProviderAdapter } from '../llm'
+import { clientFor, type LlmClient } from '../llm'
 import { runLoop } from '../loop/run'
 import { SessionStore } from '../session'
 import { PermissionManager } from '../permission'
@@ -25,8 +25,8 @@ import { newId, CancelledError, Logger } from '../shared'
 // emit() 内部走 port.post()（加日志埋点），agent 只有消息这一个进出通道。
 // Agent 构造选项：依赖注入（生产组合根传 logger；adapter/sessionsDir 为测试接缝）。
 export interface AgentOptions {
-  /** 覆盖 adapterFor() 的 LLM adapter（表征测试注入假 adapter 用）。 */
-  adapter?: ProviderAdapter
+  /** 覆盖 clientFor() 的 LLM client（表征测试注入假 client 用）。 */
+  client?: LlmClient
   /** 会话持久化目录——缺省 ~/.dogegg/sessions。 */
   sessionsDir?: string
   /** 日志实例——缺省不启用日志。 */
@@ -50,7 +50,7 @@ export class Agent {
   private readonly sessions: SessionStore
   private readonly logger: Logger
   private readonly registry: ToolRegistry
-  private readonly adapterOverride: ProviderAdapter | undefined
+  private readonly clientOverride: LlmClient | undefined
 
   constructor(
     private port: AgentPort,
@@ -61,7 +61,7 @@ export class Agent {
     this.sessions = new SessionStore(opts.sessionsDir)
     this.logger = opts.logger ?? new Logger(null)
     this.registry = opts.registry ?? ToolRegistry.withBuiltins()
-    this.adapterOverride = opts.adapter
+    this.clientOverride = opts.client
     this.editor = new ConfigEditor(config)
     this.permission = new PermissionManager(config.permission)
     // 自订阅：UI 发来的消息都经 port 路由到 send。
@@ -144,11 +144,8 @@ export class Agent {
   private summarize = (old: Message[], signal?: AbortSignal): Promise<string> => {
     const { provider } = resolveCurrent(this.config)
     const cur = this.current()
-    return summarizeHistory(
-      { adapter: this.adapterOverride ?? adapterFor(provider.protocol), providerBaseURL: cur.baseURL, apiKey: cur.apiKey, model: cur.model },
-      old,
-      signal,
-    )
+    const client = this.clientOverride ?? clientFor(provider.protocol, { baseURL: cur.baseURL, apiKey: cur.apiKey })
+    return summarizeHistory({ client, model: cur.model }, old, signal)
   }
 
   // R2 四类命令分发。动工作集类在 running 时发 notice 不静默丢弃；纯查询类始终放行。
@@ -346,9 +343,7 @@ export class Agent {
     const { provider } = resolveCurrent(this.config)
     try {
       const result = await runLoop({
-        adapter: this.adapterOverride ?? adapterFor(provider.protocol),
-        providerBaseURL: cur.baseURL,
-        apiKey: cur.apiKey,
+        client: this.clientOverride ?? clientFor(provider.protocol, { baseURL: cur.baseURL, apiKey: cur.apiKey }),
         model: cur.model,
         maxOutput: cur.maxOutput,
         maxRetries: this.config.maxRetries,

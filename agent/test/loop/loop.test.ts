@@ -31,8 +31,8 @@ function fakeAdapter(script: (messages: unknown[]) => LlmStreamEvent[]): unknown
 // 最小 LoopDeps：填齐新签名（context 替代 history、新增 summarize）。
 function baseDeps(overrides: Partial<LoopDeps>): LoopDeps {
   return {
-    adapter: fakeAdapter(() => [{ type: 'done', message: { role: 'assistant', content: 'ok' } }]) as LoopDeps['adapter'],
-    providerBaseURL: 'http://x', apiKey: 'k', model: 'm', maxOutput: 10, maxRetries: 0, reasoning: false,
+    client: fakeAdapter(() => [{ type: 'done', message: { role: 'assistant', content: 'ok' } }]) as LoopDeps['client'],
+    model: 'm', maxOutput: 10, maxRetries: 0, reasoning: false,
     context: [], tools: [], systemPrompt: 's', windowTokens: 100000, maxIterations: 10,
     permission: new PermissionManager({ allow: [], reject: [], ask: [] }),
     cwd: dir, shellProgram: undefined, signal: new AbortController().signal,
@@ -63,7 +63,7 @@ describe('runLoop', () => {
 
     const events: unknown[] = []
     const result: LoopResult = await runLoop(baseDeps({
-      adapter: adapter as LoopDeps['adapter'],
+      client: adapter as LoopDeps['client'],
       tools: [new ReadFileTool()],
       permission: new PermissionManager({ allow: ['read_file'], reject: [], ask: [] }),
       emit: (e) => events.push(e),
@@ -81,7 +81,7 @@ describe('runLoop', () => {
     const adapter = { async chat(req: { messages: { role: string; content: string | null }[] }) { received = req.messages; return { message: { role: 'assistant', content: 'ok' } } } }
 
     const result = await runLoop(baseDeps({
-      adapter: adapter as unknown as LoopDeps['adapter'],
+      client: adapter as unknown as LoopDeps['client'],
       context: [{ role: 'user', content: '帮我修 bug' }],
     }))
 

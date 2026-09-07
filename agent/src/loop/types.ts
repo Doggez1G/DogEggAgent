@@ -1,4 +1,4 @@
-import type { ProviderAdapter } from '../llm'
+import type { LlmClient } from '../llm'
 import type { Tool } from '../tools'
 import type { Message, PermissionDecision, State } from '@dogegg/bridge'
 import type { AgentToUiMessage } from '@dogegg/bridge'
@@ -8,11 +8,9 @@ import type { PermissionManager } from '../permission'
 // - emit：向上发 Agent 级事件（供 UI 渲染）
 // - requestPermission：等待用户审批决议（返回 Promise，在 waiting_permission 态挂起）
 // - checkCancelled：轮询取消标志（loop 在每次迭代/工具间检查）
-// - summarize：压缩回调（调 LLM 把旧消息压摘要），由 core 注入以避免 loop 直接依赖 llm adapter
+// - summarize：压缩回调（调 LLM 把旧消息压摘要），由 core 注入以避免 loop 直接依赖 llm client
 export interface LoopDeps {
-  adapter: ProviderAdapter
-  providerBaseURL: string
-  apiKey: string
+  client: LlmClient
   model: string
   maxOutput: number
   maxRetries: number

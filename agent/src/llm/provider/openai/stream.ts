@@ -1,5 +1,5 @@
 import type { Message } from '@dogegg/bridge'
-import type { LlmStreamEvent, ChatRequest } from '../..'
+import type { LlmStreamEvent, ChatRequest, LlmClientConn } from '../..'
 import { createOpenAiStreamParser } from '../../streaming'
 import { buildRequest } from './request'
 import { HttpError, NetworkError, StreamTimeoutError } from './errors'
@@ -9,10 +9,10 @@ const ABSOLUTE_TIMEOUT_MS = 120_000
 const IDLE_TIMEOUT_MS = 15_000
 
 // 单次流式请求：fetch → 逐行读 SSE 流 → 喂 parser → 累积最终 message + reasoning。
-// 不做重试（重试在 adapter 层）。HTTP 错误 / 流中断 / 超时 / 无最终消息均抛错。
+// 不做重试（重试在 OpenAiClient 层）。HTTP 错误 / 流中断 / 超时 / 无最终消息均抛错。
 // 错误类型分类（HttpError / NetworkError / StreamTimeoutError），供 retry 层判断可重试性。
-export async function streamOnce(req: ChatRequest, signal: AbortSignal, emit: (e: LlmStreamEvent) => void): Promise<{ message: Message; reasoning?: string }> {
-  const { url, init } = buildRequest(req)
+export async function streamOnce(conn: LlmClientConn, req: ChatRequest, signal: AbortSignal, emit: (e: LlmStreamEvent) => void): Promise<{ message: Message; reasoning?: string }> {
+  const { url, init } = buildRequest(req, conn)
 
   let res: Response
   try {

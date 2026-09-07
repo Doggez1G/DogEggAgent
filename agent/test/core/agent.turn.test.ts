@@ -6,7 +6,7 @@ import { Agent } from '../../src/core'
 import { loadConfig } from '../../src/config'
 import { InMemoryChannel } from '@dogegg/bridge'
 import type { AgentToUiMessage, Message, UiToAgentMessage } from '@dogegg/bridge'
-import type { LlmStreamEvent, ProviderAdapter } from '../../src/llm'
+import type { LlmStreamEvent, LlmClient } from '../../src/llm'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Agent 轮次表征测试：重构前的行为基线。全部走 Port 黑盒收发（不摸内部字段），
@@ -20,8 +20,8 @@ function makeConfig(permission = { allow: [] as string[], reject: [] as string[]
   })
 }
 
-// 伪 adapter：按调用次数返回事件脚本；done 之外的流事件转发给 emit（与真实 adapter 行为一致）。
-function fakeAdapter(script: (call: number) => LlmStreamEvent[]): ProviderAdapter {
+// 伪 client：按调用次数返回事件脚本；done 之外的流事件转发给 emit（与真实 client 行为一致）。
+function fakeAdapter(script: (call: number) => LlmStreamEvent[]): LlmClient {
   let call = 0
   return {
     async chat(_req: unknown, _signal: AbortSignal, emit: (e: LlmStreamEvent) => void) {
@@ -34,23 +34,23 @@ function fakeAdapter(script: (call: number) => LlmStreamEvent[]): ProviderAdapte
       }
       return { message: message!, reasoning }
     },
-  } as unknown as ProviderAdapter
+  } as unknown as LlmClient
 }
 
-// 挂起直到 abort 的伪 adapter——表征「轮次取消」路径（fetch 被 abort 打断 → AbortError）。
-function hangingAdapter(): ProviderAdapter {
+// 挂起直到 abort 的伪 client——表征「轮次取消」路径（fetch 被 abort 打断 → AbortError）。
+function hangingAdapter(): LlmClient {
   return {
     async chat(_req: unknown, signal: AbortSignal, _emit: (e: LlmStreamEvent) => void) {
       return new Promise((_resolve, reject) => {
         signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
       })
     },
-  } as unknown as ProviderAdapter
+  } as unknown as LlmClient
 }
 
 // 黑盒 harness：Agent 只经 port 收发；events 收集全部下行消息。
 function makeAgent(opts: {
-  adapter?: ProviderAdapter
+  client?: LlmClient
   permission?: { allow: string[]; reject: string[]; ask: string[] }
   cwd?: string
   sessionsDir?: string
@@ -60,7 +60,7 @@ function makeAgent(opts: {
   const { agentPort, uiPort } = new InMemoryChannel()
   const events: AgentToUiMessage[] = []
   // eslint-disable-next-line no-new
-  new Agent(agentPort, makeConfig(opts.permission), cwd, { adapter: opts.adapter, sessionsDir })
+  new Agent(agentPort, makeConfig(opts.permission), cwd, { client: opts.client, sessionsDir })
   uiPort.onMessage((m) => events.push(m))
   const post = (m: UiToAgentMessage) => { uiPort.post(m) }
   return { events, post, sessionsDir, cwd }
@@ -98,7 +98,7 @@ describe('Agent 轮次表征（重构行为基线）', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'dogegg-cwd-'))
     writeFileSync(join(cwd, 'a.txt'), 'hi')
     const { events, post } = makeAgent({
-      adapter: fakeAdapter(readToolScript('读完了')),
+      client: fakeAdapter(readToolScript('读完了')),
       permission: { allow: ['read_file'], reject: [], ask: [] },
       cwd,
     })
@@ -124,7 +124,7 @@ describe('Agent 轮次表征（重构行为基线）', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'dogegg-cwd-'))
     writeFileSync(join(cwd, 'a.txt'), 'hi')
     // permission 三桶全空 → read_file 分类为 ask，必须经用户决议。
-    const { events, post } = makeAgent({ adapter: fakeAdapter(readToolScript('ok')), cwd })
+    const { events, post } = makeAgent({ client: fakeAdapter(readToolScript('ok')), cwd })
 
     post({ type: 'submit', text: '读' })
     const request = await waitFor(events, (e) => e.type === 'permission_request', 'permission_request')
@@ -138,7 +138,7 @@ describe('Agent 轮次表征（重构行为基线）', () => {
   })
 
   it('轮次取消：abort → notice「已打断当前操作」', async () => {
-    const { events, post } = makeAgent({ adapter: hangingAdapter() })
+    const { events, post } = makeAgent({ client: hangingAdapter() })
 
     post({ type: 'submit', text: '长任务' })
     await waitFor(events, (e) => e.type === 'state' && e.to === 'responding', 'responding 态')
@@ -148,7 +148,7 @@ describe('Agent 轮次表征（重构行为基线）', () => {
   })
 
   it('手动压缩：/compact → compaction(source=manual)', async () => {
-    const { events, post } = makeAgent({ adapter: fakeAdapter(() => [{ type: 'done', message: { role: 'assistant', content: 'ok' } }]) })
+    const { events, post } = makeAgent({ client: fakeAdapter(() => [{ type: 'done', message: { role: 'assistant', content: 'ok' } }]) })
 
     post({ type: 'submit', text: '第一轮' })
     await waitFor(events, (e) => e.type === 'finished', 'finished')
@@ -162,7 +162,7 @@ describe('Agent 轮次表征（重构行为基线）', () => {
   it('会话持久化 + resume：恢复消息历史与 allow_always 授权', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'dogegg-cwd-'))
     writeFileSync(join(cwd, 'a.txt'), 'hi')
-    const first = makeAgent({ adapter: fakeAdapter(readToolScript('ok')), cwd })
+    const first = makeAgent({ client: fakeAdapter(readToolScript('ok')), cwd })
 
     // 第一轮：read_file 走 ask，用户选 allow_always（应随会话持久化）。
     first.post({ type: 'submit', text: '读' })
@@ -177,7 +177,7 @@ describe('Agent 轮次表征（重构行为基线）', () => {
 
     // 第二个 Agent 实例 resume 同一会话：消息历史 + 授权都应恢复。
     const second = makeAgent({
-      adapter: fakeAdapter(() => [{ type: 'done', message: { role: 'assistant', content: 'ok' } }]),
+      client: fakeAdapter(() => [{ type: 'done', message: { role: 'assistant', content: 'ok' } }]),
       cwd,
       sessionsDir: first.sessionsDir,
     })
