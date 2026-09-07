@@ -3,18 +3,23 @@ import type { AgentToUiMessage } from '@dogegg/bridge'
 import type { LlmClient } from '../llm'
 import type { ToolRegistry } from '../tools'
 import type { PermissionManager } from '../permission'
+import type { StateMachine } from './state'
+import type { Compactor } from './compactor'
 
-// AgentLoop 构造期服务：跨轮次稳定的协作组件（由 core/agent.ts 组装注入）。
+// AgentLoop 构造期服务：跨轮次稳定的协作组件（由 agent.ts 组装注入）。
+// - machine：全项目唯一状态机（ctx 持有，loop 在轮内 fire）
+// - compactor：压缩编排单例（summarize 回调已闭合在构造处）
 // - emit：向上发 Agent 级事件（供 UI 渲染）
-// - requestPermission：等待用户审批决议（返回 Promise，在 waiting_permission 态挂起）
+// - requestPermission：等待用户审批决议（返回 Promise，在 waiting_permission 态挂起）——
+//   这也是未来 SDK 的策略注入点（无头使用时可注入程序化决议）
 // - checkCancelled：轮询取消标志（loop 在每次迭代/工具间检查）
-// - summarize：压缩回调（调 LLM 把旧消息压摘要），由 core 注入以避免 loop 直接依赖 llm client
 export interface LoopServices {
   registry: ToolRegistry
+  machine: StateMachine
+  compactor: Compactor
   emit: (e: AgentToUiMessage) => void
   requestPermission: (tool: string, input: unknown) => Promise<PermissionDecision>
   checkCancelled: () => boolean
-  summarize: (old: Message[], signal?: AbortSignal) => Promise<string>
 }
 
 // 单轮参数：provider 连接与工作集。每轮从 config/cwd 解析——config 编辑（换 provider/model、
@@ -27,7 +32,7 @@ export interface TurnInput {
   reasoning: boolean
   systemPrompt: string
   windowTokens: number
-  /** 发给模型的消息列表（会被压缩）。loop 原地修改它并返回。History 由 core 持有，不在此。 */
+  /** 发给模型的消息列表（会被压缩）。loop 原地修改它并返回。History 由 session 持有，不在此。 */
   context: Message[]
   permission: PermissionManager
   maxIterations: number
@@ -37,8 +42,8 @@ export interface TurnInput {
 }
 
 // loop 返回值：压缩后的 context + 本轮新增的 assistant/tool 消息。
-// newMessages 供 core 同步 append 到 history（R1：history 单调增长、永不被压缩影响）。
-// thinking 供 core 持久化到 session（resume 后恢复思考块显示），不进 history/context。
+// newMessages 供 conversation 同步 append 到 history（R1：history 单调增长、永不被压缩影响）。
+// thinking 供 session 持久化（resume 后恢复思考块显示），不进 history/context。
 export interface LoopResult {
   context: Message[]
   newMessages: Message[]

@@ -1,17 +1,16 @@
-import type { AgentToUiMessage, Config, State } from '@dogegg/bridge'
-import { isConfigured } from '@dogegg/bridge'
-import { newId, type BusyGate } from '../shared'
+import type { AgentToUiMessage } from '@dogegg/bridge'
+import { newId } from '../shared'
 import type { TransitionInput } from './state'
 import type { Conversation } from '../session'
 import type { AgentLoop } from './loop'
 import type { Compactor } from './compactor'
-import type { ContextAssembler } from '../context'
-import type { ToolRegistry } from '../tools'
 import type { SessionStore } from '../session'
-import type { PermissionManager } from '../permission'
+import type { ToolRegistry } from '../tools'
 import type { LlmClient } from '../llm'
+import type { AgentContext } from '../ctx'
 
-// 单轮参数：从当前 config 解析的 provider 连接与模型参数（由 Agent 组装，测试 client 覆盖在此生效）。
+// 单轮参数：从当前 config 解析的 provider 连接与模型参数。
+// 由门面在「命令时刻」解析成值传入——控制器不持任何回指门面内脏的探针（所有权立法见 spec §4）。
 export interface TurnParams {
   client: LlmClient
   model: string
@@ -22,47 +21,36 @@ export interface TurnParams {
 }
 
 // 轮次执行器：submit / cancel / compact 三命令的实现归属。
-// R2 阻塞语义与并发控制都在 BusyGate；数据变更都落在 Conversation；压缩走 Compactor。
+// R2 阻塞语义与并发控制都在 ctx.gate；数据变更都落在 Conversation；压缩走 Compactor。
 export class TurnRunner {
   constructor(private readonly deps: {
+    ctx: AgentContext
     conversation: Conversation
-    gate: BusyGate
     loop: AgentLoop
     compactor: Compactor
     sessions: SessionStore
     registry: ToolRegistry
     emit: (m: AgentToUiMessage) => void
     emitState: (input: TransitionInput) => void
-    state: () => State
-    config: () => Config
-    permission: () => PermissionManager
-    assembler: () => ContextAssembler
-    turnParams: () => TurnParams
   }) {}
 
-  async submit(text: string): Promise<void> {
-    if (this.deps.gate.busy) { this.deps.emit({ type: 'notice', text: '运行中，请稍候' }); return }
-    if (!isConfigured(this.deps.config())) {
-      this.deps.emit({ type: 'notice', text: '尚未配置 provider，请先 /config 添加并保存后重试' })
-      return
-    }
-    await this.runTurn(text)
+  async submit(text: string, params: TurnParams): Promise<void> {
+    if (this.deps.ctx.gate.busy) { this.deps.emit({ type: 'notice', text: '运行中，请稍候' }); return }
+    await this.runTurn(text, params)
   }
 
   cancel(): void {
-    this.deps.gate.cancel()
+    this.deps.ctx.gate.cancel()
   }
 
-  async compact(): Promise<void> {
-    if (this.deps.gate.busy) { this.deps.emit({ type: 'notice', text: '运行中，请稍候' }); return }
-    if (!isConfigured(this.deps.config())) { this.deps.emit({ type: 'notice', text: '尚未配置 provider，请先 /config' }); return }
-    await this.compactNow()
+  async compact(params: TurnParams): Promise<void> {
+    if (this.deps.ctx.gate.busy) { this.deps.emit({ type: 'notice', text: '运行中，请稍候' }); return }
+    await this.compactNow(params)
   }
 
   // 一轮对话：push user 消息到 history+context（R1 双写）→ loop 作用于 context → 同步 newMessages 到 history → 落盘。
-  private async runTurn(text: string): Promise<void> {
-    const controller = this.deps.gate.enter()
-    const params = this.deps.turnParams()
+  private async runTurn(text: string, params: TurnParams): Promise<void> {
+    const controller = this.deps.ctx.gate.enter()
     this.deps.conversation.pushUserMessage(text)
     this.deps.emit({ type: 'message', role: 'user', id: newId() })
     try {
@@ -72,13 +60,13 @@ export class TurnRunner {
         maxOutput: params.maxOutput,
         maxRetries: params.maxRetries,
         reasoning: params.reasoning,
-        systemPrompt: this.deps.assembler().systemPrompt(),
+        systemPrompt: this.deps.ctx.assembler.systemPrompt(),
         windowTokens: params.windowTokens,
         context: this.deps.conversation.getContext(),
-        permission: this.deps.permission(),
-        maxIterations: this.deps.config().maxIterations,
+        permission: this.deps.ctx.permission,
+        maxIterations: this.deps.ctx.config.maxIterations,
         cwd: this.deps.conversation.getCwd(),
-        shellProgram: this.deps.config().shellProgram,
+        shellProgram: this.deps.ctx.config.shellProgram,
         signal: controller.signal,
       })
       // R1：loop 返回更新后的 context + 本轮新增消息 + thinking（成功/取消/错误都返回部分结果）。
@@ -97,7 +85,7 @@ export class TurnRunner {
       this.deps.emit({ type: 'error', error: { message: (e as Error).message, name: (e as Error).name } })
     } finally {
       // 无论成功/失败/取消，turn 结束后状态回到 idle（成功路径 loop 停在 finished，需复位）。
-      this.deps.gate.leave()
+      this.deps.ctx.gate.leave()
       this.deps.emitState({ kind: 'reset' })
       this.saveOrNotice()
     }
@@ -107,14 +95,13 @@ export class TurnRunner {
   // 压缩期间 emit state → compacting 让 UI 可感知，完成后回 idle。
   // 占用闸门防止压缩期间 submit 并发写入 context（R2 阻塞）。
   // 失败时 emit error 而非让外层 .catch(() => {}) 静默吞掉。
-  private async compactNow(): Promise<void> {
-    const controller = this.deps.gate.enter()
-    const params = this.deps.turnParams()
+  private async compactNow(params: TurnParams): Promise<void> {
+    const controller = this.deps.ctx.gate.enter()
     this.deps.emitState({ kind: 'compact_start' })
     try {
       const result = await this.deps.compactor.compact({
         context: this.deps.conversation.getContext(),
-        systemPrompt: this.deps.assembler().systemPrompt(),
+        systemPrompt: this.deps.ctx.assembler.systemPrompt(),
         tools: this.deps.registry.schemas(),
         windowTokens: params.windowTokens,
         force: true,
@@ -122,7 +109,7 @@ export class TurnRunner {
       })
       if (result.compacted) {
         this.deps.conversation.replaceContext(result.context)
-        this.deps.sessions.save({ ...this.deps.conversation.snapshot(), allowedTools: this.deps.permission().listAllowed() })
+        this.deps.sessions.save({ ...this.deps.conversation.snapshot(), allowedTools: this.deps.ctx.permission.listAllowed() })
         this.deps.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after, source: 'manual' })
       } else {
         // context 为空——没有消息可压。
@@ -138,17 +125,17 @@ export class TurnRunner {
         this.deps.emit({ type: 'error', error: { message: '压缩失败：' + (e as Error).message, name: (e as Error).name } })
       }
     } finally {
-      this.deps.gate.leave()
+      this.deps.ctx.gate.leave()
       // 如果还在 compacting（成功路径），用 compact_done 回 idle；
       // 如果已 cancelled/error，用 reset 回 idle（compact_done 的 VALID_FROM 不含 cancelled/error）。
-      this.deps.emitState(this.deps.state() === 'compacting' ? { kind: 'compact_done', next: 'idle' } : { kind: 'reset' })
+      this.deps.emitState(this.deps.ctx.machine.state === 'compacting' ? { kind: 'compact_done', next: 'idle' } : { kind: 'reset' })
     }
   }
 
   // 落盘（轮次结束）：失败发 notice 提醒用户，不静默。
   private saveOrNotice(): void {
     try {
-      this.deps.sessions.save({ ...this.deps.conversation.snapshot(), allowedTools: this.deps.permission().listAllowed() })
+      this.deps.sessions.save({ ...this.deps.conversation.snapshot(), allowedTools: this.deps.ctx.permission.listAllowed() })
     } catch {
       this.deps.emit({ type: 'notice', text: '会话保存失败（磁盘空间不足或权限问题）' })
     }

@@ -1,13 +1,13 @@
 import type { AgentToUiMessage, Config } from '@dogegg/bridge'
-import type { BusyGate } from '../shared'
 import type { ConfigEditor } from './editor'
 import type { ConfigStore } from './store'
+import type { AgentContext } from '../ctx'
 
 // 配置编辑控制器：config_set / config_add / config_remove / config_request 的实现归属。
 // 编辑成功后的运行时联动（重建 PermissionManager / ContextAssembler）经 onConfigChanged 回调由 Agent 完成。
 export class ConfigController {
   constructor(private readonly deps: {
-    gate: BusyGate
+    ctx: AgentContext
     editor: ConfigEditor
     configs: ConfigStore
     emit: (m: AgentToUiMessage) => void
@@ -32,7 +32,7 @@ export class ConfigController {
 
   // 配置编辑统一入口：委托 ConfigEditor，成功后同步运行时 + 落盘 + emit。
   private edit(fn: (e: ConfigEditor) => { ok: boolean; error?: string }): void {
-    if (this.deps.gate.busy) { this.deps.emit({ type: 'notice', text: '运行中，请稍候' }); return }
+    if (this.deps.ctx.gate.busy) { this.deps.emit({ type: 'notice', text: '运行中，请稍候' }); return }
     const result = fn(this.deps.editor)
     if (!result.ok) {
       this.deps.emit({ type: 'notice', text: result.error ?? '配置编辑失败' })

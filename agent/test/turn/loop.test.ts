@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
-import { AgentLoop } from '../../src/turn'
+import { AgentLoop, Compactor, StateMachine } from '../../src/turn'
 import type { LoopServices, LoopResult, TurnInput } from '../../src/turn'
 import { PermissionManager } from '../../src/permission'
 import { ReadFileTool, ToolRegistry } from '../../src/tools'
@@ -31,10 +31,11 @@ function fakeClient(script: () => LlmStreamEvent[]): LlmClient {
 function baseServices(overrides: Partial<LoopServices>): LoopServices {
   return {
     registry: new ToolRegistry(),
+    machine: new StateMachine('idle'),
+    compactor: new Compactor(async () => ''),
     emit: () => {},
     requestPermission: async () => 'allow_once',
     checkCancelled: () => false,
-    summarize: async () => '',
     ...overrides,
   }
 }

@@ -1,25 +1,23 @@
 import { statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { AgentToUiMessage } from '@dogegg/bridge'
-import type { BusyGate } from '../shared'
 import type { Conversation } from './conversation'
 import type { SessionStore } from './store'
-import type { PermissionManager } from '../permission'
+import type { AgentContext } from '../ctx'
 
 // 会话生命周期：new / resume / delete / list / clear 的实现归属。
 // 会话隔离：allow_always 授权随 PermissionManager.reset() 只对当前会话生效。
 export class SessionManager {
   constructor(private readonly deps: {
+    ctx: AgentContext
     conversation: Conversation
-    gate: BusyGate
     sessions: SessionStore
-    permission: () => PermissionManager
     emit: (m: AgentToUiMessage) => void
   }) {}
 
   // R2：动工作集类命令运行中阻塞（发 notice 不静默丢弃）。
   private blocked(): boolean {
-    if (this.deps.gate.busy) {
+    if (this.deps.ctx.gate.busy) {
       this.deps.emit({ type: 'notice', text: '运行中，请稍候' })
       return true
     }
@@ -37,7 +35,7 @@ export class SessionManager {
       } catch { this.deps.emit({ type: 'notice', text: `路径不存在：${cwd}` }); return }
     }
     this.deps.conversation.reset()
-    this.deps.permission().reset() // 会话隔离：allow_always 只对当前会话生效
+    this.deps.ctx.permission.reset() // 会话隔离：allow_always 只对当前会话生效
     // 立即保存空会话——让 list_sessions 能返回新会话（侧栏即时显示）。
     try { this.save() } catch { /* 磁盘错误忽略 */ }
     this.deps.emit({ type: 'session_ready', id: this.deps.conversation.getId(), messages: [] })
@@ -49,8 +47,8 @@ export class SessionManager {
       const s = this.deps.sessions.load(id)
       this.deps.conversation.load(s)
       // 恢复该会话的 allow_always 授权（resume 不清空，保留之前设置的授权）。
-      this.deps.permission().reset()
-      for (const t of s.allowedTools) this.deps.permission().apply(t, 'allow_always')
+      this.deps.ctx.permission.reset()
+      for (const t of s.allowedTools) this.deps.ctx.permission.apply(t, 'allow_always')
       const thinking = this.deps.conversation.getThinking()
       this.deps.emit({
         type: 'session_ready',
@@ -91,6 +89,6 @@ export class SessionManager {
 
   // 落盘快照（静默版：新建会话时保存失败不打扰用户）。
   private save(): void {
-    this.deps.sessions.save({ ...this.deps.conversation.snapshot(), allowedTools: this.deps.permission().listAllowed() })
+    this.deps.sessions.save({ ...this.deps.conversation.snapshot(), allowedTools: this.deps.ctx.permission.listAllowed() })
   }
 }

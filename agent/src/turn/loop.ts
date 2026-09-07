@@ -1,8 +1,7 @@
 import type { Message, State } from '@dogegg/bridge'
 import { COMPACTION_THRESHOLD } from '@dogegg/bridge'
-import { StateMachine, type TransitionInput } from './state'
+import type { TransitionInput } from './state'
 import { estimateContextTokens, enforceContextLimit } from '../context'
-import { Compactor } from './compactor'
 import { CancelledError, newId } from '../shared'
 import type { LoopServices, TurnInput, LoopResult } from './types'
 import { ToolExecutor } from './tool-executor'
@@ -17,16 +16,12 @@ import { ToolExecutor } from './tool-executor'
 // 打断（cancel）：catch CancelledError 时返回部分结果（已 push 到 context/newMessages 的消息），
 // 并补全未配对的 tool_calls（补 tool: cancelled 消息），保证 context 是完整的对话状态。
 export class AgentLoop {
-  private readonly compactor: Compactor
-
-  constructor(private readonly services: LoopServices) {
-    this.compactor = new Compactor(services.summarize)
-  }
+  constructor(private readonly services: LoopServices) {}
 
   async run(turn: TurnInput): Promise<LoopResult> {
     const context = [...turn.context]
     const newMessages: Message[] = []
-    const machine = new StateMachine('idle')
+    const machine = this.services.machine
     let iterations = 0
     // 每轮新建执行器：permission 是轮次参数（config 编辑重建的实例要在下一轮生效）。
     const executor = new ToolExecutor({
@@ -98,7 +93,7 @@ export class AgentLoop {
         if (used > turn.windowTokens * COMPACTION_THRESHOLD) {
           trans({ kind: 'compact_start' })
           try {
-            const result = await this.compactor.compact({
+            const result = await this.services.compactor.compact({
               context,
               systemPrompt: turn.systemPrompt,
               tools: this.services.registry.schemas(),
