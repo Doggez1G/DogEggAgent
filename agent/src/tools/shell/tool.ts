@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process'
 import type { z } from 'zod'
 import type { Tool, ToolContext, ToolResult } from '../types'
-import { resolveShell } from './interpreter'
-import { killTree } from './kill-tree'
+import { resolveShell } from './support/interpreter'
+import { killTree } from './support/kill-tree'
 import { shellSchema, shellParameters } from './schema'
 
 // shell 工具：执行 shell 命令，捕获 stdout/stderr 合并 + exit code。

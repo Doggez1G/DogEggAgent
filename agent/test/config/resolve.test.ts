@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resolveCurrent } from '../../src/config/resolve'
+import { resolveCurrent } from '../../src/config'
 import type { Config, ProviderConfig } from '@dogegg/bridge'
 
 const provider: ProviderConfig = {

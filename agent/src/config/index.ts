@@ -1,7 +1,17 @@
-// config 域出口：纯 re-export。schema 本体 + isConfigured 在 bridge 契约（②），agent 不重写。
-export { findConfig, configTargetPath, ConfigStore } from './loader'
+// config 域出口：纯 re-export，不含实现逻辑（见 §1 约束 3）。
+// schema 本体 + isConfigured 在 bridge 契约，agent 不重写。
+export { ConfigStore } from './store'
 export { resolveCurrent } from './resolve'
-export { ConfigEditor } from './editor'
-export { parseConfigSet, parseConfigAdd, type ConfigSetOp, type ConfigAddOp } from './editor'
-export { applySet, applyAdd, applyRemove } from './editor'
-export { validateConfig, findDuplicateName } from './editor'
+export { ConfigController } from './controller'
+export {
+  ConfigEditor,
+  parseConfigSet,
+  parseConfigAdd,
+  type ConfigSetOp,
+  type ConfigAddOp,
+  applySet,
+  applyAdd,
+  applyRemove,
+  validateConfig,
+  findDuplicateName,
+} from './editor'

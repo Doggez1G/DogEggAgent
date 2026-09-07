@@ -1,0 +1,9 @@
+// turn 域出口：一轮对话的完整故事。纯 re-export，不含实现逻辑（见 §1 约束 3）。
+export { TurnRunner, type TurnParams } from './turn-runner'
+export { AgentLoop } from './loop'
+export { ToolExecutor, type ToolStep } from './tool-executor'
+export { StateMachine, transition, type TransitionInput } from './state'
+export { PendingPermissions } from './pending'
+export { Compactor, type CompactResult } from './compactor'
+export { summarizeHistory } from './summarize'
+export type { LoopServices, TurnInput, LoopResult } from './types'

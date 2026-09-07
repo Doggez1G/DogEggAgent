@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { enforceContextLimit } from '../../src/context/compact/enforce'
+import { enforceContextLimit } from '../../src/context'
 import type { Message } from '@dogegg/bridge'
 
 const bigMsg = (text: string): Message => ({ role: 'user', content: text })

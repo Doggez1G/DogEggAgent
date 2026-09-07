@@ -2,4 +2,4 @@
 export type { LlmStreamEvent, ChatRequest, ChatResult, LlmClient, LlmClientConn } from './types'
 export { clientFor } from './client-for'
 export { OpenAiClient } from './provider/openai'
-export { createOpenAiStreamParser } from './streaming/openai'
+export { createOpenAiStreamParser } from './provider/openai'
