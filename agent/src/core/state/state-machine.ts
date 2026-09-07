@@ -15,4 +15,9 @@ export class StateMachine {
     this.current = transition(this.current, input)
     return this.current
   }
+
+  // 镜像同步：loop 拥有自己的 StateMachine，其迁移事件到达 Agent 时直接对齐当前态（不走迁移表重复计算）。
+  sync(state: State): void {
+    this.current = state
+  }
 }
