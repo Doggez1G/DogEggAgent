@@ -112,9 +112,8 @@ export class Agent {
       this.emit({ type: 'state', from: prev, to: next })
       // 状态变化时同步推送 token 信息（thinking→responding→tool_calling 等都会触发）。
       try {
-        const { provider, model } = resolveCurrent(this.ctx.config)
         const cur = this.current()
-        this.emit({ type: 'status_state', sessionId: this.conversation.getId(), provider: provider.name, model: model.name, cwd: this.conversation.getCwd(), state: next, estimatedTokens: this.estimateCurrentTokens(), windowTokens: cur.contextWindow })
+        this.emit({ type: 'status_state', sessionId: this.conversation.getId(), provider: cur.providerName, model: cur.modelName, cwd: this.conversation.getCwd(), state: next, estimatedTokens: this.estimateCurrentTokens(), windowTokens: cur.contextWindow })
       } catch { /* 配置未就绪时跳过 */ }
     }
   }
@@ -142,10 +141,12 @@ export class Agent {
     this.port.post(m)
   }
 
-  // 当前 provider + model 解析。调用方需先经 isConfigured 判定。
-  private current(): { baseURL: string; apiKey: string; model: string; maxOutput: number; reasoning: boolean; contextWindow: number } {
+  // 当前 provider + model 解析（唯一入口——status 推送与参数解析都从这里取，避免重复 resolveCurrent）。
+  private current(): { providerName: string; modelName: string; baseURL: string; apiKey: string; model: string; maxOutput: number; reasoning: boolean; contextWindow: number } {
     const { provider, model } = resolveCurrent(this.ctx.config)
     return {
+      providerName: provider.name,
+      modelName: model.name,
       baseURL: provider.baseURL,
       apiKey: provider.apiKey,
       model: model.name,
@@ -161,9 +162,8 @@ export class Agent {
 
   // 统一的 status_state 发射——status_request 与 set_cwd 共用，避免字段重复。
   private emitStatusState(): void {
-    const { provider, model } = resolveCurrent(this.ctx.config)
     const cur = this.current()
-    this.emit({ type: 'status_state', sessionId: this.conversation.getId(), provider: provider.name, model: model.name, cwd: this.conversation.getCwd(), state: this.ctx.machine.state, estimatedTokens: this.estimateCurrentTokens(), windowTokens: cur.contextWindow })
+    this.emit({ type: 'status_state', sessionId: this.conversation.getId(), provider: cur.providerName, model: cur.modelName, cwd: this.conversation.getCwd(), state: this.ctx.machine.state, estimatedTokens: this.estimateCurrentTokens(), windowTokens: cur.contextWindow })
   }
 
   // 向 UI 提出权限请求，返回一个在收到 permission_decision 时才决议的 Promise。

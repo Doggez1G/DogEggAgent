@@ -88,8 +88,8 @@ export class Conversation {
     if (s.cwd) this.cwdValue = s.cwd
   }
 
-  // 落盘快照（allowedTools 由调用方从 PermissionManager 取，归 Agent 组装）。
-  snapshot(): Omit<SessionSnapshot, 'allowedTools'> {
-    return { id: this.sessionId, history: this.history, context: this.context, cwd: this.cwdValue, thinking: this.thinking }
+  // 落盘快照——组装的唯一入口（三个落盘调用点共用；allowedTools 归 ctx.permission 提供）。
+  snapshotFull(allowedTools: string[]): SessionSnapshot {
+    return { id: this.sessionId, history: this.history, context: this.context, allowedTools, cwd: this.cwdValue, thinking: this.thinking }
   }
 }

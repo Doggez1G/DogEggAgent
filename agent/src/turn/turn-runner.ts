@@ -109,7 +109,7 @@ export class TurnRunner {
       })
       if (result.compacted) {
         this.deps.conversation.replaceContext(result.context)
-        this.deps.sessions.save({ ...this.deps.conversation.snapshot(), allowedTools: this.deps.ctx.permission.listAllowed() })
+        this.deps.sessions.save(this.deps.conversation.snapshotFull(this.deps.ctx.permission.listAllowed()))
         this.deps.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after, source: 'manual' })
       } else {
         // context 为空——没有消息可压。
@@ -135,7 +135,7 @@ export class TurnRunner {
   // 落盘（轮次结束）：失败发 notice 提醒用户，不静默。
   private saveOrNotice(): void {
     try {
-      this.deps.sessions.save({ ...this.deps.conversation.snapshot(), allowedTools: this.deps.ctx.permission.listAllowed() })
+      this.deps.sessions.save(this.deps.conversation.snapshotFull(this.deps.ctx.permission.listAllowed()))
     } catch {
       this.deps.emit({ type: 'notice', text: '会话保存失败（磁盘空间不足或权限问题）' })
     }

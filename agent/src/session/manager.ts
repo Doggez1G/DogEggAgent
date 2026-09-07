@@ -89,6 +89,6 @@ export class SessionManager {
 
   // 落盘快照（静默版：新建会话时保存失败不打扰用户）。
   private save(): void {
-    this.deps.sessions.save({ ...this.deps.conversation.snapshot(), allowedTools: this.deps.ctx.permission.listAllowed() })
+    this.deps.sessions.save(this.deps.conversation.snapshotFull(this.deps.ctx.permission.listAllowed()))
   }
 }
