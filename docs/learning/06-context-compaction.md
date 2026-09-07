@@ -19,7 +19,7 @@ DogEggAgent 最核心的设计之一——**两份独立的数据**：
 每条新消息（user/assistant/tool）产生时同时 push 到两者：
 
 ```ts
-// agent/src/core/agent.ts runTurn()
+// agent/src/core/turn-runner.ts runTurn()
 this.history.push(userMsg)
 this.context.push(userMsg)
 
@@ -92,17 +92,17 @@ function shouldCompact(used: number, windowTokens: number): boolean {
 }
 ```
 
-阈值 `0.8` 现已抽成常量 `COMPACTION_THRESHOLD`（`bridge/src/contract/shared.ts`），由 trigger.ts、enforce.ts、run.ts 共用——避免魔法数字在各处分散漂移。
+阈值 `0.8` 现已抽成常量 `COMPACTION_THRESHOLD`（`bridge/src/contract/shared.ts`），由 trigger.ts、enforce.ts、agent-loop.ts 共用——避免魔法数字在各处分散漂移。
 
 ### 压缩流程
 
 ```ts
-// agent/src/context/compact/compact.ts
-async function compactContext(input: {
-  context: Message[], systemPrompt, tools, windowTokens,
-  summarize: (old: Message[], signal?) => Promise<string>,
-  force?: boolean, signal?: AbortSignal
-}): Promise<CompactResult> {
+// agent/src/context/compact/compactor.ts（OOP 重构后：Compactor 类，summarize 构造注入）
+class Compactor {
+  async compact(input: {
+    context: Message[], systemPrompt, tools, windowTokens,
+    force?: boolean, signal?: AbortSignal
+  }): Promise<CompactResult> {
 
   if (context.length === 0) return { compacted: false, ... }          // 空的不压
   if (!force && !shouldCompact(before, windowTokens)) return { ... }   // 自动模式需达阈值
@@ -115,11 +115,12 @@ async function compactContext(input: {
   const toSummarize = old.length > 0 ? old : fresh
   const toKeep = old.length > 0 ? fresh : []
 
-  const summary = await input.summarize(toSummarize, input.signal)
+  const summary = await this.summarize(toSummarize, input.signal)
 
   // 重建 context：摘要消息 + 保留的近期原文
   const context = [{ role: 'user', content: `[前文摘要]\n${summary}` }, ...toKeep]
   return { compacted: true, context, before, after }
+  }
 }
 ```
 
@@ -181,7 +182,7 @@ for (;;) {
   if (used > deps.windowTokens * COMPACTION_THRESHOLD) {
     state = trans({ kind: 'compact_start' })  // → compacting
     try {
-      const result = await compactContext({ ..., signal: deps.signal })
+      const result = await compactor.compact({ ..., signal: turn.signal })
       if (result.compacted) {
         context.length = 0; context.push(...result.context)  // 原地替换
         deps.emit({ type: 'compaction', ..., source: 'auto' })

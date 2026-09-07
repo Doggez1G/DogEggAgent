@@ -1,6 +1,6 @@
 # OOP 重构设计：后端全仓类化（校准版）
 
-> 状态：实施中
+> 状态：已实施（2026-09-07 完成，Phase 0–3 全部落地；172 测试 + 五路 typecheck + build 全绿）
 > 日期：2026-09-07
 > 前置：四包 workspaces 架构（2026-08-27 模块化重构）、Static 架构 TUI（ADR-0008）均已稳定
 > 结论来源：2026-09-07 讨论——「全仓类化」校准为「**公共 API 全类 + 纯函数私有化收编 + 契约层保持纯数据**」；前端（ui 包）暂缓，本次只做后端（agent / bridge / server）。
@@ -116,3 +116,12 @@ server 包
 - 事件总线（OpenCode Bus 式）——不引入，Agent 拆分用「处理类路由」达到同等解耦；
 - 目录大重组——模块=文件夹结构保持，仅文件级重命名；
 - 任何行为变更、新特性、消息契约改动。
+
+## 7. 实施结果与计划的偏差
+
+- **Agent 门面 333 行**：纯查询（status/tools/context/system/log/permissions）与 set_cwd、quit 留在 Agent 直接 emit——它们只读协作类，拆出去需传 5+ 个回调，得不偿失。
+- **LoopDeps 拆为 LoopServices + TurnInput**：`trans` 回调从 loop 依赖中删除——loop 持有自己的 StateMachine 实例，Agent 侧经 emit() 收到 state 事件后用 `machine.sync()` 镜像（替代旧的 `this.state = m.to`）。permission/maxIterations 归 TurnInput（config 编辑重建的实例下一轮生效，无需重建 AgentLoop）。
+- **TurnParams**：Agent.turnParams() 组装 provider 连接与模型参数，client 测试覆盖在此生效；TurnRunner 经 deps.turnParams() 取用。
+- **ConfigStore 替换 loadConfig/saveConfig**：agent 包公共 API 变为 Agent / AgentOptions / ConfigStore / Logger；组合根改 `new ConfigStore().load()`。
+- **Conversation 用显式访问方法**（getId/getCwd/getContext/…）而非属性 getter——私有字段与同名 getter 会冲突。
+- **Router 的 fs/shells 依赖可注入、缺省自建**——组合根保持一行装配；HttpServer 内部持有 StaticFiles（staticDir 为 null 时不建）。

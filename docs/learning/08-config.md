@@ -60,16 +60,20 @@ function findConfig(): string | null {
 ## 加载与默认值填充
 
 ```ts
-// agent/src/config/loader/load.ts
-function loadConfig(raw?: unknown): Config {
-  let data = raw ?? (findConfig() ? JSON.parse(readFileSync(...)) : {})
-  const parsed = configSchema.parse(data)  // zod parse 填默认值
-  // 有 provider 时补 defaultProvider/defaultModel（回落到首个）
-  if (parsed.providers.length > 0) {
-    const defaultProvider = parsed.defaultProvider ?? parsed.providers[0]!.name
-    ...
+// agent/src/config/loader/config-store.ts —— OOP 重构后：ConfigStore 类
+class ConfigStore {
+  load(raw?: unknown): Config {
+    let data = raw ?? (findConfig() ? JSON.parse(readFileSync(...)) : {})
+    const parsed = configSchema.parse(data)  // zod parse 填默认值
+    // 有 provider 时补 defaultProvider/defaultModel（回落到首个）
+    if (parsed.providers.length > 0) {
+      const defaultProvider = parsed.defaultProvider ?? parsed.providers[0]!.name
+      ...
+    }
+    return parsed  // 空配置保持空——让工具启动、引导用户去 /config
   }
-  return parsed  // 空配置保持空——让工具启动、引导用户去 /config
+
+  save(config: Config, path?): void { /* 序列化写回 JSON（/config 编辑的持久化） */ }
 }
 ```
 

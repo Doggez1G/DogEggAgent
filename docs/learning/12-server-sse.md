@@ -70,11 +70,11 @@ sseHandler(req, res)     ← GET /api/events
 `main-web.ts` 是 WebUI 的组合根——唯一 import agent + server 的地方：
 
 ```ts
-const config = loadConfig()
-const { agentPort, sseHandler, postHandler } = createSseChannel()
-initLogger(join(homedir(), '.dogegg', 'logs'))
-new Agent(agentPort, config, process.cwd())
-startServer({ sseHandler, postHandler, staticDir, port: 3000 })
+const config = new ConfigStore().load()
+const channel = new SseChannel()      // SseChannel 本身就是 AgentPort
+const logger = new Logger(join(homedir(), '.dogegg', 'logs'))
+new Agent(channel, config, process.cwd(), { logger })
+new HttpServer({ router: new Router({ channel }), staticDir, port: 3000 }).start()
 ```
 
 - **不 import ui**——前端是静态文件被 serve，不是代码被 import。
@@ -85,7 +85,7 @@ startServer({ sseHandler, postHandler, staticDir, port: 3000 })
 
 ### /api/fs — 目录浏览
 
-`fs/browse.ts` 的 `listDirs(path, includeFiles)`：
+`FsBrowser.listDirs(path, includeFiles)`：
 - `fs.readdir(path, { withFileTypes: true })` 返回目录列表。
 - `includeFiles=true` 时也返回文件名（供 system prompt 文件选择器用）。
 - 返回 `{ current, dirs, files, parent }`。

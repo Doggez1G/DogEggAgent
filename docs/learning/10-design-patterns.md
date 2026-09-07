@@ -4,25 +4,22 @@
 
 ## 1. 依赖注入（Dependency Injection）
 
-loop 不直接 import adapter、permission、session——所有依赖通过 `LoopDeps` 接口注入：
+loop 不直接 import llm、permission、session——跨轮次稳定的服务经构造函数注入（`LoopServices`），每轮参数收在 `run(turn)` 的 `TurnInput`：
 
 ```ts
-interface LoopDeps {
-  adapter: ProviderAdapter      // 怎么调 LLM
-  permission: PermissionManager  // 怎么判权限
-  emit: (e) => void              // 怎么通知 UI
-  requestPermission: (...) => ... // 怎么等审批
-  checkCancelled: () => boolean  // 怎么检查取消
-  trans: (input) => void         // 怎么迁移状态
-  summarize: (old, signal?) => ... // 怎么压缩摘要
+interface LoopServices {
+  registry: ToolRegistry          // 工具注册表（怎么执行工具）
+  emit / requestPermission / checkCancelled / summarize
+}
+
+interface TurnInput {
+  client: LlmClient               // 怎么调 LLM（OpenAiClient 实例）
+  context / systemPrompt / windowTokens / permission / maxIterations / cwd / signal
 }
 ```
 
-**好处**：loop 可独立测试——注入 fake adapter（脚本化返回 tool_calls），不联网。也意味着换 adapter（如加 Anthropic）只改注入的 adapter，loop 不动。
-
-同样模式还出现在：
-- `compactContext` 的 `summarize` 回调——compact 不直接依赖 llm adapter，agent 注入。
-- `executeOneTool` 的 `deps.trans`——工具执行不直接调状态机，通过回调迁移。
+- `Compactor` 的 `summarize` 回调——压缩不直接依赖 llm client，agent 注入。
+- `ToolExecutor.execute()` 的 `trans` 回调——工具执行不直接调状态机，通过回调迁移。
 
 ## 2. 纯函数状态机 + 守卫表
 
@@ -111,7 +108,7 @@ private afterEdit() {
 
 1. **AbortController 中断 fetch**：`controller.abort()` → fetch 抛 AbortError → loop catch 转 CancelledError。
 2. **signal listener 杀进程**：`ctx.signal.addEventListener('abort', () => killTree(child))` → shell 子进程被杀。
-3. **checkCancelled 轮询**：loop 每次迭代和工具间检查 `deps.checkCancelled()` → 抛 CancelledError。
+3. **checkCancelled 轮询**：loop 每次迭代和工具间检查 `this.services.checkCancelled()` → 抛 CancelledError。
 
 加上 `withRetry` 的 abortable sleep（退避期间 cancel 能中断），覆盖了所有可能的等待点。
 
@@ -121,13 +118,13 @@ private afterEdit() {
 
 ```
 tools/
-├─ index.ts           # export { getAllTools, getTool, toolSchemas, type Tool }
-├─ registry.ts        # 实现
+├─ index.ts           # export { ToolRegistry, ReadFileTool, ..., type Tool }
+├─ registry.ts        # ToolRegistry 类实现
 ├─ types.ts           # 类型定义
 ├─ read_file/
-│  ├─ index.ts        # export const readFileTool: Tool = { ... }
-│  ├─ schema.ts       # zod schema
-│  └─ execute.ts      # 实现
+│  ├─ index.ts        # export { ReadFileTool } from './tool'
+│  ├─ schema.ts       # zod schema + OpenAI JSON schema
+│  └─ tool.ts         # ReadFileTool 类实现
 ```
 
 **好处**：模块的公开 API 清晰（看 index.ts 就知道）。改实现不影响导入方（路径不变）。架构测试能自动检测 index.ts 是否塞了实现。
@@ -148,9 +145,9 @@ tools/
 ```
 用户输入 "帮我读 package.json"
 → UI handleSubmit → port.post({ type: 'submit', text: '...' })
-→ Agent.send → runTurn → runLoop
-→ adapter.chat → fetch SSE → parser.feed → text_delta emit
-→ 模型返回 tool_calls → executeOneTool → read_file execute
+→ Agent.send → TurnRunner.submit → AgentLoop.run
+→ OpenAiClient.chat → fetch SSE → parser.feed → text_delta emit
+→ 模型返回 tool_calls → ToolExecutor.execute → read_file execute
 → tool_end emit → 结果回填 → 再问模型 → final_answer
 → return { context, newMessages } → agent 保存 → emit finished
 → UI reducer 更新 blocks → 状态栏 idle

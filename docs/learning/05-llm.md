@@ -8,10 +8,10 @@
 
 ```
 LLM 接入层
-├─ types.ts              # LlmStreamEvent / ChatRequest / ChatResult / ProviderAdapter
-├─ adapter-for.ts         # protocol → adapter 分派
+├─ types.ts              # LlmStreamEvent / ChatRequest / ChatResult / LlmClient / LlmClientConn
+├─ client-for.ts         # protocol + conn → client 分派
 ├─ provider/openai/
-│  ├─ adapter.ts          # openAiAdapter：streamOnce + withRetry 组装
+│  ├─ openai-client.ts     # OpenAiClient 类：conn(baseURL/apiKey) 归实例 + streamOnce + withRetry
 │  ├─ request.ts           # ChatRequest → HTTP body
 │  ├─ stream.ts            # fetch + SSE 流读取循环 + 超时 + 错误分类
 │  ├─ retry.ts             # 状态感知重试 + 指数退避 + Retry-After
@@ -38,11 +38,26 @@ type LlmStreamEvent =
 
 > `done` 事件携带 `reasoning?` —— 推理模型的思考内容由 parser 累积，在 `[DONE]` 时随最终消息一起返回。这是 thinking 持久化的数据来源（见 03 章）。
 
-## ProviderAdapter 与 ChatResult
+## LlmClient 与 ChatResult
 
 ```ts
-interface ProviderAdapter {
+interface LlmClient {
   chat(req: ChatRequest, signal: AbortSignal, emit: (e: LlmStreamEvent) => void): Promise<ChatResult>
+}
+
+// 连接参数归 client 实例所有——不随每次请求传递
+interface LlmClientConn {
+  baseURL: string
+  apiKey: string
+}
+
+interface ChatRequest {
+  model: string
+  systemPrompt: string
+  messages: Message[]     // 仅 user / assistant / tool 历史；system 由 client 自行拼接
+  tools: object[]
+  maxOutput: number
+  maxRetries: number
 }
 
 interface ChatResult {
@@ -205,26 +220,26 @@ function getBackoffDelay(error: Error, attempt: number): number {
 - 旧版：固定 `500 * 2 ** i` 退避。
 - 新版：429 时优先用 `Retry-After` header 的值（尊重 API 的限流指导），其他用指数退避。
 
-## adapterFor：protocol 分派
+## clientFor：protocol + conn 分派
 
 ```ts
-export function adapterFor(protocol: Config['providers'][number]['protocol']): ProviderAdapter {
+export function clientFor(protocol: Config['providers'][number]['protocol'], conn: LlmClientConn): LlmClient {
   switch (protocol) {
-    case 'openai': return openAiAdapter()
+    case 'openai': return new OpenAiClient(conn)
   }
 }
 ```
 
-agent 只调 `adapterFor(provider.protocol)`，不直接引用 `openAiAdapter`。v1 只支持 openai 协议，新增协议在此加分支即可。
+agent 只调 `clientFor(protocol, conn)`，不直接引用 `OpenAiClient`。v1 只支持 openai 协议，新增协议在此加分支即可。
 
 ## adapter 组装
 
 ```ts
-export function openAiAdapter(): ProviderAdapter {
-  return {
-    async chat(req, signal, emit): Promise<ChatResult> {
-      return withRetry(req.maxRetries + 1, () => streamOnce(req, signal, emit), signal)
-    },
+export class OpenAiClient implements LlmClient {
+  constructor(private readonly conn: LlmClientConn) {}
+
+  async chat(req: ChatRequest, signal: AbortSignal, emit: (e: LlmStreamEvent) => void): Promise<ChatResult> {
+    return withRetry(req.maxRetries + 1, () => streamOnce(this.conn, req, signal, emit), signal)
   }
 }
 ```

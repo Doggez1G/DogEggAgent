@@ -24,90 +24,86 @@ type ToolResult = { content: string } | { error: string }
 ## 工具注册表
 
 ```ts
-// agent/src/tools/registry.ts
-const tools: Tool[] = [readFileTool, writeFileTool, editFileTool, shellTool]
+// agent/src/tools/registry.ts —— OOP 重构后：活注册表类，schemas() 每次现算
+export class ToolRegistry {
+  static withBuiltins(): ToolRegistry {   // 内置四工具
+    return new ToolRegistry([new ReadFileTool(), new WriteFileTool(), new EditFileTool(), new ShellTool()])
+  }
 
-function toolSchemas(): object[] {
-  return tools.map((t) => ({
-    type: 'function',
-    function: { name: t.name, description: t.description, parameters: t.parameters },
-  }))
+  register(tool: Tool): void { /* 运行期可扩展（如将来 MCP） */ }
+  get(name: string): Tool | undefined { /* ... */ }
+  all(): Tool[] { /* ... */ }
+
+  schemas(): object[] {   // 组装为 OpenAI tools 参数；消灭了旧 import 期固化的 toolSchemas() 快照
+    return this.all().map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }))
+  }
 }
 ```
 
-`toolSchemas()` 组装为 OpenAI `tools` 参数格式，发给模型。模型返回 `tool_calls` 时用 `name` 匹配工具。
+`ToolRegistry.schemas()` 组装为 OpenAI `tools` 参数格式，发给模型。模型返回 `tool_calls` 时用 `name` 匹配工具。
 
 ## 每工具的结构
 
-每个工具是一个文件夹：`schema.ts`（定义）+ `execute.ts`（实现）+ `index.ts`（组装）。
+每个工具是一个文件夹：`schema.ts`（zod schema + OpenAI JSON schema）+ `tool.ts`（工具类）+ `index.ts`（纯 re-export）。
 
 以 `edit_file` 为例：
 
 ```ts
 // schema.ts
 export const editFileSchema = z.object({ path: z.string(), old_string: z.string(), new_string: z.string() })
+export const editFileParameters = { type: 'object', properties: { /* ... */ }, required: ['path', 'old_string', 'new_string'] }
 
-// execute.ts
-export async function editFileExecute(args, ctx): Promise<ToolResult> {
-  const { path, old_string, new_string } = args as z.infer<typeof editFileSchema>
-  const text = await readFile(join(ctx.cwd, path), 'utf8')
-  if (!text.includes(old_string)) return { error: 'old_string 未找到' }
-  await writeFile(join(ctx.cwd, path), text.replace(old_string, new_string), 'utf8')
-  return { content: '已替换 1 处' }
+// tool.ts —— execute 收编为类方法
+export class EditFileTool implements Tool {
+  readonly name = 'edit_file'
+  readonly description = '将文件中首次出现的 old_string 精准替换为 new_string'
+  readonly schema = editFileSchema
+  readonly parameters = editFileParameters
+
+  async execute(args, ctx): Promise<ToolResult> {
+    const { path, old_string, new_string } = args as z.infer<typeof editFileSchema>
+    const text = await readFile(join(ctx.cwd, path), 'utf8')
+    if (!text.includes(old_string)) return { error: 'old_string 未找到' }
+    await writeFile(join(ctx.cwd, path), text.replace(old_string, new_string), 'utf8')
+    return { content: '已替换 1 处' }
+  }
 }
 
-// index.ts
-export const editFileTool: Tool = {
-  name: 'edit_file',
-  description: '将文件中首次出现的 old_string 精准替换为 new_string',
-  schema: editFileSchema,
-  parameters: { type: 'object', properties: { ... }, required: ['path', 'old_string', 'new_string'] },
-  execute: editFileExecute,
-}
+// index.ts —— 纯 re-export
+export { EditFileTool } from './tool'
 ```
 
-## 工具执行：executeOneTool
+## 工具执行：ToolExecutor
 
-loop 串行调用 `executeOneTool`，它处理参数解析、权限分支、执行/拒绝：
+loop 串行调用 `ToolExecutor.execute()`，它处理参数解析、权限分支、执行/拒绝：
 
 ```ts
-// agent/src/loop/tool-calls.ts
-async function executeOneTool(call, deps, isLast, reasoning): Promise<ToolStep> {
-  // 1. 未知工具：发 tool_end（R3：拒绝/失败也可见）
-  const tool = deps.tools.find((t) => t.name === call.function.name)
-  if (!tool) {
-    deps.emit({ type: 'tool_end', id: call.id, ... error: `未知工具 ${call.function.name}` })
-    return { toolMessage: { role: 'tool', tool_call_id: call.id, content: `未知工具` }, transitionInput: rejectOrDone() }
+// agent/src/loop/tool-executor.ts —— OOP 重构后：单工具执行收编为类
+class ToolExecutor {
+  constructor(private readonly services: {
+    registry: ToolRegistry
+    permission: PermissionManager
+    emit: (e) => void
+    requestPermission: (tool, input) => Promise<PermissionDecision>
+  }) {}
+
+  async execute(call, ctx, opts: { isLast: boolean; reasoning: boolean }, trans): Promise<ToolStep> {
+    // 1. 未知工具：发 tool_end（R3：拒绝/失败也可见）
+    const tool = this.services.registry.get(call.function.name)
+    if (!tool) {
+      this.services.emit({ type: 'tool_end', id: call.id, /* ... */ error: `未知工具 ${call.function.name}` })
+      return { toolMessage: { role: 'tool', tool_call_id: call.id, content: '未知工具' }, transitionInput: rejectOrDone() }
+    }
+
+    // 2. 参数解析校验：JSON.parse + zod
+    let args
+    try { args = tool.schema.parse(JSON.parse(call.function.arguments || '{}')) }
+    catch { /* 发 tool_end error '参数校验失败' */ }
+
+    // 3. 权限分支：reject 桶直接拒 / ask 桶挂起等决议 / allow 桶自动执行
+    // 4. 执行 → runAndEmit（emit tool_start → execute → truncate → emit tool_end）
+    // trans 回调发 waiting_permission/executing 迁移（由 loop 接到自己的状态机上）
   }
-
-  // 2. 参数解析校验：JSON.parse + zod
-  let args
-  try { args = tool.schema.parse(JSON.parse(call.function.arguments || '{}')) }
-  catch { /* 发 tool_end error '参数校验失败' */ }
-
-  // 3. 权限分支
-  const verdict = deps.permission.classify(tool.name)
-
-  if (verdict === 'reject') {
-    // 配置层拒绝：发 tool_end，回填明确提示让模型停止重试
-    deps.emit({ type: 'tool_end', ... })
-    return { toolMessage: { ... content: '用户拒绝了此工具调用，请勿再次尝试同一工具' }, ... }
-  }
-
-  if (verdict === 'ask') {
-    deps.trans({ kind: 'tool_needs_permission' })  // → waiting_permission
-    const decision = await deps.requestPermission(tool.name, args)
-    if (decision === 'reject') { /* 同上 */ }
-    deps.trans({ kind: 'allow' })  // → executing
-  }
-
-  if (verdict === 'allow') {
-    deps.trans({ kind: 'tool_auto' })  // → executing
-  }
-
-  // 4. 执行工具
-  const message = await runAndEmit(call, tool, args, toolCtx, deps.emit)
-  return { toolMessage: message, transitionInput: backOrDone() }
 }
 ```
 

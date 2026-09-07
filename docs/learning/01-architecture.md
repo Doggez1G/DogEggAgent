@@ -126,17 +126,18 @@ uiPort.post(msg)    → agentListeners.forEach(l => l(msg))
 ```ts
 // bin/dogegg.ts（esbuild 打包为 dist/dogegg.js，shebang + npm bin 字段）
 const isWeb = args.includes('-web') || args.includes('--web')
-const config = loadConfig()
+const config = new ConfigStore().load()   // ConfigStore 类：zod 校验 + 默认值填充
+const logger = new Logger(join(homedir(), '.dogegg', 'logs'))
 if (isWeb) {
-  // WebUI：SSE 通道 + Agent + startServer（静态资源 dist/web/，缺失时报错退出）
-  const { agentPort, sseHandler, postHandler } = createSseChannel()
-  new Agent(agentPort, config, process.cwd())
-  startServer({ sseHandler, postHandler, staticDir: join(import.meta.dirname, 'web'), port })
+  // WebUI：SseChannel 本身就是 AgentPort——agent 与 HTTP 路由共享同一实例
+  const channel = new SseChannel()
+  new Agent(channel, config, process.cwd(), { logger })
+  new HttpServer({ router: new Router({ channel }), staticDir: join(import.meta.dirname, 'web'), port }).start()
 } else {
   // TUI：内存通道 + Agent + renderTui
-  const { agentPort, uiPort } = createChannelPair()
-  new Agent(agentPort, config, process.cwd())
-  renderTui(uiPort)
+  const channel = new InMemoryChannel()
+  new Agent(channel.agentPort, config, process.cwd(), { logger })
+  renderTui(channel.uiPort)
 }
 ```
 
@@ -154,17 +155,17 @@ if (isWeb) {
 
 ```
 tools/
-├─ index.ts              # 纯 re-export: getAllTools / getTool / toolSchemas / types
-├─ registry.ts           # 实现: 静态工具注册表
+├─ index.ts              # 纯 re-export: ToolRegistry / 四个工具类 / types
+├─ registry.ts           # 实现: ToolRegistry 类（活注册表，schemas() 每次现算）
 ├─ types.ts              # Tool / ToolContext / ToolResult 契约
 ├─ read_file/
-│  ├─ index.ts           # 组装 readFileTool 对象
-│  ├─ schema.ts          # zod schema
-│  └─ execute.ts         # 实现
+│  ├─ index.ts           # 纯 re-export ReadFileTool
+│  ├─ schema.ts          # zod schema + OpenAI JSON schema
+│  └─ tool.ts            # ReadFileTool 类（execute 是方法）
 ├─ write_file/ ...
 ├─ edit_file/ ...
 └─ shell/
-   ├─ index.ts  ├─ schema.ts  ├─ execute.ts
+   ├─ index.ts  ├─ schema.ts  ├─ tool.ts
    ├─ interpreter.ts      # shellProgram → {program, flag}
    └─ kill-tree.ts        # 进程树终止
 ```

@@ -21,10 +21,12 @@
 ### 原子写
 
 ```ts
-// agent/src/session/store.ts
-export function saveSession(id, history, context, allowedTools = [], baseDir = defaultSessionsDir(), cwd = '', thinking = []): void {
-  mkdirSync(baseDir, { recursive: true })
-  const target = file(baseDir, id)
+// agent/src/session/session-store.ts（OOP 重构后：SessionStore 类，baseDir 构造注入）
+class SessionStore {
+  save(snapshot: SessionSnapshot): void {
+    const { id, history, context, allowedTools, cwd, thinking } = snapshot
+    mkdirSync(this.baseDir, { recursive: true })
+    const target = this.file(id)
   const tmp = target + '.tmp'
   writeFileSync(tmp, JSON.stringify({ id, updatedAt: new Date().toISOString(), history, context, allowedTools, cwd, thinking }))
   renameSync(tmp, target)  // 原子：先写 .tmp 再 rename，崩溃时不会损坏原文件
@@ -36,8 +38,9 @@ export function saveSession(id, history, context, allowedTools = [], baseDir = d
 ### 旧格式迁移
 
 ```ts
-export function loadSession(id, baseDir = defaultSessionsDir()): { id, history, context, allowedTools, cwd, thinking } {
-  const raw = JSON.parse(readFileSync(file(baseDir, id), 'utf8'))
+  // 旧格式迁移（SessionStore 续）
+  load(id): { id, history, context, allowedTools, cwd, thinking } {
+    const raw = JSON.parse(readFileSync(this.file(id), 'utf8'))
   const history = raw.history ?? raw.messages ?? []
   const context = raw.context ?? [...history]  // 必须拷贝！否则旧格式时 context 和 history 引用同一数组
   const allowedTools = raw.allowedTools ?? []
@@ -54,9 +57,9 @@ export function loadSession(id, baseDir = defaultSessionsDir()): { id, history, 
 ### 删除会话
 
 ```ts
-// agent/src/session/store.ts
-export function deleteSession(id, baseDir = defaultSessionsDir()): void {
-  const target = file(baseDir, id)
+// agent/src/session/session-store.ts（SessionStore 续）
+  delete(id): void {
+    const target = this.file(id)
   if (existsSync(target)) unlinkSync(target)
 }
 ```
@@ -67,21 +70,21 @@ export function deleteSession(id, baseDir = defaultSessionsDir()): void {
 
 `thinking` 是每轮 LLM 调用收集的推理内容数组，存进 session JSON：
 
-- **收集**：loop 每次 `adapter.chat` 后 push 一个条目（见 03 章）。只在 `deps.reasoning` 为真时记录实际 reasoning；关闭思考时存空字符串。
-- **累积**：`agent.ts` 维护 `this.thinking`，loop 返回后 `this.thinking.push(...result.thinking)` 累积本轮条目，再通过 `saveSession(..., this.cwd, this.thinking)` 持久化。
-- **resume**：`loadSession` 读回 `thinking`，`agent.ts` 赋值 `this.thinking = s.thinking`；`session_ready` 事件携带 `thinking` 数组（`this.thinking.length ? { thinking } : {}`）给前端。
+- **收集**：loop 每次 `client.chat` 后 push 一个条目（见 03 章）。只在 `turn.reasoning` 为真时记录实际 reasoning；关闭思考时存空字符串。
+- **累积**：`Conversation` 维护 thinking，loop 返回后 `applyTurnResult()` 累积本轮条目，再经 `SessionStore.save()` 持久化。
+- **resume**：`SessionStore.load()` 读回 thinking，`Conversation.load()` 恢复工作集；`session_ready` 事件携带 `thinking` 数组（`this.thinking.length ? { thinking } : {}`）给前端。
 - **对齐**：UI 端 `rebuildBlocksFromHistory` 按序把 thinking 条目与 assistant 消息 1:1 对齐——每条 assistant 消息消费一个 thinking 条目（含 `content=null` 的纯 tool_calls 消息）。空字符串条目被跳过，不显示思考气泡。
 
 ### cwd 持久化
 
-session 存 `cwd`（创建会话时的工作目录）。`saveSession` 写入 `this.cwd`；resume 时 `loadSession` 读回，`agent.ts` 用 `s.cwd` 恢复 `this.cwd`——从项目 A 切到会话 B 再切回来，工作目录随之恢复，工具执行在原目录上下文中进行。
+session 存 `cwd`（创建会话时的工作目录）。`SessionStore.save()` 写入 cwd；resume 时 `load()` 读回，`Conversation.load()` 恢复工作目录——从项目 A 切到会话 B 再切回来，工作目录随之恢复，工具执行在原目录上下文中进行。
 
 ### 会话列表
 
 ```ts
-// agent/src/session/list.ts
-export function listSessions(baseDir = defaultSessionsDir()): { id, updatedAt, preview, cwd }[] {
-  return readdirSync(baseDir)
+// agent/src/session/session-store.ts（SessionStore 续）
+  list(): { id, updatedAt, preview, cwd }[] {
+    return readdirSync(this.baseDir)
     .filter((f) => f.endsWith('.json'))
     .map((f) => {
       try {
