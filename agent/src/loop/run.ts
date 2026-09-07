@@ -3,14 +3,20 @@ import type { AgentToUiMessage } from '@dogegg/bridge'
 import { COMPACTION_THRESHOLD } from '@dogegg/bridge'
 import { transition, type TransitionInput } from '../core'
 import { estimateContextTokens, compactContext, enforceContextLimit } from '../context'
-import { toolSchemas } from '../tools'
+import type { Tool } from '../tools'
 import { executeOneTool } from './tool-calls'
 import { CancelledError } from '../shared'
 import { newId } from '../shared'
 import type { LoopDeps, LoopResult } from './types'
 
-// 用 toolSchemas()（wrapped OpenAI 格式）而非 raw tool.parameters，使估算与实际请求一致。
-const toolParams = toolSchemas()
+// 组装为 OpenAI `tools` 参数：从 deps.tools 每次现算（与 ToolRegistry.schemas 同构）。
+// 替代旧 import 期固化的模块级 toolSchemas() 快照——注册表运行期变化能正确反映，测试也不再共享全局状态。
+function schemasOf(tools: Tool[]): object[] {
+  return tools.map((t) => ({
+    type: 'function',
+    function: { name: t.name, description: t.description, parameters: t.parameters },
+  }))
+}
 
 // 核心Agent Loop：问模型 → 有 tool_calls 就串行执行 → 结果回填 → 再问，直到无 tool_calls 或触发停止。
 // 状态完全由 state.ts 的 transition() 纯函数驱动——这是 10 态状态机的落地处。
@@ -85,14 +91,14 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
       // 上下文窗口管理：逼近上限时压缩 context（只改 context，不动 history）。
       // 压缩期间 emit state → compacting 让 UI 可感知，完成后回到 thinking/responding（继续本轮请求）。
       // 压缩失败时降级——跳过压缩继续用未压缩 context 请求模型，不 abort 整个 turn。
-      const used = estimateContextTokens(deps.systemPrompt, context, toolParams)
+      const used = estimateContextTokens(deps.systemPrompt, context, schemasOf(deps.tools))
       if (used > deps.windowTokens * COMPACTION_THRESHOLD) {
         state = trans({ kind: 'compact_start' })
         try {
           const result = await compactContext({
             context,
             systemPrompt: deps.systemPrompt,
-            tools: toolParams,
+            tools: schemasOf(deps.tools),
             windowTokens: deps.windowTokens,
             summarize: deps.summarize,
             signal: deps.signal,
@@ -112,7 +118,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
         const enforced = enforceContextLimit({
           systemPrompt: deps.systemPrompt,
           context,
-          tools: toolParams,
+          tools: schemasOf(deps.tools),
           windowTokens: deps.windowTokens,
         })
         if (enforced.dropped > 0) {
@@ -131,7 +137,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
             model: deps.model,
             systemPrompt: deps.systemPrompt,
             messages: context,
-            tools: toolSchemas(),
+            tools: schemasOf(deps.tools),
             maxOutput: deps.maxOutput,
             maxRetries: deps.maxRetries,
           },

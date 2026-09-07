@@ -2,13 +2,14 @@ import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
-import { readFileTool } from '../../src/tools/read_file'
-import { writeFileTool } from '../../src/tools/write_file'
-import { editFileTool } from '../../src/tools/edit_file'
+import { ReadFileTool, WriteFileTool, EditFileTool } from '../../src/tools'
 import type { ToolContext } from '../../src/tools/types'
 
 const dir = mkdtempSync(join(tmpdir(), 'dogegg-tools-'))
 const ctx: ToolContext = { cwd: dir, signal: new AbortController().signal }
+const readFileTool = new ReadFileTool()
+const writeFileTool = new WriteFileTool()
+const editFileTool = new EditFileTool()
 
 describe('file tools', () => {
   it('read_file returns content', async () => {

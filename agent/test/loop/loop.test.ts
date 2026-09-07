@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest'
 import { runLoop } from '../../src/loop'
 import type { LoopDeps, LoopResult } from '../../src/loop'
 import { PermissionManager } from '../../src/permission'
-import { readFileTool } from '../../src/tools/read_file'
+import { ReadFileTool } from '../../src/tools'
 import type { LlmStreamEvent } from '../../src/llm/types'
 
 const dir = mkdtempSync(join(tmpdir(), 'dogegg-loop-'))
@@ -64,7 +64,7 @@ describe('runLoop', () => {
     const events: unknown[] = []
     const result: LoopResult = await runLoop(baseDeps({
       adapter: adapter as LoopDeps['adapter'],
-      tools: [readFileTool],
+      tools: [new ReadFileTool()],
       permission: new PermissionManager({ allow: ['read_file'], reject: [], ask: [] }),
       emit: (e) => events.push(e),
     }))

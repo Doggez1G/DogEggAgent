@@ -11,7 +11,7 @@ import { ConfigEditor } from '../config/editor'
 import { resolveCurrent } from '../config/resolve'
 import { saveConfig } from '../config/loader'
 import { loadSystemPrompt, estimateContextTokens, compactContext, summarizeHistory } from '../context'
-import { getAllTools, toolSchemas } from '../tools'
+import { ToolRegistry } from '../tools'
 import { adapterFor, type ProviderAdapter } from '../llm'
 import { runLoop } from '../loop/run'
 import { SessionStore } from '../session'
@@ -31,6 +31,8 @@ export interface AgentOptions {
   sessionsDir?: string
   /** 日志实例——缺省不启用日志。 */
   logger?: Logger
+  /** 工具注册表——缺省内置四工具（测试可注入子集）。 */
+  registry?: ToolRegistry
 }
 
 export class Agent {
@@ -47,6 +49,7 @@ export class Agent {
   private permission: PermissionManager
   private readonly sessions: SessionStore
   private readonly logger: Logger
+  private readonly registry: ToolRegistry
   private readonly adapterOverride: ProviderAdapter | undefined
 
   constructor(
@@ -57,6 +60,7 @@ export class Agent {
   ) {
     this.sessions = new SessionStore(opts.sessionsDir)
     this.logger = opts.logger ?? new Logger(null)
+    this.registry = opts.registry ?? ToolRegistry.withBuiltins()
     this.adapterOverride = opts.adapter
     this.editor = new ConfigEditor(config)
     this.permission = new PermissionManager(config.permission)
@@ -116,7 +120,7 @@ export class Agent {
   }
 
   private estimateCurrentTokens(): number {
-    return estimateContextTokens(loadSystemPrompt(this.config.systemPrompt), this.context, toolSchemas())
+    return estimateContextTokens(loadSystemPrompt(this.config.systemPrompt), this.context, this.registry.schemas())
   }
 
   // 统一的 status_state 发射——status_request 与 set_cwd 共用，避免字段重复。
@@ -250,7 +254,7 @@ export class Agent {
         this.emit({ type: 'config_state', config: this.editor.getConfig() })
         break
       case 'tools_request':
-        this.emit({ type: 'tools_list', tools: getAllTools().map((t) => ({ name: t.name, description: t.description })) })
+        this.emit({ type: 'tools_list', tools: this.registry.all().map((t) => ({ name: t.name, description: t.description })) })
         break
       case 'context_request': {
         if (!isConfigured(this.config)) { this.emit({ type: 'notice', text: '尚未配置 provider，请先 /config' }); break }
@@ -349,7 +353,7 @@ export class Agent {
         maxOutput: cur.maxOutput,
         maxRetries: this.config.maxRetries,
         reasoning: cur.reasoning,
-        tools: getAllTools(),
+        tools: this.registry.all(),
         context: this.context,
         systemPrompt: loadSystemPrompt(this.config.systemPrompt),
         windowTokens: cur.contextWindow,
@@ -403,7 +407,7 @@ export class Agent {
       const result = await compactContext({
         context: this.context,
         systemPrompt: loadSystemPrompt(this.config.systemPrompt),
-        tools: toolSchemas(),
+        tools: this.registry.schemas(),
         windowTokens: cur.contextWindow,
         summarize: this.summarize,
         force: true,
