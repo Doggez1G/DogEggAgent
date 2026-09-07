@@ -29,7 +29,8 @@ export const configSchema = z.object({
   systemPrompt: z.string().optional(),
   defaultProvider: z.string().optional(),
   defaultModel: z.string().optional(),
-  maxIterations: z.number().int().positive().default(50),
+  // 对话最大轮次：-1 = 无限（默认，靠取消/错误终止）；正整数 = 上限（无人值守批处理用）。0 非法。
+  maxIterations: z.number().int().refine((n) => n === -1 || n >= 1).default(-1),
   maxRetries: z.number().int().min(0).default(3),
   shellProgram: z.string().optional(),
   permission: permissionSchema.default({ allow: [], reject: [], ask: [] }),

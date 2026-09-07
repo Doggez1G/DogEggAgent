@@ -81,7 +81,8 @@ export class AgentLoop {
           trans({ kind: 'cancel' })
           throw new CancelledError()
         }
-        if (iterations++ >= turn.maxIterations) {
+        // maxIterations = -1 表示无限轮次（默认）——只有正整数上限才参与比较。
+        if (turn.maxIterations >= 0 && iterations++ >= turn.maxIterations) {
           trans({ kind: 'error' })
           throw new Error('达到 maxIterations 上限')
         }

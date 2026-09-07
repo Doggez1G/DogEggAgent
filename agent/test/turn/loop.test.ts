@@ -88,6 +88,48 @@ describe('AgentLoop', () => {
     expect(result.context.at(-1)).toMatchObject({ role: 'assistant', content: 'done' })
   })
 
+  it('maxIterations=-1（无限）：连续多轮工具调用不受上限影响', async () => {
+    let call = 0
+    const client = fakeClient(() => {
+      call++
+      if (call <= 5) {
+        return [
+          { type: 'tool_call_start', index: 0, id: `c${call}`, name: 'read_file' },
+          { type: 'tool_call_delta', index: 0, argsJsonDelta: '{"path":"a.txt"}' },
+          { type: 'done', message: { role: 'assistant', content: null, tool_calls: [{ id: `c${call}`, type: 'function', function: { name: 'read_file', arguments: '{"path":"a.txt"}' } }] } },
+        ]
+      }
+      return [{ type: 'done', message: { role: 'assistant', content: 'done' } }]
+    })
+    const loop = new AgentLoop(baseServices({
+      registry: new ToolRegistry([new ReadFileTool()]),
+    }))
+    const result = await loop.run(baseTurn({
+      client,
+      permission: new PermissionManager({ allow: ['read_file'], reject: [], ask: [] }),
+      maxIterations: -1,
+    }))
+    expect(result.error).toBeUndefined()
+    expect(result.context.filter((m) => m.role === 'tool')).toHaveLength(5)
+  })
+
+  it('maxIterations 有限时达到上限报错', async () => {
+    const client = fakeClient(() => [
+      { type: 'tool_call_start', index: 0, id: 'c1', name: 'read_file' },
+      { type: 'tool_call_delta', index: 0, argsJsonDelta: '{"path":"a.txt"}' },
+      { type: 'done', message: { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read_file', arguments: '{"path":"a.txt"}' } }] } },
+    ])
+    const loop = new AgentLoop(baseServices({
+      registry: new ToolRegistry([new ReadFileTool()]),
+    }))
+    const result = await loop.run(baseTurn({
+      client,
+      permission: new PermissionManager({ allow: ['read_file'], reject: [], ask: [] }),
+      maxIterations: 2,
+    }))
+    expect(result.error).toContain('maxIterations')
+  })
+
   it('把初始 context（含 user 消息）传给模型', async () => {
     let received: { role: string; content: string | null }[] = []
     const client = { async chat(req: { messages: { role: string; content: string | null }[] }) { received = req.messages; return { message: { role: 'assistant', content: 'ok' } } } }

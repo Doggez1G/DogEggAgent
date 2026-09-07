@@ -64,7 +64,7 @@ export class AgentLoop {
       let state = trans({ kind: 'submit', reasoning: turn.reasoning })
       for (;;) {
         if (checkCancelled()) { trans({ kind: 'cancel' }); throw new CancelledError() }
-        if (iterations++ >= turn.maxIterations) { /* error 上抛 */ }
+        if (turn.maxIterations >= 0 && iterations++ >= turn.maxIterations) { /* error 上抛；maxIterations = -1 表示无限（默认） */ }
 
         // 自动压缩：token 超窗口 80% → Compactor（04 章）
         // 调模型（流式）：

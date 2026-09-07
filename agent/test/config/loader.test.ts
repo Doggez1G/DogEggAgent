@@ -11,7 +11,7 @@ describe('ConfigStore.load', () => {
   it('returns empty config when no providers', () => {
     const cfg = store.load({})
     expect(cfg.providers).toEqual([])
-    expect(cfg.maxIterations).toBe(50)
+    expect(cfg.maxIterations).toBe(-1)
   })
 
   it('falls back to defaults for optional fields', () => {
@@ -26,7 +26,7 @@ describe('ConfigStore.load', () => {
         },
       ],
     })
-    expect(cfg.maxIterations).toBe(50)
+    expect(cfg.maxIterations).toBe(-1)
     expect(cfg.maxRetries).toBe(3)
     expect(cfg.defaultProvider).toBe('o')
     expect(cfg.defaultModel).toBe('m')

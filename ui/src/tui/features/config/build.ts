@@ -14,7 +14,7 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): En
         { label: 'systemPrompt', kind: 'scalar', value: config.systemPrompt ?? '', save: (v) => ctx.set('systemPrompt', v) },
         { label: 'defaultProvider', kind: 'goto', value: config.defaultProvider ?? '（未选择）', subPath: { kind: 'selectProvider' } },
         { label: 'defaultModel', kind: 'goto', value: config.defaultModel ?? '（未选择）', subPath: { kind: 'selectModel' } },
-        { label: 'maxIterations', kind: 'scalar', value: String(config.maxIterations), save: (v) => ctx.set('maxIterations', nan(v)) },
+        { label: 'maxIterations', kind: 'scalar', value: config.maxIterations === -1 ? '-1（无限）' : String(config.maxIterations), save: (v) => ctx.set('maxIterations', nan(v)) },
         { label: 'maxRetries', kind: 'scalar', value: String(config.maxRetries), save: (v) => ctx.set('maxRetries', nan(v)) },
         { label: 'shellProgram', kind: 'goto', value: config.shellProgram || '（未选择）', subPath: { kind: 'selectShell' } },
         { label: 'theme', kind: 'goto', value: THEMES[themeRegistry.name]?.label ?? '默认', subPath: { kind: 'selectTheme' } },
