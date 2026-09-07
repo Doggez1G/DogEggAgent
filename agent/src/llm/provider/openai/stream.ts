@@ -4,9 +4,10 @@ import { createOpenAiStreamParser } from './parser'
 import { buildRequest } from './request'
 import { HttpError, NetworkError, StreamTimeoutError } from './errors'
 
-// 流式超时常量：绝对超时 120s（兜底极端情况），空闲超时 15s（单次 chunk 读取无数据则中止）。
-const ABSOLUTE_TIMEOUT_MS = 120_000
-const IDLE_TIMEOUT_MS = 15_000
+// 流式超时常量：绝对超时 600s（推理模型长思考 + 长回答可轻松超过旧值 120s——那会掐断正常生成），
+// 空闲超时 60s（连续 60s 无任何字节才算失联；部分兼容端点对推理阶段不流式，静默数分钟是正常的）。
+const ABSOLUTE_TIMEOUT_MS = 600_000
+const IDLE_TIMEOUT_MS = 60_000
 
 // 单次流式请求：fetch → 逐行读 SSE 流 → 喂 parser → 累积最终 message + reasoning。
 // 不做重试（重试在 OpenAiClient 层）。HTTP 错误 / 流中断 / 超时 / 无最终消息均抛错。
@@ -32,6 +33,9 @@ export async function streamOnce(conn: LlmClientConn, req: ChatRequest, signal: 
     )
   }
 
+  // 超时归因：reader.cancel 会让后续 read 以 done「正常」结束——必须在循环外还原为超时错误
+  // （可重试），否则长生成被掐断时会误报成「流未产生最终消息」。
+  let timeout: StreamTimeoutError | null = null
   const parser = createOpenAiStreamParser()
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
@@ -40,18 +44,18 @@ export async function streamOnce(conn: LlmClientConn, req: ChatRequest, signal: 
   let finalReasoning: string | undefined
 
   // 绝对超时计时器——从请求开始算，超过 ABSOLUTE_TIMEOUT_MS 则中止。
-  const absoluteTimer = setTimeout(
-    () => reader.cancel(new StreamTimeoutError('absolute')).catch(() => {}),
-    ABSOLUTE_TIMEOUT_MS,
-  )
+  const absoluteTimer = setTimeout(() => {
+    timeout = new StreamTimeoutError('absolute')
+    reader.cancel(timeout).catch(() => {})
+  }, ABSOLUTE_TIMEOUT_MS)
 
   try {
     for (;;) {
       // 空闲超时：每次 read 最多等 IDLE_TIMEOUT_MS，超时则中止。
-      const idleTimer = setTimeout(
-        () => reader.cancel(new StreamTimeoutError('idle')).catch(() => {}),
-        IDLE_TIMEOUT_MS,
-      )
+      const idleTimer = setTimeout(() => {
+        timeout = new StreamTimeoutError('idle')
+        reader.cancel(timeout)
+      }, IDLE_TIMEOUT_MS)
 
       let done: boolean
       let value: Uint8Array | undefined
@@ -93,7 +97,11 @@ export async function streamOnce(conn: LlmClientConn, req: ChatRequest, signal: 
     clearTimeout(absoluteTimer)
   }
 
-  if (!finalMessage) throw new Error('流未产生最终消息')
+  if (!finalMessage) {
+    // 超时触发的 cancel 会优雅结束流——归因还原成 StreamTimeoutError（retry 层可重试）。
+    if (timeout) throw timeout
+    throw new Error('流未产生最终消息')
+  }
   return { message: finalMessage, reasoning: finalReasoning }
 }
 
