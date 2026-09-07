@@ -3,7 +3,7 @@
 
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { Agent, loadConfig, initLogger } from '@dogegg/agent'
+import { Agent, loadConfig, Logger } from '@dogegg/agent'
 import { HttpServer, Router, SseChannel } from '@dogegg/server'
 
 // 加载配置（找不到文件返回空配置，不抛错——让 server 能启动、引导用户 /config）。
@@ -12,12 +12,12 @@ const config = loadConfig()
 // SSE 通道：本身就是 AgentPort——agent 与 HTTP 路由共享同一实例。
 const channel = new SseChannel()
 
-// 初始化调试日志目录（~/.dogegg/logs/<session-id>.log）。
-initLogger(join(homedir(), '.dogegg', 'logs'))
+// 日志实例（~/.dogegg/logs/<session-id>.log）。
+const logger = new Logger(join(homedir(), '.dogegg', 'logs'))
 
 // 构造 Agent——它构造时自订阅 port 消息，后续一切由 port 驱动。
 // eslint-disable-next-line no-new
-new Agent(channel, config, process.cwd())
+new Agent(channel, config, process.cwd(), { logger })
 
 // 启动 HTTP server。
 // 开发模式（VITE_DEV=1）：staticDir=null，非 API 路径返回 404（前端由 Vite dev server 代理）。

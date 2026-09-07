@@ -14,21 +14,23 @@ import { loadSystemPrompt, estimateContextTokens, compactContext, summarizeHisto
 import { getAllTools, toolSchemas } from '../tools'
 import { adapterFor, type ProviderAdapter } from '../llm'
 import { runLoop } from '../loop/run'
-import { saveSession, loadSession, listSessions, deleteSession, defaultSessionsDir } from '../session'
+import { SessionStore } from '../session'
 import { PermissionManager } from '../permission'
-import { log, readLogTail, sessionLogPath, newId, CancelledError } from '../shared'
+import { newId, CancelledError, Logger } from '../shared'
 
 // Agent 是后端对外的唯一入口：持有 history（完整原文）与 context（发给模型，可压缩），
 // 通过 AgentPort 收发消息，不依赖 ui。
 //
 // 构造后自订阅 port 消息——外部不再调 send()，一切通过 port.post(UiToAgentMessage) 驱动。
 // emit() 内部走 port.post()（加日志埋点），agent 只有消息这一个进出通道。
-// Agent 构造选项：仅测试接缝——生产组合根不传，行为与旧签名完全一致。
+// Agent 构造选项：依赖注入（生产组合根传 logger；adapter/sessionsDir 为测试接缝）。
 export interface AgentOptions {
   /** 覆盖 adapterFor() 的 LLM adapter（表征测试注入假 adapter 用）。 */
   adapter?: ProviderAdapter
   /** 会话持久化目录——缺省 ~/.dogegg/sessions。 */
   sessionsDir?: string
+  /** 日志实例——缺省不启用日志。 */
+  logger?: Logger
 }
 
 export class Agent {
@@ -43,7 +45,8 @@ export class Agent {
   private controller: AbortController | null = null
   private editor: ConfigEditor
   private permission: PermissionManager
-  private readonly sessionsDir: string
+  private readonly sessions: SessionStore
+  private readonly logger: Logger
   private readonly adapterOverride: ProviderAdapter | undefined
 
   constructor(
@@ -52,7 +55,8 @@ export class Agent {
     private cwd: string,
     opts: AgentOptions = {},
   ) {
-    this.sessionsDir = opts.sessionsDir ?? defaultSessionsDir()
+    this.sessions = new SessionStore(opts.sessionsDir)
+    this.logger = opts.logger ?? new Logger(null)
     this.adapterOverride = opts.adapter
     this.editor = new ConfigEditor(config)
     this.permission = new PermissionManager(config.permission)
@@ -79,21 +83,21 @@ export class Agent {
   private emit(m: AgentToUiMessage): void {
     if (m.type === 'state') {
       this.state = m.to
-      log(this.sessionId, 'state', `${m.from} → ${m.to}`)
+      this.logger.log(this.sessionId, 'state', `${m.from} → ${m.to}`)
     } else if (m.type === 'message') {
-      log(this.sessionId, 'message', m.role)
+      this.logger.log(this.sessionId, 'message', m.role)
     } else if (m.type === 'tool_start') {
-      log(this.sessionId, 'tool', `${m.name} ${JSON.stringify(m.input)}`)
+      this.logger.log(this.sessionId, 'tool', `${m.name} ${JSON.stringify(m.input)}`)
     } else if (m.type === 'tool_end') {
-      log(this.sessionId, 'tool', `${m.name} ${m.error ? '✕ ' + m.error : '✓'}`)
+      this.logger.log(this.sessionId, 'tool', `${m.name} ${m.error ? '✕ ' + m.error : '✓'}`)
     } else if (m.type === 'permission_request') {
-      log(this.sessionId, 'permission', `ask ${m.tool}`)
+      this.logger.log(this.sessionId, 'permission', `ask ${m.tool}`)
     } else if (m.type === 'error') {
-      log(this.sessionId, 'error', m.error.message)
+      this.logger.log(this.sessionId, 'error', m.error.message)
     } else if (m.type === 'compaction') {
-      log(this.sessionId, 'compact', `${m.before_tokens} → ${m.after_tokens}`)
+      this.logger.log(this.sessionId, 'compact', `${m.before_tokens} → ${m.after_tokens}`)
     } else if (m.type === 'finished') {
-      log(this.sessionId, 'state', 'finished')
+      this.logger.log(this.sessionId, 'state', 'finished')
     }
     this.port.post(m)
   }
@@ -172,14 +176,14 @@ export class Agent {
         this.sessionId = newId()
         this.permission.reset() // 会话隔离：allow_always 只对当前会话生效
         // 立即保存空会话——让 list_sessions 能返回新会话（侧栏即时显示）。
-        try { saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed(), this.sessionsDir, this.cwd, this.thinking) } catch { /* 磁盘错误忽略 */ }
+        try { this.sessions.save({ id: this.sessionId, history: this.history, context: this.context, allowedTools: this.permission.listAllowed(), cwd: this.cwd, thinking: this.thinking }) } catch { /* 磁盘错误忽略 */ }
         this.emit({ type: 'session_ready', id: this.sessionId, messages: this.history })
         break
       }
       case 'resume_session': {
         if (this.running) { this.emit({ type: 'notice', text: '运行中，请稍候' }); return }
         try {
-          const s = loadSession(cmd.id, this.sessionsDir)
+          const s = this.sessions.load(cmd.id)
           this.history = s.history
           this.context = s.context
           this.thinking = s.thinking
@@ -232,14 +236,14 @@ export class Agent {
         break
       }
       case 'permission_decision': {
-        log(this.sessionId, 'permission', `decision ${cmd.decision}`)
+        this.logger.log(this.sessionId, 'permission', `decision ${cmd.decision}`)
         this.pending.resolve(cmd.id, cmd.decision)
         break
       }
 
       // ── 纯查询（任意时刻放行）──
       case 'list_sessions':
-        try { this.emit({ type: 'session_list', sessions: listSessions(this.sessionsDir) }) }
+        try { this.emit({ type: 'session_list', sessions: this.sessions.list() }) }
         catch { this.emit({ type: 'notice', text: '会话列表读取失败' }) }
         break
       case 'config_request':
@@ -268,7 +272,7 @@ export class Agent {
         catch { this.emit({ type: 'notice', text: 'system prompt 加载失败（路径不存在或无法读取）' }) }
         break
       case 'log_request':
-        try { this.emit({ type: 'log_state', path: sessionLogPath(this.sessionId) ?? '~/.dogegg/logs/<session>.log', tail: readLogTail(this.sessionId) }) }
+        try { this.emit({ type: 'log_state', path: this.logger.path(this.sessionId) ?? '~/.dogegg/logs/<session>.log', tail: this.logger.tail(this.sessionId) }) }
         catch { this.emit({ type: 'notice', text: '日志读取失败' }) }
         break
 
@@ -308,7 +312,7 @@ export class Agent {
         // 删除会话文件——运行中阻塞（不能删正在使用的会话）。
         if (this.running) { this.emit({ type: 'notice', text: '运行中，请稍候' }); return }
         try {
-          deleteSession(cmd.id, this.sessionsDir)
+          this.sessions.delete(cmd.id)
           this.emit({ type: 'session_deleted', id: cmd.id })
           // 如果删除的是当前会话，发一个 notice 提示。
           if (cmd.id === this.sessionId) {
@@ -380,7 +384,7 @@ export class Agent {
       // 无论成功/失败/取消，turn 结束后状态回到 idle（成功路径 loop 停在 finished，需复位）。
       this.running = false
       this.emitState({ kind: 'reset' })
-      try { saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed(), this.sessionsDir, this.cwd, this.thinking) }
+      try { this.sessions.save({ id: this.sessionId, history: this.history, context: this.context, allowedTools: this.permission.listAllowed(), cwd: this.cwd, thinking: this.thinking }) }
       catch { this.emit({ type: 'notice', text: '会话保存失败（磁盘空间不足或权限问题）' }) }
     }
   }
@@ -407,7 +411,7 @@ export class Agent {
       })
       if (result.compacted) {
         this.context = result.context
-        saveSession(this.sessionId, this.history, this.context, this.permission.listAllowed(), this.sessionsDir, this.cwd, this.thinking)
+        this.sessions.save({ id: this.sessionId, history: this.history, context: this.context, allowedTools: this.permission.listAllowed(), cwd: this.cwd, thinking: this.thinking })
         this.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after, source: 'manual' })
       } else {
         // context 为空——没有消息可压。
