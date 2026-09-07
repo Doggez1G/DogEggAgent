@@ -64,6 +64,10 @@ export function usePanelData(port: UiPort): {
         setPermissionsList(msg.tools)
       } else if (msg.type === 'compaction') {
         port.post({ type: 'context_request' })
+      } else if (msg.type === 'finished' || msg.type === 'error') {
+        // 对话结束后刷新上下文与日志面板（token 用量和调试日志都随落盘更新）。
+        port.post({ type: 'context_request' })
+        port.post({ type: 'log_request' })
       }
     })
     port.post({ type: 'config_request' })
