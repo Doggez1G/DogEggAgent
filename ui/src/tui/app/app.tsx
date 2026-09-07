@@ -1,28 +1,33 @@
-import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Box, Static, Text } from 'ink'
-import TextInput from 'ink-text-input'
-import type { AgentToUiMessage, Config, UiPort } from '@dogegg/bridge'
-import { TopBar, MessageBlock, StatusBar, ListPicker, MultilineInput, StreamingBlock } from '../components'
+import type { Config, UiPort } from '@dogegg/bridge'
+import { TopBar, MessageBlock, StatusBar, MultilineInput, StreamingBlock } from '../components'
 import { palette, onThemeChange } from '../theme'
 import { renderMarkdown } from '../markdown'
 import { clearScreen } from './entry'
 import { reducer, type ChatState, type Block, parseCommand, matchCommands } from '../../shared'
-import { buildEntries, entryLabel, parentPath, type TreeCtx } from '../features/config'
+import { buildEntries, type TreeCtx } from '../features/config'
 import { useKeyRouting } from './use-key-routing'
-import { DECISION_LABELS } from '../features/permission/decisions'
-import { filterSessions, relTime } from '../features/sessions/filter'
+import { useChat } from './use-chat'
+import { useAgentEvents, type StatusBarData } from './use-agent-events'
+import { PermissionOverlay } from '../features/permission/view'
+import { MenuOverlay } from '../features/menu/view'
+import { SessionPickerOverlay } from '../features/sessions/view'
+import { ConfigOverlay } from '../features/config/view'
+import { InfoOverlay } from '../features/info/view'
+import { PromptOverlay } from '../features/prompt/view'
+import { BrowseStatusBar } from '../features/browse/view'
 import { type View } from '../view-state'
 
 // Static items 的类型：首项是品牌头（启动打印一次），其余是已完成的消息块。
 type StaticItem = { type: 'header' } | { type: 'block'; block: Block }
 
-// App 是 UI 的唯一入口。通过 UiPort 收发消息，不依赖 Agent——解耦落点。
+// App 是 UI 的装配层：chat 数据域（use-chat）+ 视图事件域（use-agent-events）+
+// 键盘路由（use-key-routing → features/*/keys）+ 布局渲染。
 // 架构（Claude Code 式）：已完成的消息块经 <Static> 打印进终端滚动缓冲区，
 // 用户用终端原生滚动查看历史；Ink 只重绘底部动态区（未完成块+流式+输入+状态栏）。
-// 职责边界：本组件做「状态接线 + 布局装配」；键盘路由在 use-key-routing（分派到 features/*/keys），
-// 消息分域在下方两个 effect（chat 状态 / UI 视图）。
 export function App({ port }: { port: UiPort }) {
-  const [chat, dispatch] = useReducer(reducer, { blocks: [], status: 'idle', partial: null, toolActive: false } as ChatState)
+  const { chat, dispatch } = useChat(port)
   const [view, setViewState] = useState<View>({ kind: 'none' })
   const [input, setInput] = useState('')
   const [configSnapshot, setConfigSnapshot] = useState<Config | null>(null)
@@ -30,7 +35,7 @@ export function App({ port }: { port: UiPort }) {
   const suggestCursorRef = useRef<number | null>(null) // 镜像供 handleSubmit 读取（闭包防过期）
   const setSuggestCursor = useCallback((c: number | null) => { suggestCursorRef.current = c; setSuggestCursorState(c) }, [])
   const [infoScroll, setInfoScroll] = useState(0) // info overlay 独立翻页
-  const [statusBarData, setStatusBarData] = useState<{ provider?: string; model?: string; sessionId?: string; tokens?: number; windowTokens?: number; cwd?: string }>({})
+  const [statusBarData, setStatusBarData] = useState<StatusBarData>({})
   const currentCwdRef = useRef<string>('')
   // 标记是否为显式信息请求（/context /status 等），用于区分轮询的静默更新。
   const explicitInfoRef = useRef(false)
@@ -66,6 +71,20 @@ export function App({ port }: { port: UiPort }) {
   const openMenu = useCallback((title: string, items: { label: string; onSelect: () => void }[]) => setView({ kind: 'menu', title, items, cursor: 0 }), [setView])
   // 折叠切换/会话切换的清屏 + Static 重挂载（Static 已输出内容无法就地修改）。
   const clearScreenRemount = useCallback(() => { clearScreen(); setStaticKey((k) => k + 1) }, [])
+  // 会话切换/清空后的 UI 复位。
+  const onSessionCleared = useCallback(() => {
+    setSuggestCursor(null)
+    setBrowseIdx(null)
+    expandedRef.current = new Set()
+    setExpanded(new Set())
+  }, [setSuggestCursor, setBrowseIdx])
+  // 错误自动重填上次提交的文本到输入框，用户可直接改或重新提交。
+  const onErrorRetry = useCallback(() => {
+    if (inputHistoryRef.current.length === 0) return
+    const lastText = inputHistoryRef.current[inputHistoryRef.current.length - 1]!
+    setInput(lastText)
+    historyCursorRef.current = -1
+  }, [setInput])
 
   useEffect(() => { statusRef.current = chat.status }, [chat.status])
 
@@ -75,47 +94,6 @@ export function App({ port }: { port: UiPort }) {
     add: (path, value) => port.post({ type: 'config_add', path, value }),
     remove: (path, index, providerIndex) => port.post({ type: 'config_remove', path, index, providerIndex }),
   }
-
-  // ── 键盘路由：按 view.kind 分派到 features/*/keys（本组件不再内联按键逻辑）──
-  const { suppressEnter } = useKeyRouting({
-    port,
-    viewRef,
-    setView,
-    statusRef,
-    configRef,
-    treeCtx: {
-      set: (path, value) => port.post({ type: 'config_set', path, value }),
-      add: (path, value) => port.post({ type: 'config_add', path, value }),
-      remove: (path, index, providerIndex) => port.post({ type: 'config_remove', path, index, providerIndex }),
-    },
-    input,
-    setInput,
-    suggest: { get: () => suggestCursorRef.current, set: setSuggestCursor },
-    browse: {
-      get: () => browseIdxRef.current,
-      set: setBrowseIdx,
-      blocks: () => blocksRef.current,
-      isExpanded: (i) => expandedRef.current.has(i),
-      toggle: (i) => {
-        const next = new Set(expandedRef.current)
-        if (next.has(i)) next.delete(i)
-        else next.add(i)
-        expandedRef.current = next
-        setExpanded(next)
-      },
-    },
-    infoScroll: setInfoScroll,
-    history: { items: inputHistoryRef.current, cursor: historyCursorRef.current, setCursor: (c) => { historyCursorRef.current = c } },
-    clearScreenRemount,
-  })
-
-  // 运行中轮询 context_request（2s 间隔）——让 StatusBar 的 tokens 实时更新。
-  useEffect(() => {
-    const running = chat.status !== 'idle' && chat.status !== 'finished' && chat.status !== 'cancelled' && chat.status !== 'error'
-    if (!running) return
-    const timer = setInterval(() => port.post({ type: 'context_request' }), 2000)
-    return () => clearInterval(timer)
-  }, [port, chat.status])
 
   // /model 快捷：provider → model 两级选择器。
   const openModelPicker = useCallback((config: Config) => {
@@ -137,96 +115,61 @@ export function App({ port }: { port: UiPort }) {
     setView({ kind: 'config', path: { kind: 'root' }, cursor: 0, preview: null })
   }, [updateConfig, setView])
 
-  // ── 消息订阅：dispatch 到 reducer + 按 msg.type 切换 overlay ──
+  // ── 键盘路由：按 view.kind 分派到 features/*/keys ──
+  const { suppressEnter } = useKeyRouting({
+    port,
+    viewRef,
+    setView,
+    statusRef,
+    configRef,
+    treeCtx,
+    input,
+    setInput,
+    suggest: { get: () => suggestCursorRef.current, set: setSuggestCursor },
+    browse: {
+      get: () => browseIdxRef.current,
+      set: setBrowseIdx,
+      blocks: () => blocksRef.current,
+      isExpanded: (i) => expandedRef.current.has(i),
+      toggle: (i) => {
+        const next = new Set(expandedRef.current)
+        if (next.has(i)) next.delete(i)
+        else next.add(i)
+        expandedRef.current = next
+        setExpanded(next)
+      },
+    },
+    infoScroll: setInfoScroll,
+    history: { items: inputHistoryRef.current, cursor: historyCursorRef.current, setCursor: (c) => { historyCursorRef.current = c } },
+    clearScreenRemount,
+  })
+
+  // ── 视图事件域：消息 → overlay 开合 / 状态栏 / 回填 ──
+  useAgentEvents({
+    port,
+    viewRef,
+    currentCwdRef,
+    explicitInfoRef,
+    configIntentRef: configIntent,
+    setView,
+    updateConfig,
+    openMenu,
+    openModelPicker: (c) => openModelPicker(c),
+    openConfigTree: (c) => openConfigTree(c),
+    setStatusBarData,
+    clearScreenRemount,
+    onSessionCleared,
+    onErrorRetry,
+    setInfoScroll,
+  })
+
+  // 运行中轮询 context_request（2s 间隔）——让 StatusBar 的 tokens 实时更新。
   useEffect(() => {
-    const off = port.onMessage((msg: AgentToUiMessage) => {
-      dispatch(msg)
-      // 会话切换/清空：清屏 + Static 重挂载（Static 已输出的内容无法撤回）。
-      if (msg.type === 'session_ready' || msg.type === 'history_cleared') {
-        clearScreenRemount()
-        setSuggestCursor(null)
-        setBrowseIdx(null)
-        expandedRef.current = new Set()
-        setExpanded(new Set())
-      }
-      // 错误恢复：error 时自动预填上次提交的文本到输入框，用户可直接改或重新提交。
-      if (msg.type === 'error' && inputHistoryRef.current.length > 0) {
-        const lastText = inputHistoryRef.current[inputHistoryRef.current.length - 1]!
-        setInput(lastText)
-        historyCursorRef.current = -1
-      }
-      if (msg.type === 'permission_request') {
-        setView({ kind: 'permission', id: msg.id, tool: msg.tool, input: msg.input, cursor: 0 })
-      } else if (msg.type === 'state' && msg.to !== 'waiting_permission' && viewRef.current.kind === 'permission') {
-        // 权限等待期间状态离开 waiting_permission（如 cancel）→ 关闭 permission overlay。
-        setView({ kind: 'none' })
-      } else if (msg.type === 'session_list') {
-        // 按 cwd 过滤：只显示当前工作目录下的会话（Claude 式——每个目录独立）。
-        // 路径归一化：统一为小写 + 正斜杠，兼容 Windows 反斜杠 + 大小写不敏感。
-        const normalize = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-        const cwd = normalize(currentCwdRef.current)
-        const filtered = msg.sessions.filter((s) => normalize(s.cwd ?? '') === cwd)
-        setView({ kind: 'sessionPicker', sessions: filtered.map((s) => ({ id: s.id, preview: s.preview || '（空会话）', updatedAt: s.updatedAt })), cursor: 0, query: '' })
-      } else if (msg.type === 'session_deleted') {
-        // 会话删除后刷新列表——重新请求 session_list（会触发 sessionPicker 重建）。
-        port.post({ type: 'list_sessions' })
-      } else if (msg.type === 'config_state') {
-        updateConfig(msg.config)
-        if (configIntent.current === 'model') { openModelPicker(msg.config); configIntent.current = null }
-        else if (configIntent.current === 'config') { openConfigTree(msg.config); configIntent.current = null }
-      } else if (msg.type === 'config_updated') {
-        updateConfig(msg.config)
-      } else if (msg.type === 'tools_list') {
-        setInfoScroll(0); setView({ kind: 'info', title: '工具', lines: msg.tools.map((t) => `${t.name} — ${t.description}`) })
-      } else if (msg.type === 'status_state') {
-        currentCwdRef.current = msg.cwd
-        setStatusBarData({ provider: msg.provider, model: msg.model, sessionId: msg.sessionId, tokens: msg.estimatedTokens, windowTokens: msg.windowTokens, cwd: msg.cwd })
-        // 仅显式请求（/status）时打开 info overlay；启动时的自动请求静默更新。
-        if (explicitInfoRef.current) {
-          explicitInfoRef.current = false
-          setInfoScroll(0); setView({ kind: 'info', title: '状态', lines: [
-            `session   ${msg.sessionId}`,
-            `provider  ${msg.provider}`,
-            `model     ${msg.model}`,
-            `cwd       ${msg.cwd}`,
-            `state     ${msg.state}`,
-            `context   ${msg.estimatedTokens} / ${msg.windowTokens}`,
-          ] })
-        }
-      } else if (msg.type === 'context_state') {
-        setStatusBarData((d) => ({ ...d, tokens: msg.estimatedTokens, windowTokens: msg.windowTokens }))
-        // 仅显式请求（/context）时打开 info overlay；轮询静默更新 StatusBar。
-        if (explicitInfoRef.current) {
-          explicitInfoRef.current = false
-          setInfoScroll(0); setView({ kind: 'info', title: '上下文', lines: [
-            `${msg.estimatedTokens} / ${msg.windowTokens} tokens（${msg.percent}%）`,
-            `压缩阈值：窗口 80% = ${Math.round(msg.windowTokens * 0.8)}`,
-          ] })
-        }
-      } else if (msg.type === 'system_state') {
-        setInfoScroll(0); setView({ kind: 'info', title: 'system prompt', lines: [`路径：${msg.path}`, '─'.repeat(40), msg.content] })
-      } else if (msg.type === 'compaction') {
-        // 压缩提示只走消息流 notice 块（reducer 已插入）——不弹 overlay。
-      } else if (msg.type === 'permissions_list') {
-        // /permissions：用 menu overlay 显示当前会话的 allow_always 授权列表。
-        if (msg.tools.length === 0) {
-          setInfoScroll(0)
-          setView({ kind: 'info', title: '会话权限', lines: ['当前会话没有 allow_always 授权的工具', '（选择权限弹层时选「始终允许」才会出现在这里）'] })
-        } else {
-          openMenu('会话权限（回车撤销授权）', msg.tools.map((t) => ({
-            label: `${t}  （回车撤销）`,
-            onSelect: () => { port.post({ type: 'permission_revoke', tool: t }) },
-          })))
-        }
-      } else if (msg.type === 'log_state') {
-        setInfoScroll(0); setView({ kind: 'info', title: '调试日志', lines: [`路径：${msg.path}`, '─'.repeat(40), msg.tail] })
-      }
-    })
-    // 订阅后主动取一次配置 + 状态，用于顶部品牌头和 CWD 过滤。
-    port.post({ type: 'config_request' })
-    port.post({ type: 'status_request' })
-    return off
-  }, [port, openMenu, openModelPicker, openConfigTree, updateConfig, setView, clearScreenRemount, setSuggestCursor, setBrowseIdx])
+    const running = chat.status !== 'idle' && chat.status !== 'finished' && chat.status !== 'cancelled' && chat.status !== 'error'
+    if (!running) return
+    const timer = setInterval(() => port.post({ type: 'context_request' }), 2000)
+    return () => clearInterval(timer)
+  }, [port, chat.status])
 
   // ── 命令提交流程：联想拦截 → parseCommand → 确认弹层 → intent 标记 ──
   const handleSubmit = (raw: string) => {
@@ -340,34 +283,15 @@ export function App({ port }: { port: UiPort }) {
           <MessageBlock key={b.toolId ?? 'active'} block={b} />
         ))}
         {chat.partial ? (
-          // 流式 partial 容器化——回复/思考从一开始就有头行+边框线，完成后无缝进入 Static。
           <StreamingBlock
             kind={chat.partial.kind}
             text={chat.partial.kind === 'thinking' ? chat.partial.text : renderMarkdown(chat.partial.text)}
           />
         ) : null}
 
-        {/* 浏览模式状态条：显示当前焦点块的信息+内容预览（焦点块在缓冲区里，无法就地高亮，用此条反馈） */}
-        {browseIdx !== null && (() => {
-          const block = chat.blocks[browseIdx]
-          const kindLabel: Record<string, string> = { user: '你的消息', assistant: 'DogEgg 回复', thinking: '思考', tool: '工具调用', error: '错误', notice: '提示', auto_compact: '压缩' }
-          const expandable = block ? (block.kind === 'thinking' || block.kind === 'tool') && block.full !== undefined : false
-          const isExpanded = block ? expanded.has(browseIdx) : false
-          // 内容预览：取块文本前 2 行（去除 ANSI），每行截断 60 字符。
-          const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '')
-          const previewLines = block ? stripAnsi(block.text).split('\n').slice(0, 2).map((l) => l.length > 60 ? l.slice(0, 60) + '…' : l) : []
-          return (
-            <Box flexDirection="column" marginTop={1}>
-              <Text>
-                <Text backgroundColor={palette.surfaceAlt} color={palette.text}> 🔍 {browseIdx + 1}/{chat.blocks.length} {block ? kindLabel[block.kind] ?? block.kind : ''}{expandable ? (isExpanded ? ' · 已展开' : ' · 已折叠') : ''} </Text>
-              </Text>
-              {previewLines.map((l, i) => (
-                <Text key={i} dimColor>  ┃ {l}</Text>
-              ))}
-              <Text dimColor>Ctrl+↑↓ 切换块{expandable ? ' · Enter 展开/折叠' : ''} · Esc 退出浏览</Text>
-            </Box>
-          )
-        })()}
+        {browseIdx !== null && (
+          <BrowseStatusBar idx={browseIdx} total={chat.blocks.length} block={chat.blocks[browseIdx]} expanded={expanded.has(browseIdx)} />
+        )}
 
         {view.kind === 'none' && (
           <Box flexDirection="column">
@@ -401,17 +325,7 @@ export function App({ port }: { port: UiPort }) {
           </Box>
         )}
         {view.kind === 'prompt' && (
-          <Box>
-            <Text color={palette.cyan}>{view.title} → </Text>
-            <TextInput
-              value={view.value}
-              onChange={(val) => setView({ ...view, value: val })}
-              onSubmit={(val) => {
-                suppressEnter()
-                view.onSubmit(val)
-              }}
-            />
-          </Box>
+          <PromptOverlay view={view} setView={setView} suppressEnter={suppressEnter} />
         )}
         {view.kind !== 'none' && view.kind !== 'prompt' && (
           <Box>
@@ -426,87 +340,11 @@ export function App({ port }: { port: UiPort }) {
         )}
 
         {/* overlay 在输入框下方展开——视觉上和输入框一体 */}
-        {view.kind === 'permission' && (() => {
-          // diff 预览：edit_file 显示 old→new，write_file 显示要写入的内容
-          const inp = view.input as Record<string, unknown> | null
-          return (
-          <Box flexDirection="column" borderStyle="round" borderColor={palette.border} paddingX={1}>
-            <Text bold color={palette.accent}>工具 {view.tool} 请求权限</Text>
-            {view.tool === 'edit_file' && inp && (
-              <Box flexDirection="column">
-                <Text dimColor>文件：{String(inp.path ?? '')}</Text>
-                <Text color={palette.red}>- {String(inp.old_string ?? '').slice(0, 200)}</Text>
-                <Text color={palette.green}>+ {String(inp.new_string ?? '').slice(0, 200)}</Text>
-              </Box>
-            )}
-            {view.tool === 'write_file' && inp && (
-              <Box flexDirection="column">
-                <Text dimColor>文件：{String(inp.path ?? '')}</Text>
-                <Text color={palette.green} wrap="truncate">+ {String(inp.content ?? '').slice(0, 200)}</Text>
-              </Box>
-            )}
-            {view.tool === 'shell' && inp && (
-              <Text dimColor>命令：{String(inp.command ?? '')}</Text>
-            )}
-            {DECISION_LABELS.map((label, i) => (
-              <Text key={label} inverse={i === view.cursor}>{i === view.cursor ? '> ' : '  '}{label}</Text>
-            ))}
-            <Text dimColor>↑↓ 选择 · 回车确认 · esc 拒绝</Text>
-          </Box>
-          )
-        })()}
-        {view.kind === 'menu' && (
-          <ListPicker title={view.title} items={view.items.map((i) => i.label)} cursor={view.cursor} hint="↑↓ 选择 · 回车确认 · esc 返回" />
-        )}
-        {view.kind === 'sessionPicker' && (() => {
-          const filtered = filterSessions(view.sessions, view.query)
-          const dirName = currentCwdRef.current ? currentCwdRef.current.replace(/\\/g, '/').split('/').pop() ?? currentCwdRef.current : ''
-          // 窗口化：最多显示 12 项，cursor 靠边时滚动。
-          const WIN = 12
-          const start = Math.max(0, Math.min(view.cursor - WIN + 3, Math.max(0, filtered.length - WIN)))
-          const windowed = filtered.slice(start, start + WIN)
-          return (
-            <Box flexDirection="column" borderStyle="round" borderColor={palette.border} paddingX={1}>
-              <Text bold color={palette.accent}>选择会话 — {dirName || '当前目录'}</Text>
-              <Text dimColor>搜索: {view.query || '（输入过滤）'}{'_'}</Text>
-              {windowed.length === 0 ? (
-                <Text dimColor>（无匹配会话）</Text>
-              ) : (
-                windowed.map((s, i) => {
-                  const realIdx = start + i
-                  return (
-                    <Text key={s.id} inverse={realIdx === view.cursor}>{realIdx === view.cursor ? '> ' : '  '}{s.preview} <Text dimColor>{relTime(s.updatedAt)}</Text></Text>
-                  )
-                })
-              )}
-              {filtered.length > WIN && <Text dimColor>（{filtered.length} 项，↑↓ 滚动）</Text>}
-              <Text dimColor>↑↓ 选择 · 回车切换 · d 删除 · esc 返回</Text>
-            </Box>
-          )
-        })()}
-        {view.kind === 'config' && (
-          <ListPicker
-            title={`配置 / ${view.path.kind}`}
-            items={configEntries.map((e, i) => entryLabel(e, i === view.cursor && e.kind === 'bool' ? (view.preview ?? e.value) : undefined))}
-            cursor={view.cursor}
-            hint="↑↓ 选择 · 回车钻入/编辑 · ←→ 切布尔 · d 删 · esc 返回"
-          />
-        )}
-        {view.kind === 'info' && (() => {
-          // 固定 15 行窗口 + infoScroll 翻页。
-          const WIN = 15
-          const start = Math.max(0, view.lines.length - infoScroll - WIN)
-          const windowed = view.lines.slice(start, start + WIN)
-          return (
-            <Box flexDirection="column" borderStyle="round" borderColor={palette.border} paddingX={1}>
-              <Text bold color={palette.accent}>{view.title}</Text>
-              {windowed.map((line, i) => (
-                <Text key={i} dimColor={line.startsWith('─') || line.startsWith('路径')}>{line}</Text>
-              ))}
-              <Text dimColor>↑↓ 翻页 · esc 关闭</Text>
-            </Box>
-          )
-        })()}
+        {view.kind === 'permission' && <PermissionOverlay view={view} />}
+        {view.kind === 'menu' && <MenuOverlay view={view} />}
+        {view.kind === 'sessionPicker' && <SessionPickerOverlay view={view} cwd={currentCwdRef.current} />}
+        {view.kind === 'config' && <ConfigOverlay view={view} entries={configEntries} />}
+        {view.kind === 'info' && <InfoOverlay view={view} scroll={infoScroll} />}
       </Box>
 
       {/* StatusBar 始终在动态区底部 */}
