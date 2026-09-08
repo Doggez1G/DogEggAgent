@@ -63,9 +63,11 @@ export function formatToolBody(name: string, input: unknown, output?: string, er
   const inp = asRecord(input)
   let lines: ToolBodyLine[]
   switch (name) {
-    case 'edit_file':
-      lines = diffLines(String(inp.old_string ?? ''), String(inp.new_string ?? ''))
+    case 'edit_file': {
+      // 锚点来自回执「已替换 1 处（原第 N 行起）」——旧会话回放无锚点时不标行号（不编造坐标）。
+      lines = diffLines(String(inp.old_string ?? ''), String(inp.new_string ?? ''), parseEditStartLine(output))
       break
+    }
     case 'read_file':
       // 内容以编辑器式带行号呈现——行号是用户回看/引用文件时的天然坐标。
       lines = numberedLines(output ?? '')
@@ -100,14 +102,35 @@ function diffStat(oldStr: string, newStr: string): { added: number; removed: num
 }
 
 // 伪 unified diff：公共首尾行各保留 DIFF_CONTEXT 行作上下文，中间净变更行 -旧 / +新。
-function diffLines(oldStr: string, newStr: string): ToolBodyLine[] {
+// startLine = old_string 在原文件中的 1-based 起始行（edit_file 回执锚点）——
+// 编号语义与编辑器 diff 侧栏一致：删掉的行标旧文件位置（它曾在哪），
+// 存活的行（上下文/新增）标新文件位置（现在去哪找）。无锚点不标——不编造坐标。
+function diffLines(oldStr: string, newStr: string, startLine?: number): ToolBodyLine[] {
   const { oldLines, newLines, prefix, suffix } = trimCommon(oldStr, newStr)
+  const head = Math.min(prefix, DIFF_CONTEXT)
+  const bump = (n: number | undefined): number | undefined => (n === undefined ? undefined : n + 1)
+  let oldNo = startLine
+  let newNo = startLine
   const lines: ToolBodyLine[] = []
-  for (let i = Math.max(0, prefix - DIFF_CONTEXT); i < prefix; i++) lines.push({ text: `  ${oldLines[i]}`, kind: 'plain' })
-  for (let i = prefix; i < oldLines.length - suffix; i++) lines.push({ text: `- ${oldLines[i]}`, kind: 'del' })
-  for (let i = prefix; i < newLines.length - suffix; i++) lines.push({ text: `+ ${newLines[i]}`, kind: 'add' })
+  const push = (line: ToolBodyLine, no: number | undefined): void => {
+    lines.push(no === undefined ? line : { ...line, no })
+  }
+  for (let i = prefix - head; i < prefix; i++) {
+    push({ text: `  ${oldLines[i]}`, kind: 'plain' }, oldNo)
+    oldNo = bump(oldNo)
+    newNo = bump(newNo)
+  }
+  for (let i = prefix; i < oldLines.length - suffix; i++) {
+    push({ text: `- ${oldLines[i]}`, kind: 'del' }, oldNo)
+    oldNo = bump(oldNo)
+  }
+  for (let i = prefix; i < newLines.length - suffix; i++) {
+    push({ text: `+ ${newLines[i]}`, kind: 'add' }, newNo)
+    newNo = bump(newNo)
+  }
   for (let i = newLines.length - suffix; i < Math.min(newLines.length, newLines.length - suffix + DIFF_CONTEXT); i++) {
-    lines.push({ text: `  ${newLines[i]}`, kind: 'plain' })
+    push({ text: `  ${newLines[i]}`, kind: 'plain' }, newNo)
+    newNo = bump(newNo)
   }
   return lines
 }
@@ -166,6 +189,14 @@ function parseShellContent(output: string): { exit: number; note: string; body: 
   const m = /^exit=(\d+)(.*)\n?/.exec(output)
   if (!m) return null
   return { exit: Number(m[1]), note: m[2] ?? '', body: output.slice(m[0].length) }
+}
+
+// edit_file 回执固定为「已替换 1 处（原第 N 行起）」（agent/src/tools/edit_file 的契约格式，
+// 行号锚点同时供模型定位与 UI diff 编号）——旧格式回执（无锚点）解析失败返回 undefined。
+function parseEditStartLine(output?: string): number | undefined {
+  if (!output) return undefined
+  const m = /（原第 (\d+) 行起）/.exec(output)
+  return m ? Number(m[1]) : undefined
 }
 
 // 统一行数封顶——尾行标注剩余量（完整输出可经 TUI /log 或 WebUI Log Tail 卡片查看）。

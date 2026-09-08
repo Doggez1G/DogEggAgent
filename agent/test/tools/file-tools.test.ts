@@ -23,9 +23,17 @@ describe('file tools', () => {
     expect(readFileSync(join(dir, 'b.txt'), 'utf8')).toBe('x')
   })
 
-  it('edit_file replaces first occurrence', async () => {
+  it('edit_file replaces first occurrence with line anchor in receipt', async () => {
     writeFileSync(join(dir, 'c.txt'), 'foo foo')
-    await editFileTool.execute({ path: 'c.txt', old_string: 'foo', new_string: 'bar' }, ctx)
+    const r = await editFileTool.execute({ path: 'c.txt', old_string: 'foo', new_string: 'bar' }, ctx)
+    // 回执锚点（原第 N 行起）供模型定位后续编辑 + UI diff 标真实行号。
+    expect(r).toMatchObject({ content: '已替换 1 处（原第 1 行起）' })
     expect(readFileSync(join(dir, 'c.txt'), 'utf8')).toBe('bar foo')
+  })
+
+  it('edit_file anchor points at the old_string start line', async () => {
+    writeFileSync(join(dir, 'd.txt'), 'l1\nl2\nl3')
+    const r = await editFileTool.execute({ path: 'd.txt', old_string: 'l2', new_string: 'L2' }, ctx)
+    expect(r).toMatchObject({ content: '已替换 1 处（原第 2 行起）' })
   })
 })

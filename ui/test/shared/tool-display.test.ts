@@ -91,6 +91,24 @@ describe('formatToolBody', () => {
   it('read_file 空文件', () => {
     expect(formatToolBody('read_file', { path: 'a' }, '')).toEqual([{ text: '（空文件）', kind: 'plain' }])
   })
+  it('edit_file：回执含锚点时 diff 标真实行号（删=旧位置，存=新位置）', () => {
+    expect(formatToolBody('edit_file',
+      { path: 'a.ts', old_string: 'ctx\nold\ntail', new_string: 'ctx\nnew1\nnew2\ntail' },
+      '已替换 1 处（原第 41 行起）',
+    )).toEqual([
+      { text: '  ctx', no: 41, kind: 'plain' },
+      { text: '- old', no: 42, kind: 'del' },
+      { text: '+ new1', no: 42, kind: 'add' },
+      { text: '+ new2', no: 43, kind: 'add' },
+      { text: '  tail', no: 44, kind: 'plain' },
+    ])
+  })
+  it('edit_file：回执无锚点（旧格式/旧会话回放）不标行号', () => {
+    expect(formatToolBody('edit_file', { old_string: 'old', new_string: 'new' }, '已替换 1 处')).toEqual([
+      { text: '- old', kind: 'del' },
+      { text: '+ new', kind: 'add' },
+    ])
+  })
   it('edit_file：- 旧行 / + 新行，公共首尾行保留为上下文', () => {
     expect(formatToolBody('edit_file', { old_string: 'a\nb\nc\nd', new_string: 'a\nX\nd' })).toEqual([
       { text: '  a', kind: 'plain' },
