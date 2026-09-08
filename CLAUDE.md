@@ -12,18 +12,17 @@ DogEggAgent 是一个自研的**代码编辑型 agent**，第一目标是学习�
 
 ```
 DogEggAgent/
-├─ main.ts               # TUI 组合根（唯一同时 import agent 与 ui）
+├─ bin/dogegg.ts         # 统一 CLI 组合根（dogegg → TUI、dogegg -web → WebUI；唯一同时 import agent 与前端）
 ├─ main-web.ts           # WebUI 组合根（import agent + server + bridge）
 ├─ package.json          # workspaces: ["agent","ui","bridge","server"]
 ├─ tsconfig.base.json    # 共享 compilerOptions
-├─ build.mjs             # esbuild（TUI，@dogegg/* 解析插件）
-├─ build-web.mjs         # esbuild（WebUI server bundle）
+├─ build.mjs             # esbuild（统一 CLI bundle，@dogegg/* 解析插件）
 ├─ vite.config.ts        # Vite 构建配置（WebUI 前端入口）
-├─ agent/                # @dogegg/agent：后端域（core/loop/context/llm/tools/session/permission/config/shared）
+├─ agent/                # @dogegg/agent：后端域（agent.ts/ctx.ts 门面 + turn/context/llm/tools/session/permission/config/shared）
 ├─ ui/                   # @dogegg/ui：前端域（tui + webui + shared）
 │  ├─ src/tui/           #   TUI（Ink v7 + React，含 config 编辑器纯函数）
 │  ├─ src/webui/         #   WebUI（React DOM + Vite + CSS Modules + Lucide + react-markdown）
-│  └─ src/shared/        #   平台无关前端逻辑（reducer / block / commands / status / permission / command-feedback）
+│  └─ src/shared/        #   平台无关前端逻辑（reducer / block / commands / status / permission / tool-display / command-feedback）
 ├─ bridge/               # @dogegg/bridge：契约（消息类型+Config zod schema+isConfigured+消息 zod 校验 schema）+ 通道（Port+in-memory）
 └─ server/               # @dogegg/server：HTTP server + SSE channel + REST 端点（fs/shells）+ 静态文件
 ```
@@ -35,6 +34,9 @@ DogEggAgent/
 - 需求：`docs/superpowers/specs/2026-08-26-dog-egg-agent-design.md`（需求清单、状态机、权限模型、消息契约、配置 schema、History/Context 双持久化、运行中命令分类、TUI 设计、视觉系统）
 - 重构设计：`docs/superpowers/specs/2026-08-27-modular-refactor-design.md`（包结构、依赖图、agent/ui 拆分、架构测试、迁移映射）
 - WebUI 设计：`docs/superpowers/specs/2026-08-29-webui-design.md`（三主题、Primitives、Cmd+K 命令面板、8 section 信息面板、权限内联 banner）
+- 后端纵切重构（已实施）：`docs/superpowers/specs/2026-09-07-backend-restructure-design.md`（turn/ 特征切分、ctx 单一所有权、单状态机）
+- UI 重构（已实施）：`docs/superpowers/specs/2026-09-07-ui-restructure-design.md`（features/ 纵切、ThemeRegistry、架构边界立法）
+- 实现详解系列：`docs/learning/`（01-10 章，与当前代码同步的逐模块讲解）
 - 实施计划：`docs/plans/2026-08-28-modular-refactor.md`
 
 实现任何功能前先读对应章节；下文规范若与之冲突，以设计文档为准。

@@ -45,8 +45,8 @@ context   → tools（assembler 需要 registry 计算 schema）
 |---|---|---|
 | 新工具 | `tools/<name>/{index, schema, tool}.ts` | registry 加一行 |
 | 新 LLM 协议 | `llm/provider/<protocol>/{index, client, request, stream, retry, errors, parser}.ts` | client-for 加一个 case |
-| 新 TUI 弹层 | `tui/overlays/<name>/{index, view}.tsx`（UI 批次） | 路由注册 |
-| 新 Web hook | `webui/hooks/use-<x>.ts`（UI 批次） | — |
+| 新 TUI 弹层/特征 | `tui/features/<name>/{view, keys}.tsx`（view 渲染 + keys 纯键盘处理） | 路由注册（use-key-routing） |
+| 新 WebUI 特征 | `webui/features/<name>/use-<x>.ts`（+ logic/ 纯函数可单测） | app.tsx 接线一行 |
 
 **未来需求落位推演**：
 
@@ -60,7 +60,7 @@ context   → tools（assembler 需要 registry 计算 schema）
 
 ## SDK 接缝（已预留，未实施）
 
-agent 包在结构上已经是 headless SDK：核心无 UI 依赖（架构测试强制）、45 消息契约即 API、双传输验证过、表征测试无头驱动过。未来 SDK 门面（`createAgent`）的分组依据就是纵切后的特征命令面：
+agent 包在结构上已经是 headless SDK：核心无 UI 依赖（架构测试强制）、46 消息契约即 API、双传输验证过、表征测试无头驱动过。未来 SDK 门面（`createAgent`）的分组依据就是纵切后的特征命令面：
 
 ```ts
 const agent = createAgent({
@@ -68,7 +68,7 @@ const agent = createAgent({
   tools: [defineTool(...)],                    // → ToolRegistry.register
   permission: async (req) => 'allow_once',     // → requestPermission 策略注入点（turn/tool-executor 已标注）
 })
-for await (const event of agent.events()) {}   // → 45 消息契约
+for await (const event of agent.events()) {}   // → 46 消息契约
 await agent.submit('...'); await agent.session.resume(id)
 ```
 
@@ -79,14 +79,15 @@ await agent.submit('...'); await agent.session.resume(id)
 1. **微型策略文件**（trigger 6 行、estimate 7 行等）——文件承载知识单元，不按行数合并；
 2. **双命名惯例**——工具目录沿用工具名（snake_case），文件一律 kebab-case；全量改名成本 > 收益；
 3. **入站日志在 send()**——入站/出站日志分属两处是方向使然（emit 只管出站）；
-4. **submit 守卫顺序**——isConfigured 先于 busy（参数解析的前提），「运行中且未配置」不可达；
-5. **ui/src 侧债务**（两个 app.tsx 上帝组件、theme 单例、tui/chat 空壳）——UI 批次处理。
+4. **submit 守卫顺序**——isConfigured 先于 busy（参数解析的前提），「运行中且未配置」不可达。
+
+（原第 5 条「ui/src 侧债务」已随 UI 批次 U1-U5 清偿——ThemeRegistry、双端 features/ 纵切、架构边界立法均已落地，移出债清单。）
 
 ## 验证工具箱
 
 ```bash
 npm run typecheck   # 五路 tsc
-npm run test:run    # 174 测试（含 5 个表征测试 + 架构测试）
+npm run test:run    # 250 测试（含 5 个表征测试 + 架构测试）
 npm run build       # esbuild → dist/dogegg.js
 npx vitest run agent/test/agent.turn.test.ts   # 单跑表征测试（行为基线）
 ```

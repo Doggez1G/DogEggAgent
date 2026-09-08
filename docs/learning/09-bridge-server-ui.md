@@ -11,7 +11,7 @@ bridge/src/
 │  ├─ shared.ts                  # State / Message / COMPACTION_THRESHOLD
 │  ├─ config.ts                  # Config schema + isConfigured
 │  ├─ permission.ts              # classifyPermission（三桶纯派生）
-│  ├─ agent-to-ui.ts             # 下行消息 union（约 20+ 变体）
+│  ├─ agent-to-ui.ts             # 下行消息 union（24 变体）
 │  ├─ ui-to-agent.ts             # 上行消息 union（约 20 种命令）
 │  ├─ agent-to-ui-schema.ts      # 下行 zod 校验（SSE 下行用）
 │  └─ ui-to-agent-schema.ts      # 上行 zod 校验（POST body 用）
@@ -43,7 +43,7 @@ agent 只持有 `AgentPort`，永远不知道对面是进程内的函数调用�
 
 ### 消息即 API
 
-45 种消息就是 agent 的完整 API 面。上行按语义分三类，这决定了路由的守卫规则：
+46 种消息就是 agent 的完整 API 面。上行按语义分三类，这决定了路由的守卫规则：
 
 - **动工作集**（submit/compact/会话/配置编辑）：运行中阻塞，发 notice 不静默丢弃（R2）；
 - **loop 控制**（cancel/permission_decision）：仅运行时有意义；
@@ -78,4 +78,4 @@ new HttpServer({ router: new Router({ channel }), staticDir, port }).start()
 - **TUI**（`ui/src/tui/`）：Ink 渲染 + `useReducer(reducer)` 消费消息流。Static 架构（ADR-0008）：完成的块打印进终端滚动缓冲区，动态区只渲染进行中的块——原生滚动、不劫持屏幕。
 - **WebUI**（`ui/src/webui/`）：React + CSS Modules，`createSseUiPort()` 实现 UiPort（EventSource 收下行 + fetch POST 上行 + zod safeParse 校验），同一份 reducer。
 
-两个前端共用的平台无关逻辑在 `ui/src/shared/`：Block 模型、reducer、commands 表、状态标签。前端的深化解读（Static 架构细节、组件设计）见 UI 批次的文档，本章只需记住：**前端是契约的消费者，不是 agent 的协作者**。
+两个前端共用的平台无关逻辑在 `ui/src/shared/`：Block 模型、reducer、commands 表、状态与提示文案（status）、权限展示规则（permission）、工具展示格式化（tool-display——折叠头行/展开正文/diff 行号，TUI 与 WebUI 的唯一出处）。前端的深化解读（Static 架构细节、组件设计）见 UI 批次的文档，本章只需记住：**前端是契约的消费者，不是 agent 的协作者**。

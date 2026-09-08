@@ -15,7 +15,12 @@ export interface Tool {
 }
 
 export type ToolResult = { content: string } | { error: string }
-export interface ToolContext { cwd: string; signal: AbortSignal; shellProgram?: string }
+export interface ToolContext {
+  cwd: string
+  signal: AbortSignal
+  shellProgram?: string   // 仅 shell：解释器映射（cmd/powershell/bash），缺省按平台解析
+  shellTimeoutMs?: number // 仅 shell：单命令超时毫秒，缺省 120s（超时杀进程树，已有输出回填模型）
+}
 ```
 
 **为什么要两份 schema？** zod schema 服务于运行时校验（LLM 返回的 arguments 是 JSON 字符串，解析后用 zod 严格校验），JSON schema 服务于模型认知（放进 `tools` 参数告诉模型能调什么）。两者形状不同、缺一不可。
@@ -67,8 +72,20 @@ tools/
 ## 工具的取消与安全
 
 - **取消**：`ctx.signal` 挂在 spawn 的 abort 上，cancel 时 `kill-tree` 杀整个进程树（Windows 用 taskkill /T，POSIX 用 detached 进程组 kill）。工具是唯一「正在跑外部进程」的地方，取消语义最复杂。
+- **shell 超时**：单命令 120s（`shellTimeoutMs` 可配）——超时同样走 kill-tree，且把**已产生的输出**回填模型（附「命令超时未结束」说明），不静默丢弃；否则一个不退出的常驻进程会卡死整轮对话。
 - **shell 解释器**：`support/interpreter.ts` 把配置里的 shellProgram 映射成 `{ program, flag }`（cmd /c、powershell -Command、bash -c），含防御：含非 ASCII 的配置值回退平台默认。
 - **执行目录**：所有文件操作相对 `ctx.cwd`——这就是会话的 cwd 持久化（05 章）有意义的理由。
+
+## 回执即契约（跨层格式，勿随手改）
+
+`content` 是给模型看的，但其中两处**固定格式**同时被 UI 层解析（`ui/src/shared/tool-display.ts`，各有立法注释）——改格式必须两处同步：
+
+| 工具 | content 格式 | UI 层怎么用 |
+|---|---|---|
+| shell | 首行 `exit=N`（超时附「（超时说明）」），其后是 stdout/stderr | 成功丢弃 exit 行（✓ 已表达），exit≠0 提升为头行红色「✕ 退出 N」，输出为正文 |
+| edit_file | `已替换 1 处（原第 N 行起）`——锚点是 old_string 在原文件中的起始行 | diff 展开按锚点标真实行号（删=旧位置，存=新位置）；旧格式回执优雅降级不标 |
+
+模型同样受益于这些格式（shell 的 exit 码供其判断成败、edit 的锚点供其定位后续编辑），所以格式活在工具回执里而非 UI 专设字段。
 
 ## 测试
 

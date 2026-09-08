@@ -69,7 +69,8 @@ export class AgentLoop {
         // 自动压缩：token 超窗口 80% → Compactor（04 章）
         // 调模型（流式）：
         result = await turn.client.chat({ model, systemPrompt, messages: context, tools }, turn.signal, (e) => {
-          // text_delta / thought_delta 实时转发给 UI
+          // text_delta / thought_delta 实时转发给 UI；
+          // tool_call_start → 立即广播 tool_pending（大参数流式生成期间 UI 有可见反馈）
         })
         thinking.push(...)                     // 每轮推理内容（resume 恢复思考块用）
         context.push(assistant); newMessages.push(assistant)

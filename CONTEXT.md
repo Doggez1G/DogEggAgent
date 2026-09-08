@@ -15,7 +15,7 @@ Port 的具体实现。in-memory（同进程同步投递）或 sse（HTTP 下行
 _Avoid_: transport, adapter
 
 **组合根 (Composition Root)**:
-全项目唯一同时 import agent 与前端的地方。`main.ts`（TUI 模式）、`main-web.ts`（WebUI 模式，import agent + server）。持有"两端如何对接"的知识。
+全项目唯一同时 import agent 与前端的地方。`bin/dogegg.ts`（统一 CLI：dogegg → TUI、dogegg -web → WebUI）、`main-web.ts`（WebUI dev 模式，import agent + server）。持有"两端如何对接"的知识。
 _Avoid_: entry, bootstrap
 
 **Bridge 契约 (Bridge Contract)**:
@@ -89,7 +89,7 @@ _Avoid_: icon map, color map
 ## Rules
 
 - 后端不 import 前端，前端不 import 后端；二者都只依赖 `bridge/`。
-- 只有组合根（main.ts / main-web.ts）同时 import agent 与前端。
+- 只有组合根（bin/dogegg.ts 统一 CLI；main-web.ts 为 WebUI dev 模式）同时 import agent 与前端。
 - bridge 契约全部可序列化——error 用 `{ message, name? }` 而非 Error 对象。
 - Shared 模块零终端/DOM 依赖——Block 用语义 token，视觉映射归各 UI theme 层。
 - Server 包不 import `@dogegg/ui`——前端是静态文件被 serve，不是代码被 import。

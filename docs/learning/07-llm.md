@@ -45,8 +45,8 @@ export class OpenAiClient implements LlmClient {
 
 不依赖 SDK，原生 fetch 手写流式（学习价值 + 零依赖 + 完全可控）：
 
-1. **stream.ts——读取循环**：`res.body.getReader()` 逐块读，按换行切分喂给 parser。带两级超时：绝对 120s（兜底）+ 空闲 15s（单次 read 无数据则中止）。
-2. **parser.ts——行驱动解析**：`feed(line)` 逐行处理，`tool_calls` 按 index 累积、arguments 分片拼接（流式下同一 tool call 的参数可能分多次到达），`[DONE]` 时发 `done` 事件并组装完整的 assistant 消息。行驱动的好处：**无网络单测**——直接喂 mock SSE 行就能测全部逻辑（`test/llm/streaming.test.ts`）。
+1. **stream.ts——读取循环**：`res.body.getReader()` 逐块读，按换行切分喂给 parser。带两级超时：**连接超时 60s**（fetch 到响应头——端点不可达/挂起）+ **逐块空闲超时 60s**（单次 read 无数据则中止）。**没有总时长上限**——健康的长流（长推理、长生成）是合法的，长度由 maxOutput 限定；超时抛可重试的 `StreamTimeoutError('connect' | 'idle')`，与用户取消（AbortError）严格区分归因。
+2. **parser.ts——行驱动解析**：`feed(line)` 逐行处理，`tool_calls` 按 index 累积、arguments 分片拼接（流式下同一 tool call 的参数可能分多次到达），`[DONE]` 时发 `done` 事件并组装完整的 assistant 消息。`tool_call_start` 在字段合并**之后**发出（OpenAI 协议里工具名随首个分片才到，先合并再广播，下游的 `tool_pending` 才能携带真实工具名）。行驱动的好处：**无网络单测**——直接喂 mock SSE 行就能测全部逻辑（`test/llm/streaming.test.ts`）。
 3. **事件类型**：`LlmStreamEvent` 是 provider → loop 的底层流（text_delta / thought_delta / tool_call_* / done / error），`done` 携带 `reasoning?`——推理模型的思考内容由此单独收集，不进 history/context。
 
 ## 重试：按错误类型分级
