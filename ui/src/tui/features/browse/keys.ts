@@ -1,4 +1,5 @@
 import type { Key } from 'ink'
+import { isExpandable } from '../../../shared'
 import type { Block } from '../../../shared'
 
 export interface BrowseKeysApi {
@@ -27,8 +28,8 @@ export function handleBrowseKeys(key: Key, api: BrowseKeysApi): boolean {
   if (key.return && api.getBrowseIdx() !== null) {
     const idx = api.getBrowseIdx()!
     const block = api.getBlocks()[idx]
-    // 仅思考/工具块可展开（full 存在）。
-    if (block && (block.kind === 'thinking' || block.kind === 'tool') && block.full !== undefined) {
+    // 仅思考/工具块可展开（判定归 shared/isExpandable，不在此重复实现）。
+    if (block && isExpandable(block)) {
       api.toggleExpanded(idx)
       // 折叠状态变化 → 清屏重绘 Static（已打印内容无法就地修改）。
       api.clearScreenRemount()

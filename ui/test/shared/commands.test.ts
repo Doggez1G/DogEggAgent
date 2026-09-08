@@ -121,8 +121,8 @@ describe('isExpandable', () => {
     expect(isExpandable(b)).toBe(true)
   })
 
-  it('tool 有 full → true', () => {
-    const b: Block = { kind: 'tool', color: 'cyan', text: '工具', full: '详情' }
+  it('tool 有 toolBody → true', () => {
+    const b: Block = { kind: 'tool', color: 'cyan', text: '工具', toolBody: [{ text: 'x', kind: 'plain' }] }
     expect(isExpandable(b)).toBe(true)
   })
 
@@ -131,7 +131,7 @@ describe('isExpandable', () => {
     expect(isExpandable(b)).toBe(false)
   })
 
-  it('tool 无 full → false', () => {
+  it('tool 无 toolBody → false', () => {
     const b: Block = { kind: 'tool', color: 'cyan', text: '工具' }
     expect(isExpandable(b)).toBe(false)
   })

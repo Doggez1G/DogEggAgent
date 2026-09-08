@@ -94,43 +94,53 @@ describe('reducer — tool_pending', () => {
 })
 
 describe('reducer — tool_start', () => {
-  it('flush partial + 追加 tool block', () => {
+  it('flush partial + 追加结构化 tool block', () => {
     const s = reducer(withPartial('assistant', '回答'), {
       type: 'tool_start', id: 'tc1', name: 'read_file', input: { path: 'a.txt' },
     })
     expect(s.partial).toBeNull()
     expect(s.status).toBe('executing')
     const tool = s.blocks.find((b) => b.kind === 'tool')
-    expect(tool).toBeDefined()
-    expect(tool?.toolId).toBe('tc1')
-    expect(tool?.toolInput).toEqual({ path: 'a.txt' })
+    expect(tool).toMatchObject({
+      toolId: 'tc1',
+      toolName: 'read_file',
+      toolInput: { path: 'a.txt' },
+      toolStatus: 'running',
+      text: 'read_file a.txt', // shared/formatToolTitle 产物
+    })
+    expect(tool?.toolBody).toBeUndefined() // running 块不可展开
   })
 })
 
 describe('reducer — tool_end', () => {
-  it('按 toolId 匹配更新 tool block', () => {
+  it('按 toolId 匹配更新 tool block（结构化结果 + 展开正文）', () => {
     let s = reducer(initial, { type: 'tool_start', id: 'tc1', name: 'read_file', input: { path: 'a.txt' } })
     s = reducer(s, { type: 'tool_end', id: 'tc1', name: 'read_file', output: '文件内容' })
     const tool = s.blocks.find((b) => b.toolId === 'tc1')
-    expect(tool?.text).toContain('✓')
-    expect(tool?.full).toContain('文件内容')
+    expect(tool).toMatchObject({ toolStatus: 'done', toolOutput: '文件内容', toolName: 'read_file' })
+    expect(tool?.text).toContain('1 行')
+    expect(tool?.toolBody).toEqual([{ text: '文件内容', kind: 'plain' }])
+    expect(s.toolActive).toBe(false)
   })
 
-  it('有 error 时标 ✕', () => {
+  it('denied 标记 rejected 状态（区别于一般失败）', () => {
     let s = reducer(initial, { type: 'tool_start', id: 'tc1', name: 'shell', input: { command: 'ls' } })
     s = reducer(s, { type: 'tool_end', id: 'tc1', name: 'shell', output: '', error: 'denied' })
     const tool = s.blocks.find((b) => b.toolId === 'tc1')
-    expect(tool?.text).toContain('✕')
-    expect(tool?.text).toContain('denied')
+    expect(tool).toMatchObject({ toolStatus: 'rejected', toolError: 'denied' })
+    expect(tool?.text).toContain('已拒绝')
+    expect(tool?.toolBody?.[0]).toEqual({ text: '✕ denied', kind: 'plain' })
   })
 
-  it('edit_file 的 full 含 diff 预览', () => {
+  it('edit_file 的 toolBody 含 diff 着色行（del/add），头行带 diffstat', () => {
     let s = reducer(initial, { type: 'tool_start', id: 'tc1', name: 'edit_file', input: { path: 'a.ts', old_string: 'old', new_string: 'new' } })
     s = reducer(s, { type: 'tool_end', id: 'tc1', name: 'edit_file', output: 'done' })
     const tool = s.blocks.find((b) => b.toolId === 'tc1')
-    expect(tool?.full).toContain('变更预览')
-    expect(tool?.full).toContain('old')
-    expect(tool?.full).toContain('new')
+    expect(tool?.toolBody).toEqual([
+      { text: '- old', kind: 'del' },
+      { text: '+ new', kind: 'add' },
+    ])
+    expect(tool?.text).toContain('+1 -1')
   })
 
   it('未找到匹配 toolId 时不改 state', () => {
@@ -277,10 +287,14 @@ describe('reducer — session_ready', () => {
       ],
     })
     const tool = s.blocks.find((b) => b.kind === 'tool')
-    expect(tool).toBeDefined()
-    expect(tool?.text).toContain('read_file')
-    expect(tool?.text).toContain('✓')
-    expect(tool?.full).toContain('文件内容')
+    expect(tool).toMatchObject({
+      toolName: 'read_file',
+      toolInput: { path: 'a.txt' },
+      toolStatus: 'done',
+      toolOutput: '文件内容',
+    })
+    expect(tool?.text).toContain('a.txt')
+    expect(tool?.toolBody).toEqual([{ text: '文件内容', kind: 'plain' }])
   })
 })
 

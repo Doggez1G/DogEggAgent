@@ -166,7 +166,7 @@ describe('handleHistoryKeys', () => {
 describe('handleBrowseKeys', () => {
   const blocks = [
     { kind: 'user', text: 'q' },
-    { kind: 'tool', text: 't', full: 't-full', toolId: 'c1' },
+    { kind: 'tool', text: 't', toolBody: [{ text: 'x', kind: 'plain' }], toolId: 'c1' },
   ] as unknown as Parameters<typeof handleBrowseKeys>[1] extends never ? never : any[]
   const mk = (browseIdx: number | null) => ({
     getBrowseIdx: () => browseIdx,
@@ -189,7 +189,7 @@ describe('handleBrowseKeys', () => {
     handleBrowseKeys(key({ return: true }), a)
     expect(a.toggleExpanded).not.toHaveBeenCalled()
     expect(a.clearScreenRemount).not.toHaveBeenCalled()
-    const b = mk(1) // tool 块有 full
+    const b = mk(1) // tool 块有 toolBody，可展开
     handleBrowseKeys(key({ return: true }), b)
     expect(b.toggleExpanded).toHaveBeenCalledWith(1)
     expect(b.clearScreenRemount).toHaveBeenCalled()

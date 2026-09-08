@@ -1,6 +1,7 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import { palette } from '../../theme'
+import { formatToolArgs, formatToolResult } from '../../../shared'
 import type { Block } from '../../../shared/block'
 
 // DogEgg 消息块系统——头行在上、内容整体缩进在下，全块统一容器：
@@ -70,33 +71,27 @@ function renderBlock(b: Block, expanded: boolean): React.ReactNode {
       )
     }
     case 'tool': {
-      // text 首行是调用（name + args JSON），其余是结果摘要。
-      const lines = b.text.split('\n')
-      const callLine = lines[0] ?? ''
-      const callName = callLine.split(' ')[0] ?? '工具'
-      const callArgs = truncateMiddle(callLine.slice(callName.length).trim(), 70)
-      const summaryLines = lines.slice(1)
+      // 结构化字段 + shared/tool-display——渲染层只做布局与截断，不解析拼接字符串。
+      const name = b.toolName ?? '工具'
+      const args = formatToolArgs(name, b.toolInput)
+      const result = b.toolStatus && b.toolStatus !== 'running' ? formatToolResult(name, b.toolOutput, b.toolError) : null
+      const resultColor = b.toolStatus === 'done' ? palette.subtext : palette.red
       const headLabel = (
         <Text>
-          <Text color={palette.cyan}>🐾 {callName}</Text>
-          <Text color={palette.subtext}>({callArgs})</Text>
-          {summaryLines.length > 0 && <Text color={palette.subtext}> · {truncateMiddle(summaryLines[0]!.replace(/^[✓✕] /, ''), 50)}</Text>}
+          <Text color={palette.cyan}>🐾 {name}</Text>
+          {args && <Text color={palette.subtext}> {truncateMiddle(args, 70)}</Text>}
+          {result && <Text color={resultColor}> · {truncateMiddle(result, 50)}</Text>}
         </Text>
       )
-      if (!expanded || !b.full) {
-        return (
-          <BlockShell color={palette.cyan} bg={palette.surfaceAlt} collapsed label={headLabel} />
-        )
+      if (!expanded || !b.toolBody) {
+        return <BlockShell color={palette.cyan} bg={palette.surfaceAlt} collapsed label={headLabel} />
       }
-      // 展开：头行在上，完整结果/diff 缩进在下（超长截断 50 行）。
-      const clipped = b.full.split('\n').slice(1) // 跳过调用行
-      const truncated = clipped.length > 50
+      // 展开：完整正文逐行缩进（行数封顶由 tool-display 统一执行，add/del 行着色）。
       return (
         <BlockShell color={palette.cyan} bg={palette.surfaceAlt} label={headLabel}>
-          {clipped.slice(0, 50).map((l, i) => (
-            <Text key={i} color={palette.subtext}>⎿ {l}</Text>
+          {b.toolBody.map((l, i) => (
+            <Text key={i} color={l.kind === 'add' ? palette.green : l.kind === 'del' ? palette.red : palette.subtext}>⎿ {l.text}</Text>
           ))}
-          {truncated && <Text color={palette.faint}>…（共 {clipped.length} 行，完整输出见 /log）</Text>}
         </BlockShell>
       )
     }

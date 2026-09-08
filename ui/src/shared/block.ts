@@ -22,19 +22,39 @@ export type ColorToken =
   | 'red'      // 错误色
   | 'subtext'  // 次要色（提示/自动压缩）
 
+// 工具块的执行状态——结构化存储，渲染层据此选图标/文案（替代字符串探测 ✓/✕）。
+// rejected = 被拒绝（用户 reject 或配置 reject 桶，后端以 error='denied' 标记）。
+export type ToolStatus = 'running' | 'done' | 'error' | 'rejected'
+
+// 工具块展开正文的一行：kind 驱动渲染层着色（add/del → diff 行，plain → 次要色）。
+// 文案由 shared/tool-display 生成——模型持有类型，格式化持有内容。
+export interface ToolBodyLine {
+  text: string
+  kind: 'plain' | 'add' | 'del'
+}
+
 // 消息块：一条消息在 UI 中的呈现单元。
-// text = 折叠时显示的摘要；full = 展开时显示的完整内容（仅 thinking/tool 有）。
+// text = 折叠时显示的摘要；full = 展开时的完整内容（仅 thinking 使用）。
+// tool 块不拼字符串：结构化字段 + toolBody（shared/tool-display 的产物）承载全部信息。
 export interface Block {
   kind: BlockKind
   color: ColorToken
   text: string
   full?: string
-  toolId?: string    // tool_start/tool_end 精确匹配（不靠数组尾部）
-  toolInput?: unknown // tool_start 的 input，供 tool_end 格式化 diff 预览
+  toolId?: string       // tool_start/tool_end 精确匹配（不靠数组尾部）
+  toolInput?: unknown   // tool_start 的 input，供格式化参数段/diff
+  // ── tool 块专用结构化字段 ──
+  toolName?: string
+  toolStatus?: ToolStatus
+  toolOutput?: string   // 工具结果原文（tool_end 时回填；历史重建时为 tool 消息 content）
+  toolError?: string    // 失败/拒绝原因
+  toolBody?: ToolBodyLine[] // 展开正文（tool_end 时生成；running 块无 → 不可展开）
 }
 
-// 判断一个块是否可折叠：只有 thinking/tool 且有 full 内容的块才可折叠。
+// 判断一个块是否可折叠：thinking 有 full、tool 有 toolBody 才可折叠。
 // 提取此函数消除 viewport.ts 和 browse.ts 中的重复 ICON 检查。
 export function isExpandable(b: Block): boolean {
-  return (b.kind === 'thinking' || b.kind === 'tool') && b.full !== undefined
+  if (b.kind === 'thinking') return b.full !== undefined
+  if (b.kind === 'tool') return b.toolBody !== undefined
+  return false
 }

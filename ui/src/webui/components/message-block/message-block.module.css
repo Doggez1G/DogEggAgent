@@ -170,15 +170,61 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.toolResultTag {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+.toolResultTag.toolResultBad {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+/* 展开详情：外层固定结构（标题栏不随滚动消失），内层 pre 独立滚动。 */
 .toolBody {
-  padding: 8px 12px 10px;
   border-top: 1px solid var(--color-border);
-  font-family: var(--font-mono);
-  font-size: 12px;
+  padding: 6px 12px 8px;
+}
+.toolBodyBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.toolBodyHint {
+  font-size: 11px;
   color: var(--color-subtext);
-  line-height: 1.5;
-  max-height: 200px;
+}
+.toolCopyBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--color-accent);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  transition: background var(--t-fast) ease;
+}
+.toolCopyBtn:hover {
+  background: var(--color-accent-soft);
+}
+.toolBodyScroll {
+  max-height: 240px;
   overflow-y: auto;
+}
+.lineAdd {
+  color: var(--color-success);
+}
+.lineDel {
+  color: var(--color-danger);
+}
+.linePlain {
+  color: var(--color-subtext);
 }
 
 /* ═══ Error ═══ */

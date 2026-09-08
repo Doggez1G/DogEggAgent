@@ -1,5 +1,6 @@
 import type { AgentToUiMessage, Message, ToolCall, State } from '@dogegg/bridge'
-import { type Block, type BlockKind, type ColorToken, isExpandable } from './block'
+import { type Block, type BlockKind, type ColorToken, type ToolStatus } from './block'
+import { formatToolTitle, formatToolBody } from './tool-display'
 
 // UI 的聊天状态：已落盘的块 + 当前状态 + 进行中的流式块（未落盘的 partial）。
 export interface ChatState {
@@ -72,45 +73,31 @@ function rebuildBlocksFromHistory(messages: Message[], thinking: { text: string 
         blocks.push({ kind: 'assistant', color: 'text', text: m.content })
       }
     } else if (m.role === 'tool') {
-      // 用 tool_call_id 找到对应的 tool_call，提取工具名+参数。
+      // 用 tool_call_id 找到对应的 tool_call——结构化重建，与实时 tool_start/tool_end 同构。
+      // 历史消息不区分成功/失败（无 error 标记），统一记 done。
       const call = pendingCalls.get(m.tool_call_id)
       const toolName = call?.function.name ?? '工具'
-      const argsStr = call ? ` ${call.function.arguments}` : ''
-      const callLine = `${toolName}${argsStr}`
-      // 与实时 tool_end 一致：text = 调用+摘要，full = 调用+完整结果。
-      const summary = m.content.length > 120 ? m.content.slice(0, 120) + '…' : m.content
+      let toolInput: unknown
+      try {
+        toolInput = JSON.parse(call?.function.arguments || '{}')
+      } catch {
+        toolInput = call?.function.arguments ?? ''
+      }
       blocks.push({
         kind: 'tool',
         color: 'cyan',
-        text: `${callLine}\n✓ ${summary}`,
-        full: `${callLine}\n✓ 完成\n${m.content}`,
+        text: formatToolTitle(toolName, toolInput, m.content),
+        toolId: m.tool_call_id,
+        toolName,
+        toolInput,
+        toolStatus: 'done',
+        toolOutput: m.content,
+        toolBody: formatToolBody(toolName, toolInput, m.content),
       })
       pendingCalls.delete(m.tool_call_id)
     }
   }
   return blocks
-}
-
-// 从工具名和 input 参数格式化 diff 预览文本（展开时显示在工具块的 full 里）。
-// edit_file: 显示 -old_string / +new_string；write_file: 显示 +content；shell: 显示命令。
-function formatToolDiff(toolName: string, input: unknown): string | null {
-  if (!input || typeof input !== 'object') return null
-  const inp = input as Record<string, unknown>
-  if (toolName === 'edit_file') {
-    const path = String(inp.path ?? '')
-    const oldStr = String(inp.old_string ?? '')
-    const newStr = String(inp.new_string ?? '')
-    return `变更预览 (${path}):\n- ${oldStr.slice(0, 500)}\n+ ${newStr.slice(0, 500)}`
-  }
-  if (toolName === 'write_file') {
-    const path = String(inp.path ?? '')
-    const content = String(inp.content ?? '')
-    return `写入预览 (${path}):\n+ ${content.slice(0, 500)}`
-  }
-  if (toolName === 'shell') {
-    return `命令: ${String(inp.command ?? '')}`
-  }
-  return null
 }
 
 // reducer：AgentToUiMessage → ChatState 的纯函数。★ 可单测。
@@ -135,22 +122,34 @@ export function reducer(state: ChatState, msg: Action): ChatState {
       return { ...state, pendingTool: msg.name }
     case 'tool_start': {
       const flushed = flush(state)
-      return { ...flushed, status: 'executing', toolActive: true, pendingTool: null, blocks: [...flushed.blocks, { kind: 'tool', color: 'cyan', text: `${msg.name} ${JSON.stringify(msg.input)}`, toolId: msg.id, toolInput: msg.input }] }
+      // 工具块不预拼展示文本——结构化事实 + tool-display 格式化产物，渲染层零解析。
+      const block: Block = {
+        kind: 'tool',
+        color: 'cyan',
+        text: formatToolTitle(msg.name, msg.input),
+        toolId: msg.id,
+        toolName: msg.name,
+        toolInput: msg.input,
+        toolStatus: 'running',
+      }
+      return { ...flushed, status: 'executing', toolActive: true, pendingTool: null, blocks: [...flushed.blocks, block] }
     }
     case 'tool_end': {
-      // 拒绝/失败工具也有 tool_end（error 标记），此处统一渲染为 ✕ 或 ✓。
+      // 拒绝/失败工具也有 tool_end（error 标记）——status 结构化区分，渲染层据此选图标。
       // 用 toolId 精确匹配 tool_start 的块——不靠数组尾部（notice/compaction 块可能插在中间）。
-      // full 里附带 diff 预览（edit_file/write_file/shell 的参数格式化），不只是工具返回的 content。
       const blocks = [...state.blocks]
       const idx = blocks.findIndex((b) => b.toolId === msg.id)
       if (idx < 0) return state // 未找到匹配块不改 state（孤儿 tool_end）
       const target = blocks[idx]!
-      const summary = msg.error ? `✕ ${msg.error}` : `✓ 完成（${msg.output.slice(0, 120)}${msg.output.length > 120 ? '…' : ''}）`
-      // 构建 full：工具调用 + 结果 + diff 预览（从 toolInput 格式化）
-      const diffPreview = formatToolDiff(msg.name, target.toolInput)
-      const fullParts = [target.text, msg.error ? `✕ ${msg.error}` : `✓ 完成\n${msg.output}`]
-      if (diffPreview) fullParts.push(diffPreview)
-      blocks[idx] = { ...target, text: `${target.text}\n${summary}`, full: fullParts.join('\n') }
+      const status: ToolStatus = msg.error ? (msg.error === 'denied' ? 'rejected' : 'error') : 'done'
+      blocks[idx] = {
+        ...target,
+        toolStatus: status,
+        toolOutput: msg.output,
+        toolError: msg.error,
+        text: formatToolTitle(msg.name, target.toolInput, msg.output, msg.error),
+        toolBody: formatToolBody(msg.name, target.toolInput, msg.output, msg.error),
+      }
       // 找到匹配块才重置 toolActive——该块内容已固化，UI 可将其打印进缓冲区。
       return { ...state, blocks, toolActive: false }
     }

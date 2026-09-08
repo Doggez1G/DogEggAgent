@@ -33,13 +33,7 @@ export function ChatView({ chat, isRunning }: ChatViewProps) {
       ) : (
         <div className={styles.messages}>
           {chat.blocks.map((b, i) => (
-            <MessageBlock
-              key={i}
-              kind={b.kind}
-              color={b.color}
-              text={b.text}
-              full={b.full}
-            />
+            <MessageBlock key={i} block={b} isRunning={isRunning} />
           ))}
 
           {chat.partial && (

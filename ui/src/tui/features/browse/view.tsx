@@ -1,6 +1,7 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import { palette } from '../../theme'
+import { isExpandable } from '../../../shared'
 import type { Block } from '../../../shared'
 
 const KIND_LABEL: Record<string, string> = {
@@ -15,7 +16,7 @@ export function BrowseStatusBar({ idx, total, block, expanded }: {
   block: Block | undefined
   expanded: boolean
 }) {
-  const expandable = block ? (block.kind === 'thinking' || block.kind === 'tool') && block.full !== undefined : false
+  const expandable = block ? isExpandable(block) : false
   // 内容预览：取块文本前 2 行（去除 ANSI），每行截断 60 字符。
   const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '')
   const previewLines = block ? stripAnsi(block.text).split('\n').slice(0, 2).map((l) => l.length > 60 ? l.slice(0, 60) + '…' : l) : []
