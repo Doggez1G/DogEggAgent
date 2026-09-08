@@ -6,6 +6,6 @@ export { type Block, type BlockKind, type ColorToken, isExpandable } from './blo
 export { reducer, type ChatState, type Action } from './reducer'
 export { parseCommand, matchCommands, COMMANDS, type CommandResult } from './commands'
 export { STATUS_LABELS, isStateRunning } from './status'
-export { getToolPermission } from './permission'
+export { getToolPermission, effectivePerm, displayPerm } from './permission'
 export { COMMAND_FEEDBACK_MAP, getCommandFeedback } from './command-feedback'
 export { KNOWN_TOOLS } from './tools'

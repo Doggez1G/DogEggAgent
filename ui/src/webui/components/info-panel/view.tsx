@@ -1,4 +1,4 @@
-import { STATUS_LABELS, getToolPermission } from '../../../shared'
+import { STATUS_LABELS, getToolPermission, displayPerm } from '../../../shared'
 import { useEffect, useRef, useState } from 'react'
 import { Cpu, Gauge, Activity, Wrench, ChevronRight, ChevronLeft, ChevronDown, Terminal, ScrollText, FileEdit, FilePlus, ShieldCheck, X } from 'lucide-react'
 import type { Config, UiPort } from '@dogegg/bridge'
@@ -14,7 +14,7 @@ interface InfoPanelProps {
   status: string
   tokens: number | undefined
   windowTokens: number | undefined
-  toolCalls: { id: string; name: string; status: 'running' | 'done' | 'error' | 'rejected'; output?: string; decision?: 'allow_once' | 'allow_always' | 'reject'; configPerm: string; seq: number }[]
+  toolCalls: { id: string; name: string; status: 'running' | 'done' | 'error' | 'rejected'; output?: string; decision?: 'allow_once' | 'allow_always' | 'reject'; perm: string; seq: number }[]
   pendingTool?: string | null
   toolsList: { name: string; description: string }[]
   contextState: { estimatedTokens: number; windowTokens: number; percent: number } | null
@@ -136,8 +136,9 @@ export function InfoPanel(props: InfoPanelProps) {
                 </div>
               )}
               {[...props.toolCalls].reverse().map((tc) => {
-                // 使用执行时记录的 configPerm 快照 + decision——不随后续设置变化。
-                const actualPerm = tc.configPerm === 'allow' ? 'allow' : tc.configPerm === 'reject' ? 'reject' : (tc.decision === 'allow_once' ? 'once' : tc.decision === 'allow_always' ? 'always' : tc.decision === 'reject' ? 'rejected' : 'ask')
+                // 展示标签：用户显式决策优先（once/always/rejected），否则用执行时的生效权限快照
+                // （allow=配置永久放行 / always=会话内 allow_always 提升 / ask=待询问默认）。
+                const actualPerm = displayPerm(tc)
                 return (
                   <div key={tc.id} className={styles.toolCallItem}>
                     <span className={styles.toolCallSeq}>{tc.seq}</span>
