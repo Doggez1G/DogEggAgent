@@ -119,7 +119,7 @@ describe('reducer — tool_end', () => {
     const tool = s.blocks.find((b) => b.toolId === 'tc1')
     expect(tool).toMatchObject({ toolStatus: 'done', toolOutput: '文件内容', toolName: 'read_file' })
     expect(tool?.text).toContain('1 行')
-    expect(tool?.toolBody).toEqual([{ text: '文件内容', kind: 'plain' }])
+    expect(tool?.toolBody).toEqual([{ text: '文件内容', no: 1, kind: 'plain' }])
     expect(s.toolActive).toBe(false)
   })
 
@@ -294,7 +294,7 @@ describe('reducer — session_ready', () => {
       toolOutput: '文件内容',
     })
     expect(tool?.text).toContain('a.txt')
-    expect(tool?.toolBody).toEqual([{ text: '文件内容', kind: 'plain' }])
+    expect(tool?.toolBody).toEqual([{ text: '文件内容', no: 1, kind: 'plain' }])
   })
 })
 

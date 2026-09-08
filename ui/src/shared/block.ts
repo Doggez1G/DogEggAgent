@@ -26,11 +26,14 @@ export type ColorToken =
 // rejected = 被拒绝（用户 reject 或配置 reject 桶，后端以 error='denied' 标记）。
 export type ToolStatus = 'running' | 'done' | 'error' | 'rejected'
 
-// 工具块展开正文的一行：kind 驱动渲染层着色（add/del → diff 行，plain → 次要色）。
-// 文案由 shared/tool-display 生成——模型持有类型，格式化持有内容。
+// 工具块展开正文的一行：kind 驱动渲染层着色——
+// plain = 输出/内容（主角，正文色）；add/del = diff 行（绿/红）；
+// cmd = 命令回显（注脚，弱化色）。文案由 shared/tool-display 生成。
+// no = 内容行的 1-based 行号（read/write）——渲染层画侧栏，复制不含行号。
 export interface ToolBodyLine {
   text: string
-  kind: 'plain' | 'add' | 'del'
+  kind: 'plain' | 'add' | 'del' | 'cmd'
+  no?: number
 }
 
 // 消息块：一条消息在 UI 中的呈现单元。

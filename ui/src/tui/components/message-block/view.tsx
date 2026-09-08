@@ -26,6 +26,7 @@ export function MessageBlock(props: { block: Block; expanded?: boolean }) {
 
 // 块容器：头行（▌ + label）在上，内容整体缩进在下，背景贯穿全宽（width 100%——
 // Static 下的子元素默认 fit-content，需显式拉伸）。
+// 内容区必须显式 flexDirection="column"——Ink Box 默认 row，多行兄弟 Text 会横向拼成一行。
 // collapsed=true 时只有头行一行（无内容区）。
 function BlockShell(props: { color: string; bg: string; label: React.ReactNode; children?: React.ReactNode; collapsed?: boolean }) {
   return (
@@ -35,7 +36,7 @@ function BlockShell(props: { color: string; bg: string; label: React.ReactNode; 
         {props.label}
       </Text>
       {!props.collapsed && (
-        <Box paddingLeft={3} paddingRight={1}>
+        <Box flexDirection="column" paddingLeft={3} paddingRight={1}>
           {props.children}
         </Box>
       )}
@@ -75,7 +76,8 @@ function renderBlock(b: Block, expanded: boolean): React.ReactNode {
       const name = b.toolName ?? '工具'
       const args = formatToolArgs(name, b.toolInput)
       const result = b.toolStatus && b.toolStatus !== 'running' ? formatToolResult(name, b.toolOutput, b.toolError) : null
-      const resultColor = b.toolStatus === 'done' ? palette.subtext : palette.red
+      // ✕ 前缀是 formatter 的失败标记（含 shell exit≠0 提升的情况）——驱动红色结果段。
+      const resultColor = result?.startsWith('✕') ? palette.red : palette.subtext
       const headLabel = (
         <Text>
           <Text color={palette.cyan}>🐾 {name}</Text>
@@ -86,12 +88,20 @@ function renderBlock(b: Block, expanded: boolean): React.ReactNode {
       if (!expanded || !b.toolBody) {
         return <BlockShell color={palette.cyan} bg={palette.surfaceAlt} collapsed label={headLabel} />
       }
-      // 展开：完整正文逐行缩进（行数封顶由 tool-display 统一执行，add/del 行着色）。
+      // 正文分层：输出/内容是主角（正文色），命令回显是注脚（faint），diff 行绿/红；
+      // 行号侧栏（read/write）极弱色，按最大行号对齐。
+      const gutterWidth = b.toolBody.reduce((m, l) => Math.max(m, l.no ?? 0), 0).toString().length
       return (
         <BlockShell color={palette.cyan} bg={palette.surfaceAlt} label={headLabel}>
-          {b.toolBody.map((l, i) => (
-            <Text key={i} color={l.kind === 'add' ? palette.green : l.kind === 'del' ? palette.red : palette.subtext}>⎿ {l.text}</Text>
-          ))}
+          {b.toolBody.map((l, i) => {
+            const color = l.kind === 'add' ? palette.green : l.kind === 'del' ? palette.red : l.kind === 'cmd' ? palette.faint : palette.text
+            return (
+              <Text key={i}>
+                <Text color={palette.faint}>⎿ {l.no !== undefined ? `${String(l.no).padStart(gutterWidth)} ` : ''}</Text>
+                <Text color={color}>{l.text}</Text>
+              </Text>
+            )
+          })}
         </BlockShell>
       )
     }

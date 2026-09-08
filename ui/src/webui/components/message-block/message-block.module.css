@@ -217,14 +217,26 @@
   max-height: 240px;
   overflow-y: auto;
 }
+/* 正文分层：输出/内容是主角（正文色），命令回显是注脚（弱化 + 左竖线），
+   diff 行绿/红，行号侧栏极弱色（user-select 剔除，手动选择复制不带行号）。 */
+.linePlain {
+  color: var(--color-text);
+}
+.lineCmd {
+  color: var(--color-subtext);
+  border-left: 2px solid var(--color-border);
+  padding-left: 6px;
+}
 .lineAdd {
   color: var(--color-success);
 }
 .lineDel {
   color: var(--color-danger);
 }
-.linePlain {
+.lineNo {
   color: var(--color-subtext);
+  opacity: 0.55;
+  user-select: none;
 }
 
 /* ═══ Error ═══ */

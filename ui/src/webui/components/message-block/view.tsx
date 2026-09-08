@@ -3,7 +3,7 @@ import { KIND_ICON, KIND_LABEL } from '../../theme/token-map'
 import { Egg, User, ChevronDown, Wrench, Check, X, Loader2, Copy } from 'lucide-react'
 import { MarkdownRenderer } from '../markdown'
 import { formatToolArgs, formatToolResult } from '../../../shared'
-import type { Block } from '../../../shared'
+import type { Block, ToolBodyLine } from '../../../shared'
 import styles from './message-block.module.css'
 
 // 消息块：按 kind 分化渲染——每种类型有完全不同的视觉结构。
@@ -92,11 +92,14 @@ function ToolBlock({ block, isRunning }: { block: Block; isRunning?: boolean }) 
   const result = running ? null : formatToolResult(name, block.toolOutput, block.toolError)
   const expandable = block.toolBody !== undefined
   const body = block.toolBody ?? []
-  const failed = block.toolStatus === 'error' || block.toolStatus === 'rejected'
+  // ✕ 前缀是 formatter 的失败标记（含 shell exit≠0 提升的情况）——驱动红色结果标签。
+  const failed = block.toolStatus === 'error' || block.toolStatus === 'rejected' || result?.startsWith('✕') === true
 
+  // 复制 = 展开正文 text 原样拼接——自动得到正确语义：shell 是去掉 exit 行的纯输出，
+  // read/write 是不带行号的纯内容，edit 是自描述的 diff。一个规则覆盖所有工具。
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(block.toolOutput ?? block.toolError ?? '')
+      await navigator.clipboard.writeText(body.map((l) => l.text).join('\n'))
       setCopied(true)
       setTimeout(() => setCopied(false), 1200)
     } catch {
@@ -104,13 +107,16 @@ function ToolBlock({ block, isRunning }: { block: Block; isRunning?: boolean }) 
     }
   }
 
+  const lineClass = (kind: ToolBodyLine['kind']) =>
+    kind === 'add' ? styles.lineAdd : kind === 'del' ? styles.lineDel : kind === 'cmd' ? styles.lineCmd : styles.linePlain
+
   return (
     <div className={`${styles.toolCard} ${expanded ? '' : styles.collapsedCard}`}>
       <button className={styles.toolHeader} onClick={() => expandable && setExpanded(!expanded)}>
         <div className={`${styles.toolIcon} ${failed ? styles.toolIconError : block.toolStatus === 'done' ? styles.toolIconDone : styles.toolIconRunning}`}>
           {running
             ? (isRunning ? <Loader2 size={12} strokeWidth={2} className="spin" /> : <Wrench size={12} strokeWidth={1.5} />)
-            : block.toolStatus === 'done' ? <Check size={12} strokeWidth={2} /> : <X size={12} strokeWidth={2} />}
+            : block.toolStatus === 'done' && !failed ? <Check size={12} strokeWidth={2} /> : <X size={12} strokeWidth={2} />}
         </div>
         <span className={styles.toolName}>{name}</span>
         <span className={styles.toolArgs}>{args}</span>
@@ -128,7 +134,10 @@ function ToolBlock({ block, isRunning }: { block: Block; isRunning?: boolean }) 
           </div>
           <pre className={`${styles.monoText} ${styles.toolBodyScroll}`}>
             {body.map((l, i) => (
-              <span key={i} className={l.kind === 'add' ? styles.lineAdd : l.kind === 'del' ? styles.lineDel : styles.linePlain}>{l.text + '\n'}</span>
+              <span key={i} className={lineClass(l.kind)}>
+                {l.no !== undefined && <span className={styles.lineNo}>{l.no}{'  '}</span>}
+                {l.text + '\n'}
+              </span>
             ))}
           </pre>
         </div>

@@ -34,7 +34,12 @@ export function formatToolResult(name: string, output?: string, error?: string):
     return `✕ ${truncate(error, 60)}`
   }
   if (output === undefined) return null
-  if (name === 'shell') return `${countLines(output)} 行输出`
+  if (name === 'shell') {
+    const parsed = parseShellContent(output)
+    // exit≠0 是命令失败（✕ 标记驱动两端红色结果标签），成功则量化真实行数。
+    if (parsed && parsed.exit !== 0) return `✕ 退出 ${parsed.exit}`
+    return `${countLines(parsed ? parsed.body : output)} 行输出`
+  }
   if (name === 'read_file') return `${countLines(output)} 行`
   return '完成'
 }
@@ -47,7 +52,7 @@ export function formatToolTitle(name: string, input: unknown, output?: string, e
   return joinSegments([args ? `${name} ${args}` : name, ...(result ? [result] : [])], ' · ')
 }
 
-// 展开正文——每工具一个分支。kind 驱动渲染层着色：add/del 为 diff 行。
+// 展开正文——每工具一个分支。kind 驱动渲染层着色（plain 正文色 / add 绿 / del 红 / cmd 弱化）。
 export function formatToolBody(name: string, input: unknown, output?: string, error?: string): ToolBodyLine[] {
   if (error) {
     const lines: ToolBodyLine[] = [{ text: `✕ ${error}`, kind: 'plain' }]
@@ -61,13 +66,25 @@ export function formatToolBody(name: string, input: unknown, output?: string, er
     case 'edit_file':
       lines = diffLines(String(inp.old_string ?? ''), String(inp.new_string ?? ''))
       break
+    case 'read_file':
+      // 内容以编辑器式带行号呈现——行号是用户回看/引用文件时的天然坐标。
+      lines = numberedLines(output ?? '')
+      break
     case 'write_file':
-      // 前缀保留在文本里（与 edit_file 一致）——复制/纯文本场景下仍是自描述的 diff。
-      lines = plainLines(String(inp.content ?? '')).map((l) => ({ text: `+ ${l.text}`, kind: 'add' as const }))
+      // 新文件内容同 read_file 的带行号呈现（头行 +N 已承载 diffstat，整篇标绿没有信息量）。
+      lines = numberedLines(String(inp.content ?? ''))
       break
-    case 'shell':
-      lines = [{ text: `$ ${String(inp.command ?? '')}`, kind: 'plain' }, ...plainLines(output ?? '')]
+    case 'shell': {
+      // 命令回显为 cmd 行（弱化）；content 首行 exit=N 是给模型判断成败的契约格式，
+      // 展示层转换：exit=0 丢弃（✓ 已表达成功），超时说明保留为正文行。
+      const parsed = output !== undefined ? parseShellContent(output) : null
+      lines = [
+        { text: `$ ${String(inp.command ?? '')}`, kind: 'cmd' },
+        ...(parsed?.note ? [{ text: parsed.note, kind: 'plain' as const }] : []),
+        ...(parsed ? plainLines(parsed.body) : plainLines(output ?? '')),
+      ]
       break
+    }
     default:
       lines = plainLines(output ?? '')
   }
@@ -126,8 +143,29 @@ function compactArgs(inp: Record<string, unknown>): string {
 }
 
 function plainLines(s: string): ToolBodyLine[] {
-  if (s === '') return []
-  return s.split('\n').map((l) => ({ text: l, kind: 'plain' as const }))
+  const t = trimTrailingNewline(s)
+  if (t === '') return []
+  return t.split('\n').map((l) => ({ text: l, kind: 'plain' as const }))
+}
+
+// 内容行带 1-based 行号（no 字段）——渲染层画侧栏，复制不含行号。
+function numberedLines(s: string): ToolBodyLine[] {
+  const t = trimTrailingNewline(s)
+  if (t === '') return [{ text: '（空文件）', kind: 'plain' }]
+  return t.split('\n').map((l, i) => ({ text: l, no: i + 1, kind: 'plain' as const }))
+}
+
+// 尾随换行是命令输出/文件内容的常规形态，不构成一行（否则行数虚高——幻影空行）。
+function trimTrailingNewline(s: string): string {
+  return s.endsWith('\n') ? s.slice(0, -1) : s
+}
+
+// shell content 首行固定为 exit=N（可带「（超时说明）」），是给模型判断成败的契约格式
+//（agent/src/tools/shell）——展示层解析转换：退出码进头行结果段，说明与输出留在正文。
+function parseShellContent(output: string): { exit: number; note: string; body: string } | null {
+  const m = /^exit=(\d+)(.*)\n?/.exec(output)
+  if (!m) return null
+  return { exit: Number(m[1]), note: m[2] ?? '', body: output.slice(m[0].length) }
 }
 
 // 统一行数封顶——尾行标注剩余量（完整输出可经 TUI /log 或 WebUI Log Tail 卡片查看）。
@@ -145,7 +183,8 @@ function truncate(s: string, max: number): string {
 }
 
 function countLines(s: string): number {
-  return s === '' ? 0 : s.split('\n').length
+  const t = trimTrailingNewline(s)
+  return t === '' ? 0 : t.split('\n').length
 }
 
 // 连接非空片段（空片段跳过，避免残留孤立分隔符）。
