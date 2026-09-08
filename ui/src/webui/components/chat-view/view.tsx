@@ -2,8 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Egg, Loader2, Wrench } from 'lucide-react'
 import { MessageBlock } from '../message-block'
 import { MarkdownRenderer } from '../markdown'
-import type { ChatState } from '../../../shared'
-import type { Block } from '../../../shared'
+import { type Block, type ChatState, pendingToolLabel } from '../../../shared'
 import styles from './chat-view.module.css'
 
 // 聊天视口：消息列表 + 流式 partial 块 + 工具参数生成提示。自动滚动到底部。
@@ -61,7 +60,7 @@ export function ChatView({ chat, isRunning }: ChatViewProps) {
                 <span className={styles.streamingDot} />
                 <span className={styles.streamingDot} />
               </div>
-              <span className={styles.streamingText}>正在准备调用 {chat.pendingTool || '工具'}…</span>
+              <span className={styles.streamingText}>{pendingToolLabel(chat.pendingTool)}</span>
             </div>
           )}
 

@@ -19,3 +19,10 @@ export const STATUS_LABELS: Record<string, string> = {
 export function isStateRunning(state: State): boolean {
   return state !== 'idle' && state !== 'finished' && state !== 'cancelled' && state !== 'error'
 }
+
+// 工具参数生成期间（tool_pending → tool_start）的提示文案——TUI/WebUI 必须同一出处，
+// 两端各写一份迟早漂移（此前的「生成调用参数」vs「准备调用」即教训）。
+// 语义上该阶段是在流式生成调用参数，但用户视角统一表述为「正在调用」；工具名缺失时退化为泛化文案。
+export function pendingToolLabel(name: string): string {
+  return name ? `正在调用 ${name}…` : '正在调用工具…'
+}

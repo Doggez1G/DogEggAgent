@@ -132,7 +132,7 @@ export function InfoPanel(props: InfoPanelProps) {
                     <span className="spin" style={{ display: 'inline-block' }}>↻</span>
                   </span>
                   <span className={styles.toolCallName}>{props.pendingTool || '工具'}</span>
-                  <span className={styles.toolPerm}>生成参数中…</span>
+                  <span className={styles.toolPerm}>调用中…</span>
                 </div>
               )}
               {[...props.toolCalls].reverse().map((tc) => {
