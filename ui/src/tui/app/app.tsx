@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Box, Static, Text } from 'ink'
 import type { Config, UiPort } from '@dogegg/bridge'
-import { TopBar, MessageBlock, StatusBar, MultilineInput, StreamingBlock } from '../components'
+import { TopBar, MessageBlock, StatusBar, MultilineInput, StreamingBlock, PendingTool } from '../components'
 import { palette, themeRegistry } from '../theme'
 import { renderMarkdown } from '../markdown'
 import { clearScreen } from './entry'
@@ -282,6 +282,8 @@ export function App({ port }: { port: UiPort }) {
             text={chat.partial.kind === 'thinking' ? chat.partial.text : renderMarkdown(chat.partial.text)}
           />
         ) : null}
+        {/* 模型正在生成工具调用参数——流式文本冻结、工具块未出现的空窗期提示 */}
+        {chat.pendingTool != null && <PendingTool name={chat.pendingTool} />}
 
         {browseIdx !== null && (
           <BrowseStatusBar idx={browseIdx} total={chat.blocks.length} block={chat.blocks[browseIdx]} expanded={expanded.has(browseIdx)} />

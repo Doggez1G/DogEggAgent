@@ -14,6 +14,7 @@ export const agentToUiMessageSchema: z.ZodType<AgentToUiMessage> = z.discriminat
   z.object({ type: z.literal('text_delta'), delta: z.string() }),
   z.object({ type: z.literal('thought_delta'), delta: z.string() }),
   z.object({ type: z.literal('message'), role: z.enum(['user', 'assistant', 'tool']), id: z.string() }),
+  z.object({ type: z.literal('tool_pending'), name: z.string() }),
   z.object({ type: z.literal('tool_start'), id: z.string(), name: z.string(), input: z.unknown() }),
   z.object({ type: z.literal('tool_end'), id: z.string(), name: z.string(), output: z.string(), error: z.string().optional() }),
   z.object({ type: z.literal('permission_request'), id: z.string(), tool: z.string(), input: z.unknown() }),

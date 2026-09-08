@@ -132,6 +132,7 @@ export function App({ port, connectionState }: AppProps) {
           tokens={panel.statusBar.tokens}
           windowTokens={panel.statusBar.windowTokens}
           toolCalls={tracking.toolCalls}
+          pendingTool={tracking.pendingTool}
           toolsList={panel.toolsList}
           contextState={panel.contextState}
           systemState={panel.systemState}

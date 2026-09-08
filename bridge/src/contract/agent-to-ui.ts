@@ -8,6 +8,7 @@ export type AgentToUiMessage =
   | { type: 'text_delta'; delta: string }
   | { type: 'thought_delta'; delta: string }
   | { type: 'message'; role: 'user' | 'assistant' | 'tool'; id: string } // id 为真值（非空串），与 tool_start 的 id 同源，供 UI 定位/折叠/滚动
+  | { type: 'tool_pending'; name: string } // 模型正在流式生成工具调用参数（tool_call_start → tool_start 之间）——大参数期间 UI 需有可见反馈
   | { type: 'tool_start'; id: string; name: string; input: unknown }
   | { type: 'tool_end'; id: string; name: string; output: string; error?: string } // 拒绝/失败工具也发 tool_end（error 标明原因），不再静默塞消息
   | { type: 'permission_request'; id: string; tool: string; input: unknown }

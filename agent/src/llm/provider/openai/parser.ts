@@ -58,13 +58,14 @@ export function createOpenAiStreamParser() {
       }
       for (const tc of Array.isArray(delta.tool_calls) ? delta.tool_calls : []) {
         const idx = typeof tc.index === 'number' ? tc.index : 0
-        if (!calls.has(idx)) {
-          calls.set(idx, { id: tc.id ?? '', name: '', args: '' })
-          events.push({ type: 'tool_call_start', index: idx, id: tc.id ?? '', name: '' })
-        }
+        const isNew = !calls.has(idx)
+        if (isNew) calls.set(idx, { id: tc.id ?? '', name: '', args: '' })
         const cur = calls.get(idx)!
         if (tc.id) cur.id = tc.id
         if (tc.function?.name) cur.name = tc.function.name
+        // tool_call_start 必须在字段合并之后发出——OpenAI 协议里 name/id 往往随首个分片才到，
+        // 先合并再广播，下游的 tool_pending 才能携带真实工具名（而非空串）。
+        if (isNew) events.push({ type: 'tool_call_start', index: idx, id: cur.id, name: cur.name })
         if (tc.function?.arguments) {
           cur.args += tc.function.arguments
           events.push({ type: 'tool_call_delta', index: idx, argsJsonDelta: tc.function.arguments })

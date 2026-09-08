@@ -30,10 +30,24 @@ describe('openai stream parser', () => {
     ]
     const last = events.find((e) => e.type === 'done') as { message: any }
     expect(last.message.tool_calls[0].function.arguments).toBe('{"path":"a.ts"}')
-    expect(events.some((e) => e.type === 'tool_call_start')).toBe(true)
+    // tool_call_start 必须携带真实工具名——loop 据此发 tool_pending（空名字会让 UI 无法提示）。
+    const start = events.find((e) => e.type === 'tool_call_start') as { name: string; id: string }
+    expect(start.name).toBe('read_file')
+    expect(start.id).toBe('call_1')
     const end = events.find((e) => e.type === 'tool_call_end') as { name: string; arguments: string }
     expect(end.name).toBe('read_file')
     expect(end.arguments).toBe('{"path":"a.ts"}')
+  })
+
+  it('carries tool name in tool_call_start when name arrives with first delta', () => {
+    const p = createOpenAiStreamParser()
+    // name 与 arguments 同分片到达（OpenAI 兼容端点的常见形状）——start 事件仍须带 name。
+    const events = p.feed(sse({ tool_calls: [{ index: 0, id: 'call_9', function: { name: 'shell', arguments: '{"command"' } }] }))
+    const start = events.find((e) => e.type === 'tool_call_start') as { name: string; id: string }
+    expect(start.name).toBe('shell')
+    expect(start.id).toBe('call_9')
+    const delta = events.find((e) => e.type === 'tool_call_delta') as { argsJsonDelta: string }
+    expect(delta.argsJsonDelta).toBe('{"command"')
   })
 
   it('emits thought deltas for reasoning', () => {

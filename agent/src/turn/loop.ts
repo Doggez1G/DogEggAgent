@@ -145,6 +145,9 @@ export class AgentLoop {
                 this.services.emit({ type: 'text_delta', delta: e.text })
               } else if (e.type === 'thought_delta' && turn.reasoning) {
                 this.services.emit({ type: 'thought_delta', delta: e.text })
+              } else if (e.type === 'tool_call_start') {
+                // 模型开始生成工具调用参数——立即告知 UI（大参数的流式生成期间界面原本无任何反馈）。
+                this.services.emit({ type: 'tool_pending', name: e.name })
               }
             },
           )

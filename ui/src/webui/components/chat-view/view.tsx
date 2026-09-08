@@ -1,12 +1,12 @@
 import { useEffect, useRef } from 'react'
-import { Egg, Loader2 } from 'lucide-react'
+import { Egg, Loader2, Wrench } from 'lucide-react'
 import { MessageBlock } from '../message-block'
 import { MarkdownRenderer } from '../markdown'
 import type { ChatState } from '../../../shared'
 import type { Block } from '../../../shared'
 import styles from './chat-view.module.css'
 
-// 聊天视口：消息列表 + 流式 partial 块。自动滚动到底部。
+// 聊天视口：消息列表 + 流式 partial 块 + 工具参数生成提示。自动滚动到底部。
 interface ChatViewProps {
   chat: ChatState
   isRunning: boolean
@@ -17,9 +17,9 @@ export function ChatView({ chat, isRunning }: ChatViewProps) {
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chat.blocks, chat.partial])
+  }, [chat.blocks, chat.partial, chat.pendingTool])
 
-  const empty = chat.blocks.length === 0 && !chat.partial
+  const empty = chat.blocks.length === 0 && !chat.partial && chat.pendingTool == null
 
   return (
     <main className={styles.chatView}>
@@ -50,6 +50,21 @@ export function ChatView({ chat, isRunning }: ChatViewProps) {
             />
           )}
 
+          {/* 模型正在生成工具调用参数——流式文本冻结、工具块未出现的空窗期提示 */}
+          {chat.pendingTool != null && (
+            <div className={styles.streaming}>
+              <div className={styles.assistantAvatar}>
+                <Wrench size={16} strokeWidth={1.5} />
+              </div>
+              <div className={styles.streamingDots}>
+                <span className={styles.streamingDot} />
+                <span className={styles.streamingDot} />
+                <span className={styles.streamingDot} />
+              </div>
+              <span className={styles.streamingText}>正在准备调用 {chat.pendingTool || '工具'}…</span>
+            </div>
+          )}
+
           {chat.status === 'compacting' && (
             <div className={styles.compacting}>
               <div className={styles.assistantAvatar}>
@@ -64,7 +79,7 @@ export function ChatView({ chat, isRunning }: ChatViewProps) {
             </div>
           )}
 
-          {isRunning && !chat.partial && chat.status !== 'compacting' && (
+          {isRunning && !chat.partial && chat.status !== 'compacting' && chat.pendingTool == null && (
             <div className={styles.streaming}>
               <div className={styles.assistantAvatar}>
                 <Egg size={16} strokeWidth={1.5} />

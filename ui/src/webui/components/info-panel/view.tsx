@@ -15,6 +15,7 @@ interface InfoPanelProps {
   tokens: number | undefined
   windowTokens: number | undefined
   toolCalls: { id: string; name: string; status: 'running' | 'done' | 'error' | 'rejected'; output?: string; decision?: 'allow_once' | 'allow_always' | 'reject'; configPerm: string; seq: number }[]
+  pendingTool?: string | null
   toolsList: { name: string; description: string }[]
   contextState: { estimatedTokens: number; windowTokens: number; percent: number } | null
   systemState: { path: string; content: string } | null
@@ -123,6 +124,17 @@ export function InfoPanel(props: InfoPanelProps) {
             <p className={styles.emptyText}>No tool calls yet</p>
           ) : (
             <div className={styles.toolList}>
+              {/* 模型正在生成工具调用参数——排在已完成条目之前的准备中占位行 */}
+              {props.pendingTool != null && (
+                <div key='pending' className={styles.toolCallItem}>
+                  <span className={styles.toolCallSeq}>…</span>
+                  <span className={styles.toolCallIcon}>
+                    <span className="spin" style={{ display: 'inline-block' }}>↻</span>
+                  </span>
+                  <span className={styles.toolCallName}>{props.pendingTool || '工具'}</span>
+                  <span className={styles.toolPerm}>生成参数中…</span>
+                </div>
+              )}
               {[...props.toolCalls].reverse().map((tc) => {
                 // 使用执行时记录的 configPerm 快照 + decision——不随后续设置变化。
                 const actualPerm = tc.configPerm === 'allow' ? 'allow' : tc.configPerm === 'reject' ? 'reject' : (tc.decision === 'allow_once' ? 'once' : tc.decision === 'allow_always' ? 'always' : tc.decision === 'reject' ? 'rejected' : 'ask')

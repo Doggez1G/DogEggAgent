@@ -9,6 +9,8 @@ export interface ChatState {
   // 最后一个 tool 块是否尚未收到 tool_end——未完成的块内容还会变，
   // TUI（Static 输出模式）不能把它固化打印，需留在动态区渲染。
   toolActive: boolean
+  // 模型正在生成工具调用参数（tool_pending → tool_start 之间）——两端 UI 显示准备中提示。
+  pendingTool?: string | null
 }
 
 // reducer 的输入：后端消息 + UI 本地动作（local_user 本地即时显示）。
@@ -128,9 +130,12 @@ export function reducer(state: ChatState, msg: Action): ChatState {
     }
     case 'message':
       return msg.role === 'assistant' ? flush(state) : state
+    case 'tool_pending':
+      // 模型正在生成工具调用参数——UI 显示准备中提示（tool_start 到达时清除）。
+      return { ...state, pendingTool: msg.name }
     case 'tool_start': {
       const flushed = flush(state)
-      return { ...flushed, status: 'executing', toolActive: true, blocks: [...flushed.blocks, { kind: 'tool', color: 'cyan', text: `${msg.name} ${JSON.stringify(msg.input)}`, toolId: msg.id, toolInput: msg.input }] }
+      return { ...flushed, status: 'executing', toolActive: true, pendingTool: null, blocks: [...flushed.blocks, { kind: 'tool', color: 'cyan', text: `${msg.name} ${JSON.stringify(msg.input)}`, toolId: msg.id, toolInput: msg.input }] }
     }
     case 'tool_end': {
       // 拒绝/失败工具也有 tool_end（error 标记），此处统一渲染为 ✕ 或 ✓。
@@ -153,15 +158,15 @@ export function reducer(state: ChatState, msg: Action): ChatState {
       // 转换到 cancelled/idle 时 flush partial——避免取消后残留的流式文本被
       // 下一轮 text_delta 拼接（导致"先回答上一个问题"的 bug）。
       if (msg.to === 'cancelled' || msg.to === 'idle') {
-        return { ...flush(state), status: msg.to }
+        return { ...flush(state), status: msg.to, pendingTool: null }
       }
       return { ...state, status: msg.to }
     case 'finished':
-      return { ...flush(state), status: 'finished' }
+      return { ...flush(state), status: 'finished', pendingTool: null }
     case 'error': {
       // flush partial——错误时把流式中的 partial 落盘，避免永久显示"流式"幽灵块 + 丢失部分文本。
       const f = flush(state)
-      return { ...f, status: 'error', blocks: [...f.blocks, { kind: 'error', color: 'red', text: msg.error.message }] }
+      return { ...f, status: 'error', pendingTool: null, blocks: [...f.blocks, { kind: 'error', color: 'red', text: msg.error.message }] }
     }
     case 'notice':
       return { ...state, blocks: [...state.blocks, { kind: 'notice', color: 'subtext', text: msg.text }] }
@@ -175,6 +180,7 @@ export function reducer(state: ChatState, msg: Action): ChatState {
         status: 'idle',
         partial: null,
         toolActive: false,
+        pendingTool: null,
         blocks: rebuildBlocksFromHistory(msg.messages, msg.thinking),
       }
     case 'compaction':
@@ -189,7 +195,7 @@ export function reducer(state: ChatState, msg: Action): ChatState {
       return state
     case 'history_cleared':
       // 清空历史——先 flush partial，然后在对话面板插入一条提示，再清空。
-      return { ...flush(state), blocks: [{ kind: 'notice', color: 'subtext', text: 'History cleared' }], partial: null, toolActive: false }
+      return { ...flush(state), blocks: [{ kind: 'notice', color: 'subtext', text: 'History cleared' }], partial: null, toolActive: false, pendingTool: null }
     default:
       return state
   }

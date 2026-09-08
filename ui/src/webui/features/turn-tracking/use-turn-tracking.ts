@@ -13,12 +13,15 @@ export function useTurnTracking(port: UiPort): {
   resolve(id: string, tool: string, decision: ToolDecision): void
   recordSubmit(text: string): void
   retryText: string | null
+  pendingTool: string | null
   consumeRetry(): void
 } {
   const [toolCalls, setToolCalls] = useState<ToolCallEntry[]>([])
   const [filesTouched, setFilesTouched] = useState<FileTouched[]>([])
   const [pendingPermission, setPendingPermission] = useState<{ id: string; tool: string; input: unknown } | null>(null)
   const [retryText, setRetryText] = useState<string | null>(null)
+  // 模型正在生成工具调用参数（tool_pending → tool_start）——供 InfoPanel 与聊天区显示准备中提示。
+  const [pendingTool, setPendingTool] = useState<string | null>(null)
   const toolSeqRef = useRef(0)
   // 记录 permission_decision 的 toolName→decision 映射，供 tool_start 时关联决策标签。
   const permissionDecisions = useRef<Map<string, ToolDecision>>(new Map())
@@ -30,6 +33,7 @@ export function useTurnTracking(port: UiPort): {
 
   useEffect(() => {
     const off = port.onMessage((msg: AgentToUiMessage) => {
+      if (msg.type === 'tool_pending') { setPendingTool(msg.name); return }
       if (msg.type === 'config_state' || msg.type === 'config_updated') {
         configRef.current = msg.config
       } else if (msg.type === 'permission_request') {
@@ -42,11 +46,13 @@ export function useTurnTracking(port: UiPort): {
       } else if (msg.type === 'session_ready') {
         setFilesTouched([])
         toolSeqRef.current = 0
+        setPendingTool(null)
         setToolCalls([])
       } else if (msg.type === 'history_cleared') {
         setFilesTouched([])
         setToolCalls([])
       } else if (msg.type === 'tool_start') {
+        setPendingTool(null)
         const seq = ++toolSeqRef.current
         // 按 toolName 查找 decision——permission_request.id 与 tool_start.id 不同。
         const decision = permissionDecisions.current.get(msg.name)
@@ -79,5 +85,5 @@ export function useTurnTracking(port: UiPort): {
 
   const recordSubmit = useCallback((text: string) => { lastSubmitText.current = text }, [])
 
-  return { toolCalls, filesTouched, pendingPermission, resolve, recordSubmit, retryText, consumeRetry: () => setRetryText(null) }
+  return { toolCalls, filesTouched, pendingPermission, resolve, recordSubmit, retryText, consumeRetry: () => setRetryText(null), pendingTool }
 }

@@ -66,6 +66,33 @@ describe('reducer — message (assistant)', () => {
   })
 })
 
+describe('reducer — tool_pending', () => {
+  it('记录正在生成参数的工具名', () => {
+    const s = reducer(initial, { type: 'tool_pending', name: 'shell' })
+    expect(s.pendingTool).toBe('shell')
+    expect(s.blocks).toHaveLength(0) // 不产生块——只是动态区提示
+  })
+
+  it('tool_start 到达时清除 pendingTool 并创建真实工具块', () => {
+    let s = reducer(initial, { type: 'tool_pending', name: 'shell' })
+    s = reducer(s, { type: 'tool_start', id: 'tc1', name: 'shell', input: { command: 'ls' } })
+    expect(s.pendingTool).toBeNull()
+    expect(s.blocks.some((b) => b.kind === 'tool')).toBe(true)
+  })
+
+  it('错误到达时清除 pendingTool（轮次中断不留悬挂提示）', () => {
+    let s = reducer(initial, { type: 'tool_pending', name: 'shell' })
+    s = reducer(s, { type: 'error', error: { message: '流中断' } })
+    expect(s.pendingTool).toBeNull()
+  })
+
+  it('cancelled 时清除 pendingTool', () => {
+    let s = reducer(initial, { type: 'tool_pending', name: 'shell' })
+    s = reducer(s, { type: 'state', from: 'responding', to: 'cancelled' })
+    expect(s.pendingTool).toBeNull()
+  })
+})
+
 describe('reducer — tool_start', () => {
   it('flush partial + 追加 tool block', () => {
     const s = reducer(withPartial('assistant', '回答'), {
