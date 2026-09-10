@@ -48,7 +48,7 @@ DogEggAgent 是一个自研的 **code agent** 工具。第一目标是**学习�
 | 9 | Event System | 见 §2 |
 | 10 | Permission | 配置 `allow/reject/ask` 三桶 + 运行时 `allow_once/allow_always/reject`（见 §5） |
 | 11 | Session | Session ID / 消息持久化 / Resume / History；JSON：`~/.dogegg/sessions/<id>.json`，文件结构 `{ id, updatedAt, history, context, allowedTools }`；REPL 斜杠命令 `/new`、`/session`（列会话并选择切换，按 `updatedAt` 降序排列——最新在最前）管理；**权限会话隔离**：`allow_always` 只对当前会话生效，新建会话（`/new`）时清空，`/session` 切换时保留（授权持久化到 allowedTools 字段，resume 后恢复） |
-| 12 | Context Compaction | LLM 把旧上下文压成 summary；触发 80% 窗口、保留最近 4 条；**只压缩 Context，不动 History**（见 §3.1）；自动触发用 80% 阈值，手动 `/compact` 无条件压缩（只要 context 非空就压：消息多时压旧留近期 4 条，消息少时全部压成摘要） |
+| 12 | Context Compaction | **（M2 重构，见 ADR-0011）**超 80% 窗口 → 把**整个 Context** 交给模型总结为「任务交接文档」（结构化提示词，无保留尾巴/无淘汰/无硬丢弃），替换为单条摘要消息；**只压缩 Context，不动 History**（见 §3.1）；失败诚实报错（轮次错误收尾）；自动触发 80% 阈值，手动 `/compact` 同路径跳过阈值 |
 | 13 | UI | Message List / Markdown / Tool Call / Tool Result / Input / Status Bar / Streaming |
 
 - **Reasoning**：v1 **框架就绪**——思考内容走独立 `thought_delta` 事件，按 OpenAI 官方标准字段解析。⚠️ 仅就绪：o1/o3 等推理模型的真实流式差异（如 `reasoning_effort`、增量 reasoning 协议）v1 不验证，实际可用性以运行时为准。具体字段名（`reasoning_content` 等）在实现时对照 OpenAI 当前文档确认，不在此写死。
@@ -146,12 +146,25 @@ finished / cancelled / error ──▶ idle
 |---|---|
 | `allow` | 自动放行，不询问 |
 | `reject` | 永远拒绝 |
-| `ask` | 每次询问 |
+| `ask` | 每次询问（未列出的工具默认 ask，倾向安全——固定安全默认，不可配置） |
+
+三桶顶层结构不变，桶内按工具分组、模式数组限定范围（v2 形态）：
+`"shell": ["git *"]` 只对 git 开头的命令生效，`"read_file": []`（空数组）= 整工具生效。
+模式经主参数表落到工具实际参数上（shell → command，其余 → path）；**路径模式的作用域由锚点前缀
+显式声明**——`./`（cwd）、`~/`（主目录）、盘符（绝对子树）、`*` 开头（从根匹配）；字面量打头的
+裸模式拒绝加载；匹配函数按主参数分派——path 用分段 glob（`*` 单段、`**` 跨段），command 用
+平文本通配（`*` = 任意字符）。
+判定顺序 **reject > 会话内 allow_always > ask 规则 >
+allow 规则 > 默认 ask**。匹配引擎在 `bridge/src/contract/`（三端共用单一实现），
+完整设计见 `2026-09-09-permission-config-design.md`（形态）与 `2026-09-08-tooling-expansion-design.md`（引擎）。
 
 **运行时层（仅 `ask` 桶命中时）**：用户决策三值：
 
 - `allow_once`：仅放行本次调用
 - `allow_always`：将工具在本会话内挪入允许。**会话隔离**：`allow_always` 只对当前会话生效，新建会话（`/new`）时清空；切换会话（`/session`）时**保留授权**——授权持久化到 session 文件，resume 后恢复。`/permissions` 可查看/撤销当前会话的授权。
+- `allow_always_scoped`（范围提升）：弹层第四档「对此范围不再询问」——shell 取首词前缀（`git *`）、
+  path 取所在目录（`./docs/**`，根部文件精确），模式推导时即解析为绝对形式入库；`/permissions`
+  按工具分组展示、可下钻逐条撤销。范围推导与存储形态见 `2026-09-09-permission-promotion-design.md`。
 - `reject`：拒绝本次调用（回填明确提示「用户拒绝了此工具调用，请勿再次尝试同一工具」，让模型停止重试而非循环弹框，继续）
 
 审批通过注入的回调交给 UI（TUI = await Y/n），`agent/permission` 本身不依赖 UI。
@@ -291,7 +304,7 @@ type UiToAgentMessage =
 - 找不到配置文件时 `loadConfig()` 返回空配置（而非抛错），可启动但提问被 `notice` 引导去 `/config`。
 - 配置文件位置：项目内 `.dogegg.json` 优先，否则 `~/.dogegg/config.json`。
 
-## 8. 工具清单（4 个，snake_case）
+## 8. 工具清单（7 个，snake_case）
 
 | 工具 | 说明 |
 |---|---|
@@ -299,6 +312,12 @@ type UiToAgentMessage =
 | `write_file` | 整文件覆写/创建 |
 | `edit_file` | old_string → new_string 精准替换（code agent 核心） |
 | `shell` | 执行 shell 命令（解释器可配），捕获 stdout/stderr/exit code，返回可 kill 进程句柄 |
+| `ls` | 列目录一层内容（目录标 `/`、附文件大小；单层不递归） |
+| `glob` | 按 glob 模式递归找文件路径（只匹配文件名，不读内容） |
+| `grep` | 按正则逐行搜索文件内容（`路径:行号: 内容` 回执；四层输出治理；三种输出模式） |
+
+> 探索类工具（ls/glob/grep）经 `node:fs` 直接实现，与 shell 无关——跨平台、结构化参数、
+> 输出治理有抓手；详见 `2026-09-08-tooling-expansion-design.md`。
 
 工具契约：
 

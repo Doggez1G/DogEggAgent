@@ -9,7 +9,8 @@
 - **SSE + POST 传输**：WebUI 通过 HTTP SSE 下行 + POST 上行与 Agent 通信，静态文件由 server serve
 - **10 态状态机**：纯函数迁移，VALID_FROM 守卫，非法状态组合是 no-op
 - **History / Context 双持久化**：History 是完整原文（永不压缩），Context 是发给模型的消息（会压缩）
-- **三桶权限模型**：allow / reject / ask，会话级 allow_always 授权，默认 ask（安全）
+- **7 个内置工具**：读类（read_file / ls / glob / grep，探索免审批）+ 写类（write_file / edit_file / shell）；grep 四层输出治理保证回执上界
+- **参数化权限模型**：allow / reject / ask 三桶内按工具分组、模式数组限定范围（`shell: ["git *"]`，空数组 = 整工具），匹配引擎在 bridge 三端共用；会话提升支持范围模式（对此命令/目录不再询问）；出厂默认读类放行、未列出固定询问
 - **三主题设计系统**：Midnight（暗 Zinc+Indigo）/ Forest（暗 Slate+Green）/ Dawn（亮），CSS 变量 + CSS Modules
 - **Cmd+K 命令面板** + **8 section 信息面板** + **IDE 风格设置** + **react-markdown 语法高亮**
 
@@ -112,9 +113,11 @@ dogegg -web            # 任意目录启动 WebUI
 - [设计文档](docs/superpowers/specs/2026-08-26-dog-egg-agent-design.md) — 需求清单、状态机、权限模型、消息契约
 - [模块化重构设计](docs/superpowers/specs/2026-08-27-modular-refactor-design.md) — 包结构、依赖图、架构测试
 - [WebUI 设计](docs/superpowers/specs/2026-08-29-webui-design.md) — 三主题、Primitives、Cmd+K、信息面板
+- [工具扩展设计](docs/superpowers/specs/2026-09-08-tooling-expansion-design.md) — ls/glob/grep 探索工具、输出治理、参数化权限引擎
+- [权限配置设计](docs/superpowers/specs/2026-09-09-permission-config-design.md) — 桶→工具→模式数组、锚点作用域、两端编辑器
 - [架构审查报告](docs/architecture-review-2026-09-01.html) — 全量审计 ~126 模块，8 个改进候选
 - [实现详解系列](docs/learning/) — 10 章逐模块讲解（全局架构 / 门面与 ctx / turn / 压缩 / session / tools / llm / config 与 permission / bridge-server-前端 / 规范与扩展）
-- [ADR 记录](docs/adr/) — 9 个架构决策记录
+- [ADR 记录](docs/adr/) — 11 个架构决策记录
 
 ## License
 

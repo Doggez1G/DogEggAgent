@@ -85,3 +85,13 @@ export interface ChatResult {
 ## 加一个新协议的动作
 
 新建 `llm/provider/anthropic/{index, anthropic-client, request, stream, retry?, errors?, parser}` 照抄 openai 模板，`client-for.ts` 加一个 case。loop、compactor、UI 全部零改动——它们只认识 `LlmClient` 接口。
+
+## usage：真实用量链路（M2）
+
+流式模式下拿真实用量：请求体带 `stream_options: { include_usage: true }`（`request.ts`），API 在流
+末尾返回一个独立 chunk（choices 为空、带 usage 字段）——`parser.ts` 捕获并归一为 `LlmUsage`
+（promptTokens/completionTokens/totalTokens），随 done 事件下发 → `ChatResult.usage` → loop 轮内
+累计 → `finished.usage` + 会话累计（conversation 持久化，resume 续计）。
+
+学习点：**估算与实际并排展示**——本地粗估（04 章 estimate）与 API 实际值在 /context 并排，估算器
+的校准误差从此可见；这也是「粗估够用于决策、精确值用于账单」两个需求的分界示范。

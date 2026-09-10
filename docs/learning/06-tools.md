@@ -32,8 +32,8 @@ export interface ToolContext {
 ```ts
 // agent/src/tools/registry.ts
 export class ToolRegistry {
-  static withBuiltins(): ToolRegistry {   // 内置四工具
-    return new ToolRegistry([new ReadFileTool(), new WriteFileTool(), new EditFileTool(), new ShellTool()])
+  static withBuiltins(): ToolRegistry {   // 内置七工具（读类：read_file/ls/glob/grep；写类：write_file/edit_file/shell）
+    return new ToolRegistry([new ReadFileTool(), new WriteFileTool(), new EditFileTool(), new ShellTool(), new LsTool(), new GlobTool(), new GrepTool()])
   }
   register(tool: Tool): void { this.tools.set(tool.name, tool) }
   get(name: string): Tool | undefined
@@ -54,6 +54,10 @@ tools/
 │  ├─ schema.ts  # readFileSchema（zod）+ readFileParameters（JSON schema）
 │  └─ tool.ts    # class ReadFileTool implements Tool
 ├─ write_file/ …  edit_file/ …
+├─ ls/  glob/  grep/             # 探索类三件套（见「输出治理」一节）
+├─ traverse/                     # 递归遍历能力（walker + 忽略表）——glob/grep 共用底座
+│  ├─ walker.ts                  # walkFiles：黑名单剪枝、symlink 跳过、产出 posix 相对路径
+│  └─ ignore.ts                  # IGNORED_DIRS（node_modules/.git/dist…）+ isBinaryFile（\0 判定）
 └─ shell/
    ├─ index.ts  schema.ts  tool.ts
    └─ support/          # shell 的私有支撑归类（不对外）
@@ -76,6 +80,29 @@ tools/
 - **shell 解释器**：`support/interpreter.ts` 把配置里的 shellProgram 映射成 `{ program, flag }`（cmd /c、powershell -Command、bash -c），含防御：含非 ASCII 的配置值回退平台默认。
 - **执行目录**：所有文件操作相对 `ctx.cwd`——这就是会话的 cwd 持久化（05 章）有意义的理由。
 
+## 探索类工具与输出治理（ls / glob / grep）
+
+探索三工具对应 agent 进入陌生代码库的三个问题——`ls`「这个目录里有什么」（单层）、`glob`「哪些文件
+匹配这个模式」（递归找名）、`grep`「这段代码在哪几行」（递归搜内容）。三者是**专用工具而非 shell 代理**：
+跨平台（Windows cmd 无 ls/grep）、结构化参数（zod 校验比拼命令行可靠）、权限粒度（读类默认 allow、
+shell 必须留 ask）、输出治理有抓手（schema 层封顶）。实现经 `node:fs`（`traverse/walker.ts` 共用底座），
+与 shell 完全无关。
+
+**grep 的四层输出治理**——搜索结果天然不可控，四层递进保证回执有确定上界（这是探索工具的核心设计课）：
+
+1. 单行截断 500 字符（minified 代码/长字符串一行几千字符）；
+2. 单文件命中封顶 20（生成文件里同一 pattern 密集出现），附「还有 N 处」补数说明；
+3. 总命中封顶 100（命中文件数失控）；
+4. 总字符 cap 8000（对齐 read_file 先例），超出提示收窄 pattern。
+
+`glob` 封顶 100 附「请收窄 pattern」、`ls` 封顶 500，同一思想。grep 还带三种输出模式
+（content / files_with_matches / count）——「先粗后细」是模型自己该学会的工作流。
+
+**glob matcher 落位 bridge**（`bridge/src/contract/glob.ts`）：`globToRegExp`/`matchGlob` 是纯函数，
+glob 工具、权限参数化规则、UI 权限展示三端共用一份实现（「bridge = 契约纯派生」立法的另一实例）。
+文法子集 `*`（单段）`**`（跨段含零段）`?`（单字符）；边界语义：`src/**` 不匹配 `src` 本身、
+`**/x` 含根级 `x`。
+
 ## 回执即契约（跨层格式，勿随手改）
 
 `content` 是给模型看的，但其中两处**固定格式**同时被 UI 层解析（`ui/src/shared/tool-display.ts`，各有立法注释）——改格式必须两处同步：
@@ -84,8 +111,10 @@ tools/
 |---|---|---|
 | shell | 首行 `exit=N`（超时附「（超时说明）」），其后是 stdout/stderr | 成功丢弃 exit 行（✓ 已表达），exit≠0 提升为头行红色「✕ 退出 N」，输出为正文 |
 | edit_file | `已替换 1 处（原第 N 行起）`——锚点是 old_string 在原文件中的起始行 | diff 展开按锚点标真实行号（删=旧位置，存=新位置）；旧格式回执优雅降级不标 |
+| grep | `相对路径:行号: 内容`（ripgrep 风格，模型训练数据里最熟悉的形状） | 头行结果段按行形区分「N 处命中 / N 个文件」，展开正文保留坐标原文 |
 
-模型同样受益于这些格式（shell 的 exit 码供其判断成败、edit 的锚点供其定位后续编辑），所以格式活在工具回执里而非 UI 专设字段。
+模型同样受益于这些格式（shell 的 exit 码供其判断成败、edit 的锚点供其定位后续编辑、grep 的坐标供其
+精确 read_file），所以格式活在工具回执里而非 UI 专设字段。
 
 ## 测试
 

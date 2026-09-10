@@ -35,6 +35,8 @@ DogEggAgent/
 - 重构设计：`docs/superpowers/specs/2026-08-27-modular-refactor-design.md`（包结构、依赖图、agent/ui 拆分、架构测试、迁移映射）
 - WebUI 设计：`docs/superpowers/specs/2026-08-29-webui-design.md`（三主题、Primitives、Cmd+K 命令面板、8 section 信息面板、权限内联 banner）
 - 后端纵切重构（已实施）：`docs/superpowers/specs/2026-09-07-backend-restructure-design.md`（turn/ 特征切分、ctx 单一所有权、单状态机）
+- 工具扩展设计（已实施）：`docs/superpowers/specs/2026-09-08-tooling-expansion-design.md`（ls/glob/grep 探索工具、输出治理、参数化权限引擎）
+- 权限配置设计（已实施）：`docs/superpowers/specs/2026-09-09-permission-config-design.md`（桶→工具→模式数组、锚点作用域、双匹配语义、两端编辑器）
 - UI 重构（已实施）：`docs/superpowers/specs/2026-09-07-ui-restructure-design.md`（features/ 纵切、ThemeRegistry、架构边界立法）
 - 实现详解系列：`docs/learning/`（01-10 章，与当前代码同步的逐模块讲解）
 - 实施计划：`docs/plans/2026-08-28-modular-refactor.md`
