@@ -2,6 +2,7 @@
 export * from './contract/shared'
 export * from './contract/config'
 export * from './contract/permission'
+export * from './contract/glob'
 export * from './contract/agent-to-ui'
 export * from './contract/ui-to-agent'
 export { uiToAgentMessageSchema } from './contract/ui-to-agent-schema'

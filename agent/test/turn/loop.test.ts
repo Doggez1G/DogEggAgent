@@ -32,9 +32,9 @@ function baseServices(overrides: Partial<LoopServices>): LoopServices {
   return {
     registry: new ToolRegistry(),
     machine: new StateMachine('idle'),
-    compactor: new Compactor(async () => ''),
+    compactor: new Compactor(async () => '摘要'),
     emit: () => {},
-    requestPermission: async () => 'allow_once',
+    requestPermission: async () => ({ decision: 'allow_once' as const }),
     checkCancelled: () => false,
     ...overrides,
   }
@@ -46,7 +46,7 @@ function baseTurn(overrides: Partial<TurnInput>): TurnInput {
     client: fakeClient(() => [{ type: 'done', message: { role: 'assistant', content: 'ok' } }]),
     model: 'm', maxOutput: 10, maxRetries: 0, reasoning: false,
     context: [], systemPrompt: 's', windowTokens: 100000,
-    permission: new PermissionManager({ allow: [], reject: [], ask: [] }),
+    permission: new PermissionManager({ allow: {}, reject: {}, ask: {} }),
     maxIterations: 10,
     cwd: dir, shellProgram: undefined, signal: new AbortController().signal,
     ...overrides,
@@ -78,7 +78,7 @@ describe('AgentLoop', () => {
     }))
     const result: LoopResult = await loop.run(baseTurn({
       client,
-      permission: new PermissionManager({ allow: ['read_file'], reject: [], ask: [] }),
+      permission: new PermissionManager({ allow: { read_file: [] }, reject: {}, ask: {} }),
     }))
 
     expect(events.some((e) => (e as { type: string }).type === 'tool_start')).toBe(true)
@@ -106,7 +106,7 @@ describe('AgentLoop', () => {
     }))
     const result = await loop.run(baseTurn({
       client,
-      permission: new PermissionManager({ allow: ['read_file'], reject: [], ask: [] }),
+      permission: new PermissionManager({ allow: { read_file: [] }, reject: {}, ask: {} }),
       maxIterations: -1,
     }))
     expect(result.error).toBeUndefined()
@@ -124,7 +124,7 @@ describe('AgentLoop', () => {
     }))
     const result = await loop.run(baseTurn({
       client,
-      permission: new PermissionManager({ allow: ['read_file'], reject: [], ask: [] }),
+      permission: new PermissionManager({ allow: { read_file: [] }, reject: {}, ask: {} }),
       maxIterations: 2,
     }))
     expect(result.error).toContain('maxIterations')

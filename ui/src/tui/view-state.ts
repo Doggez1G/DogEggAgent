@@ -4,7 +4,7 @@ import type { ConfigPath } from './features/config'
 // 决定当前显示哪个 overlay：无 / 权限弹层 / 菜单选择器 / 会话选择器 / 标量输入 / 配置编辑器 / 只读信息面板。
 export type View =
   | { kind: 'none' }
-  | { kind: 'permission'; id: string; tool: string; input: unknown; cursor: number }
+  | { kind: 'permission'; id: string; tool: string; input: unknown; alwaysScope?: { pattern: string }; cursor: number }
   | { kind: 'menu'; title: string; items: { label: string; onSelect: () => void }[]; cursor: number }
   | { kind: 'sessionPicker'; sessions: { id: string; preview: string; updatedAt: string }[]; cursor: number; query: string }
   | { kind: 'prompt'; title: string; value: string; onSubmit: (v: string) => void; returnPath?: ConfigPath; returnCursor?: number }

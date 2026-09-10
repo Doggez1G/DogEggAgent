@@ -18,7 +18,7 @@ export type UiToAgentMessage =
   | { type: 'status_request' }
   | { type: 'log_request' }
   | { type: 'permissions_request' } // /permissions：查询当前会话的 allow_always 授权
-  | { type: 'permission_revoke'; tool: string } // 撤销某工具的 allow_always 授权
+  | { type: 'permission_revoke'; tool: string; pattern?: string } // 撤销会话提升：带 pattern 撤单条模式（撤光即移除整条提升），不带撤整工具
   | { type: 'set_cwd'; path: string } // 运行时切换工作目录（/cd 命令 / WebUI 目录选择器共用）
   | { type: 'delete_session'; id: string } // 删除会话文件（WebUI 项目树删除会话用）
   | { type: 'clear_history' }

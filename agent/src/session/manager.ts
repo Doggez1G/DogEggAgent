@@ -46,9 +46,9 @@ export class SessionManager {
     try {
       const s = this.deps.sessions.load(id)
       this.deps.conversation.load(s)
-      // 恢复该会话的 allow_always 授权（resume 不清空，保留之前设置的授权）。
+      // 恢复该会话的权限提升（resume 不清空，保留之前设置的提升；旧格式的 allowedTools 字段直接无视）。
       this.deps.ctx.permission.reset()
-      for (const t of s.allowedTools) this.deps.ctx.permission.apply(t, 'allow_always')
+      this.deps.ctx.permission.restore(s.sessionPermissions)
       const thinking = this.deps.conversation.getThinking()
       this.deps.emit({
         type: 'session_ready',
@@ -89,6 +89,12 @@ export class SessionManager {
 
   // 落盘快照（静默版：新建会话时保存失败不打扰用户）。
   private save(): void {
-    this.deps.sessions.save(this.deps.conversation.snapshotFull(this.deps.ctx.permission.listAllowed()))
+    this.deps.sessions.save(
+      this.deps.conversation.snapshotFull(
+        this.deps.ctx.permission.snapshotPermissions(),
+        this.deps.conversation.getUsage(),
+        this.deps.conversation.getCompactions(),
+      ),
+    )
   }
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Trash2, Plus, Server, Cpu, ShieldCheck, SlidersHorizontal, ChevronDown, X, FileText, FolderClosed, FolderUp, ArrowLeft, ChevronRight, Check } from 'lucide-react'
 import type { Config, UiPort } from '@dogegg/bridge'
+import { PermissionsSection } from './permissions'
 import { Toggle, Button } from '../primitives'
 import styles from './settings.module.css'
 
@@ -185,75 +186,6 @@ function ModelEditor({ model, pIdx, mIdx, port }: { model: Config['providers'][n
         </div>
       )}
     </div>
-  )
-}
-
-// ── Permissions ──
-function PermissionsSection({ config, port }: { config: Config; port: UiPort }) {
-  // 获取可用工具列表。
-  const [toolsList, setToolsList] = useState<{ name: string; description: string }[]>([])
-  useEffect(() => {
-    // 请求工具列表——通过 port 发送，但这里是 settings 组件没有 port 的 onMessage。
-    // 直接用 fetch 不可行（工具列表通过 SSE 返回）。改用一个简单方案：硬编码已知工具 + 从 config 推断。
-    // 后端有 4 个固定工具：read_file, write_file, edit_file, shell。
-    setToolsList([
-      { name: 'read_file', description: 'Read file contents' },
-      { name: 'write_file', description: 'Write file contents' },
-      { name: 'edit_file', description: 'Edit file with old/new strings' },
-      { name: 'shell', description: 'Execute shell commands' },
-    ])
-  }, [])
-
-  const buckets = ['allow', 'reject', 'ask'] as const
-  const allAddedTools = new Set(buckets.flatMap((b) => config.permission[b]))
-
-  return (
-    <>
-      <div className={styles.sectionTitle}>Permissions</div>
-      <div className={styles.sectionDesc}>Tool execution rules. Select from available tools to add to each bucket.</div>
-      <div className={styles.permList}>
-        {buckets.map((bucket) => {
-          const tools = config.permission[bucket]
-          const availableToAdd = toolsList.filter((t) => !allAddedTools.has(t.name) || tools.includes(t.name))
-          return (
-            <div key={bucket} className={styles.permSection}>
-              <div className={styles.permHeader}>
-                <span className={styles.permName} data-bucket={bucket}>{bucket}</span>
-                <span className={styles.permCount}>{tools.length} tool(s)</span>
-              </div>
-              <div className={styles.permChips}>
-                {tools.map((tool) => (
-                  <span key={tool} className={styles.permChip}>
-                    <code>{tool}</code>
-                    <button className={styles.permChipX} onClick={() => port.post({ type: 'config_set', path: `permission.${bucket}`, value: tools.filter((t) => t !== tool) })} aria-label={`Remove ${tool}`}>
-                      <X size={10} strokeWidth={2} />
-                    </button>
-                  </span>
-                ))}
-                {tools.length === 0 && <span className={styles.permEmpty}>No tools</span>}
-              </div>
-              {/* 工具选择下拉框——只显示未添加到任何桶的工具 */}
-              <div className={styles.permAddWrap}>
-                <select
-                  className={styles.permAdd}
-                  value=""
-                  onChange={(e) => {
-                    const v = e.target.value
-                    if (v) port.post({ type: 'config_set', path: `permission.${bucket}`, value: [...tools, v] })
-                  }}
-                >
-                  <option value="">+ Add tool...</option>
-                  {toolsList
-                    .filter((t) => !allAddedTools.has(t.name))
-                    .map((t) => <option key={t.name} value={t.name}>{t.name} — {t.description}</option>)}
-                </select>
-                <ChevronDown size={12} strokeWidth={2} className={styles.permAddArrow} />
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </>
   )
 }
 

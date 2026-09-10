@@ -151,7 +151,8 @@ export function App({ port, connectionState }: AppProps) {
           <PermissionBanner
             tool={tracking.pendingPermission.tool}
             input={tracking.pendingPermission.input}
-            onDecision={(d) => tracking.resolve(tracking.pendingPermission!.id, tracking.pendingPermission!.tool, d)}
+            alwaysScope={tracking.pendingPermission.alwaysScope}
+            onDecision={(d) => tracking.resolve(tracking.pendingPermission!.id, tracking.pendingPermission!.tool, d, tracking.pendingPermission!.alwaysScope?.pattern)}
           />
         )}
         <InputBar

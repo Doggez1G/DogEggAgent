@@ -2,7 +2,12 @@ import { Button } from '../primitives'
 import styles from '../../app/app.module.css'
 
 // 权限确认条——在输入框上方内联呈现，与对话区一体。
-export function PermissionBanner({ tool, input, onDecision }: { tool: string; input: unknown; onDecision: (d: 'allow_once' | 'allow_always' | 'reject') => void }) {
+export function PermissionBanner({ tool, input, alwaysScope, onDecision }: {
+  tool: string
+  input: unknown
+  alwaysScope?: { pattern: string }
+  onDecision: (d: 'allow_once' | 'allow_always' | 'allow_always_scoped' | 'reject') => void
+}) {
   const inp = input as Record<string, unknown> | null
   const filePath = inp ? String(inp.path ?? inp.command ?? '') : ''
   return (
@@ -33,7 +38,12 @@ export function PermissionBanner({ tool, input, onDecision }: { tool: string; in
       )}
       <div className={styles.permissionActions}>
         <Button size="sm" variant="primary" onClick={() => onDecision('allow_once')}>Allow Once</Button>
-        <Button size="sm" variant="secondary" onClick={() => onDecision('allow_always')}>Always Allow</Button>
+        {alwaysScope && (
+          <Button size="sm" variant="secondary" onClick={() => onDecision('allow_always_scoped')} title={'Always allow: ' + alwaysScope.pattern}>
+            Always Allow: {alwaysScope.pattern}
+          </Button>
+        )}
+        <Button size="sm" variant="secondary" onClick={() => onDecision('allow_always')}>Always Allow (tool)</Button>
         <Button size="sm" variant="danger" onClick={() => onDecision('reject')}>Reject</Button>
       </div>
     </div>

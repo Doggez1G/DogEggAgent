@@ -1,18 +1,22 @@
 import { mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import type { Message } from '@dogegg/bridge'
+import type { Message, ToolPermission } from '@dogegg/bridge'
 
 // 会话快照：R1 双持久化的完整会话数据。
 // history = 完整原文（永不压缩，给 UI 显示）；context = 发给模型的消息（会压缩）。
-// allowedTools = 会话级 allow_always 授权工具列表（resume 时恢复，实现跨会话切换保留授权）。
+// sessionPermissions = 会话内权限提升（按工具分组：patterns 空 = 整工具，非空 = 范围模式；
+// resume 时恢复）。旧格式的 allowedTools（纯工具名数组）不再读取——旧会话的提升视为空。
+// usage = 会话累计真实用量（prompt/completion tokens + 轮次数，resume 续计）；compactions = 累计压缩次数。
 // cwd = 创建会话时的工作目录（resume 时恢复，实现项目→会话切换恢复目录）。
 // thinking = 推理模型的思考内容数组（resume 时恢复思考块显示，不进 history/context）。
 export interface SessionSnapshot {
   id: string
   history: Message[]
   context: Message[]
-  allowedTools: string[]
+  sessionPermissions: ToolPermission[]
+  usage: { promptTokens: number; completionTokens: number; turns: number }
+  compactions: number
   cwd: string
   thinking: { text: string }[]
 }
@@ -43,7 +47,9 @@ export class SessionStore {
       updatedAt: new Date().toISOString(),
       history: snapshot.history,
       context: snapshot.context,
-      allowedTools: snapshot.allowedTools,
+      sessionPermissions: snapshot.sessionPermissions,
+      usage: snapshot.usage,
+      compactions: snapshot.compactions,
       cwd: snapshot.cwd,
       thinking: snapshot.thinking,
     }))
@@ -55,10 +61,13 @@ export class SessionStore {
     // 兼容旧格式（只有 messages）：若无 history/context 字段，回退用 messages。
     const history: Message[] = raw.history ?? raw.messages ?? []
     const context: Message[] = raw.context ?? [...history]
-    const allowedTools: string[] = raw.allowedTools ?? []
+    // 旧格式的 allowedTools 不再读取——旧会话的提升视为空（重新询问一次即可）。
+    const sessionPermissions: ToolPermission[] = raw.sessionPermissions ?? []
+    const usage = raw.usage ?? { promptTokens: 0, completionTokens: 0, turns: 0 }
+    const compactions: number = raw.compactions ?? 0
     const cwd: string = raw.cwd ?? ''
     const thinking: { text: string }[] = raw.thinking ?? []
-    return { id: raw.id ?? id, history, context, allowedTools, cwd, thinking }
+    return { id: raw.id ?? id, history, context, sessionPermissions, usage, compactions, cwd, thinking }
   }
 
   // 删除会话文件。文件不存在时静默成功（幂等）。

@@ -3,15 +3,27 @@ import { ReadFileTool } from './read_file'
 import { WriteFileTool } from './write_file'
 import { EditFileTool } from './edit_file'
 import { ShellTool } from './shell'
+import { LsTool } from './ls'
+import { GlobTool } from './glob'
+import { GrepTool } from './grep'
 
-// 工具注册表：v1 固定 4 个内置工具（withBuiltins()），支持运行期注册扩展（如将来 MCP 工具）。
+// 工具注册表：内置 7 个工具（withBuiltins()），支持运行期注册扩展（如将来 MCP 工具）。
 // schemas() 每次现算——替代旧 import 期固化的 toolSchemas() 快照，注册表变化能正确反映。
 export class ToolRegistry {
   private readonly tools = new Map<string, Tool>()
 
-  // 内置工具集：read_file / write_file / edit_file / shell。
+  // 内置工具集：read_file / write_file / edit_file / shell / ls / glob / grep。
+  // 读类工具（read_file/ls/glob/grep）与写类工具（write_file/edit_file/shell）的默认权限分桶见出厂配置。
   static withBuiltins(): ToolRegistry {
-    return new ToolRegistry([new ReadFileTool(), new WriteFileTool(), new EditFileTool(), new ShellTool()])
+    return new ToolRegistry([
+      new ReadFileTool(),
+      new WriteFileTool(),
+      new EditFileTool(),
+      new ShellTool(),
+      new LsTool(),
+      new GlobTool(),
+      new GrepTool(),
+    ])
   }
 
   constructor(tools: Tool[] = []) {

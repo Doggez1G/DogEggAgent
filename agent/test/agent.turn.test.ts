@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
@@ -137,6 +137,35 @@ describe('Agent 轮次表征（重构行为基线）', () => {
     expect(toolEnd.error).toBeUndefined()
   })
 
+  it('范围提升：scoped 决议后同目录调用免审批（permission_request 仅一次）', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'dogegg-cwd-'))
+    mkdirSync(join(cwd, 'docs'), { recursive: true })
+    writeFileSync(join(cwd, 'docs', 'a.txt'), 'A')
+    writeFileSync(join(cwd, 'docs', 'b.txt'), 'B')
+    // 脚本：两次 read_file（同目录不同文件），第三次给最终回答。
+    const script = (call: number): LlmStreamEvent[] => {
+      if (call <= 2) {
+        const f = call === 1 ? 'a.txt' : 'b.txt'
+        return [
+          { type: 'done', message: { role: 'assistant', content: null, tool_calls: [{ id: 'c' + call, type: 'function', function: { name: 'read_file', arguments: `{"path":"docs/${f}"}` } }] } },
+        ]
+      }
+      return [{ type: 'done', message: { role: 'assistant', content: 'ok' } }]
+    }
+    const { events, post } = makeAgent({ client: fakeAdapter(script), cwd })
+
+    post({ type: 'submit', text: '读 docs' })
+    const request = await waitFor(events, (e) => e.type === 'permission_request', '第一次 permission_request')
+    // alwaysScope 应随请求下发（docs 目录级）
+    expect((request as { alwaysScope?: { pattern: string } }).alwaysScope?.pattern).toBe('./docs/**')
+    post({ type: 'permission_decision', id: (request as { id: string }).id, decision: 'allow_always_scoped' })
+    await waitFor(events, (e) => e.type === 'finished', 'finished')
+
+    // 全程只有一次权限请求；两个文件都读到了。
+    expect(events.filter((e) => e.type === 'permission_request')).toHaveLength(1)
+    expect(events.filter((e) => e.type === 'tool_end' && !('error' in e && e.error))).toHaveLength(2)
+  })
+
   it('轮次取消：abort → notice「已打断当前操作」', async () => {
     const { events, post } = makeAgent({ client: hangingAdapter() })
 
@@ -147,16 +176,53 @@ describe('Agent 轮次表征（重构行为基线）', () => {
     expect(notice).toMatchObject({ text: '已打断当前操作' })
   })
 
+  it('探索工具轮次（grep）：tool_pending → tool_start → tool_end → 最终回答 → finished', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'dogegg-cwd-'))
+    writeFileSync(join(cwd, 'a.ts'), 'const x = needle\nconst y = 2')
+    const script = (call: number): LlmStreamEvent[] => {
+      if (call === 1) {
+        return [
+          { type: 'tool_call_start', index: 0, id: 'c1', name: 'grep' },
+          { type: 'tool_call_delta', index: 0, argsJsonDelta: '{"pattern":"needle","glob":"*.ts"}' },
+          { type: 'done', message: { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'grep', arguments: '{"pattern":"needle","glob":"*.ts"}' } }] } },
+        ]
+      }
+      return [{ type: 'done', message: { role: 'assistant', content: '找到了' } }]
+    }
+    // 读类工具放行走配置（harness 显式传三桶会覆盖出厂默认；出厂默认由 loader/permission 单测覆盖）。
+    const { events, post } = makeAgent({
+      client: fakeAdapter(script),
+      cwd,
+      permission: { allow: ['grep'], reject: [], ask: [] },
+    })
+
+    post({ type: 'submit', text: '搜 needle' })
+    // tool_pending：大参数流式生成期间的可见反馈（tool_call_start 广播）。
+    await waitFor(events, (e) => e.type === 'tool_pending', 'tool_pending')
+    await waitFor(events, (e) => e.type === 'finished', 'finished')
+
+    expect(events.find((e) => e.type === 'tool_pending')).toMatchObject({ name: 'grep' })
+    expect(events.find((e) => e.type === 'tool_start')).toMatchObject({ name: 'grep' })
+    const toolEnd = events.find((e) => e.type === 'tool_end') as { output: string; error?: string }
+    expect(toolEnd.error).toBeUndefined()
+    expect(toolEnd.output).toBe('a.ts:1: const x = needle')
+    expect(events.some((e) => e.type === 'permission_request')).toBe(false)
+  })
+
   it('手动压缩：/compact → compaction(source=manual)', async () => {
     const { events, post } = makeAgent({ client: fakeAdapter(() => [{ type: 'done', message: { role: 'assistant', content: 'ok' } }]) })
 
-    post({ type: 'submit', text: '第一轮' })
+    post({ type: 'submit', text: '第一轮 '.repeat(300) }) // 长对话：非劣原则下压缩才有意义
     await waitFor(events, (e) => e.type === 'finished', 'finished')
     post({ type: 'compact_request' })
     const compaction = await waitFor(events, (e) => e.type === 'compaction', 'compaction')
     expect(compaction).toMatchObject({ source: 'manual' })
     expect((compaction as { before_tokens: number }).before_tokens).toBeGreaterThan(0)
     expect((compaction as { after_tokens: number }).after_tokens).toBeGreaterThan(0)
+    // 手动压缩也计入会话压缩统计（曾经只统计自动路径、手动恒为 0 的回归）。
+    post({ type: 'context_request' })
+    const ctx = await waitFor(events, (e) => e.type === 'context_state', 'context_state')
+    expect((ctx as { compactions: number }).compactions).toBe(1)
   })
 
   it('会话持久化 + resume：恢复消息历史与 allow_always 授权', async () => {
@@ -188,6 +254,6 @@ describe('Agent 轮次表征（重构行为基线）', () => {
     expect(messages.some((m) => m.role === 'assistant' && m.content === 'ok')).toBe(true)
     second.post({ type: 'permissions_request' })
     const perms = await waitFor(second.events, (e) => e.type === 'permissions_list', 'permissions_list')
-    expect((perms as { tools: string[] }).tools).toContain('read_file')
+    expect((perms as { permissions: { tool: string; patterns: string[] }[] }).permissions.some((p) => p.tool === 'read_file')).toBe(true)
   })
 })

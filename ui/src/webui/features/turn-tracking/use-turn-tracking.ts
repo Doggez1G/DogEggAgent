@@ -9,8 +9,8 @@ import type { FileTouched } from '../../view-state'
 export function useTurnTracking(port: UiPort): {
   toolCalls: ToolCallEntry[]
   filesTouched: FileTouched[]
-  pendingPermission: { id: string; tool: string; input: unknown } | null
-  resolve(id: string, tool: string, decision: ToolDecision): void
+  pendingPermission: { id: string; tool: string; input: unknown; alwaysScope?: { pattern: string } } | null
+  resolve(id: string, tool: string, decision: ToolDecision, scopePattern?: string): void
   recordSubmit(text: string): void
   retryText: string | null
   pendingTool: string | null
@@ -18,13 +18,13 @@ export function useTurnTracking(port: UiPort): {
 } {
   const [toolCalls, setToolCalls] = useState<ToolCallEntry[]>([])
   const [filesTouched, setFilesTouched] = useState<FileTouched[]>([])
-  const [pendingPermission, setPendingPermission] = useState<{ id: string; tool: string; input: unknown } | null>(null)
+  const [pendingPermission, setPendingPermission] = useState<{ id: string; tool: string; input: unknown; alwaysScope?: { pattern: string } } | null>(null)
   const [retryText, setRetryText] = useState<string | null>(null)
   // 模型正在生成工具调用参数（tool_pending → tool_start）——供 InfoPanel 与聊天区显示准备中提示。
   const [pendingTool, setPendingTool] = useState<string | null>(null)
-  // 会话内 allow_always 提升工具集的本地镜像（permissions_list 广播的副本）。
-  // 供 effectivePerm 区分「配置永久 allow」与「会话提升 always」的展示来源。
-  const sessionAllowed = useRef<Set<string>>(new Set())
+  // 会话内提升规则表的本地镜像（permissions_list 广播的副本：tool → patterns，空 = 整工具）。
+  // 供 effectivePerm 区分「配置永久 allow」与「会话提升 always/scoped」的展示来源。
+  const sessionRules = useRef<Map<string, string[]>>(new Map())
   const toolSeqRef = useRef(0)
   // 记录 permission_decision 的 toolName→decision 映射，供 tool_start 时关联决策标签。
   const permissionDecisions = useRef<Map<string, ToolDecision>>(new Map())
@@ -32,7 +32,7 @@ export function useTurnTracking(port: UiPort): {
   const configRef = useRef<Config | null>(null)
   const lastSubmitText = useRef<string>('')
   // pendingPermission 的 ref 镜像——订阅回调是首渲染闭包，读 state 恒为 null（分支永不生效）。
-  const pendingRef = useRef<{ id: string; tool: string; input: unknown } | null>(null)
+  const pendingRef = useRef<{ id: string; tool: string; input: unknown; alwaysScope?: { pattern: string } } | null>(null)
 
   useEffect(() => {
     // 挂载即同步会话提升集——浏览器刷新后镜像为空，需要从后端播种。
@@ -42,7 +42,7 @@ export function useTurnTracking(port: UiPort): {
       if (msg.type === 'config_state' || msg.type === 'config_updated') {
         configRef.current = msg.config
       } else if (msg.type === 'permission_request') {
-        pendingRef.current = { id: msg.id, tool: msg.tool, input: msg.input }
+        pendingRef.current = { id: msg.id, tool: msg.tool, input: msg.input, alwaysScope: msg.alwaysScope }
         setPendingPermission(pendingRef.current)
       } else if (msg.type === 'state' && msg.to !== 'waiting_permission' && pendingRef.current) {
         // 权限等待期间状态离开 waiting_permission（如 cancel）→ 关闭审批横幅。
@@ -53,7 +53,7 @@ export function useTurnTracking(port: UiPort): {
         toolSeqRef.current = 0
         setPendingTool(null)
         // 会话隔离：提升集随会话存档恢复——先清空镜像，再从后端重新播种。
-        sessionAllowed.current.clear()
+        sessionRules.current.clear()
         port.post({ type: 'permissions_request' })
         setToolCalls([])
       } else if (msg.type === 'history_cleared') {
@@ -65,19 +65,19 @@ export function useTurnTracking(port: UiPort): {
         // 按 toolName 查找 decision——permission_request.id 与 tool_start.id 不同。
         const decision = permissionDecisions.current.get(msg.name)
         // 记录执行时的生效权限快照（区分配置 allow 与会话提升 always）——不随后续设置变化。
-        const perm = effectivePerm(configRef.current?.permission ?? { allow: [], reject: [], ask: [] }, msg.name, sessionAllowed.current)
+        const perm = effectivePerm(configRef.current?.permission ?? { allow: {}, reject: {}, ask: {} }, msg.name, sessionRules.current)
         setToolCalls((prev) => applyToolStart(prev, msg, decision, perm, seq))
         // 用完后清除 decision（避免下一个同名工具继承上次决策）。
         if (decision) permissionDecisions.current.delete(msg.name)
-        // allow_always 决策后刷新 Session Permissions 列表——tool_start 到达时 permission.apply 已执行。
-        if (decision === 'allow_always') port.post({ type: 'permissions_request' })
+        // 提升决策后刷新 Session Permissions 列表——tool_start 到达时 permission.apply 已执行。
+        if (decision === 'allow_always' || decision === 'allow_always_scoped') port.post({ type: 'permissions_request' })
         const touched = extractFilesTouched(msg)
         if (touched) setFilesTouched((prev) => [...prev, touched])
       } else if (msg.type === 'tool_end') {
-        setToolCalls((prev) => applyToolEnd(prev, msg, effectivePerm(configRef.current?.permission ?? { allow: [], reject: [], ask: [] }, msg.name, sessionAllowed.current), ++toolSeqRef.current))
+        setToolCalls((prev) => applyToolEnd(prev, msg, effectivePerm(configRef.current?.permission ?? { allow: {}, reject: {}, ask: {} }, msg.name, sessionRules.current), ++toolSeqRef.current))
       } else if (msg.type === 'permissions_list') {
         // 会话提升集的后端广播——镜像的权威同步点（挂载/会话切换播种、决策后刷新都走这里）。
-        sessionAllowed.current = new Set(msg.tools)
+        sessionRules.current = new Map(msg.permissions.map((p) => [p.tool, p.patterns]))
       } else if (msg.type === 'error') {
         // 出错时自动回填上次提交的文本到输入框，方便重试（与 TUI 行为一致）。
         if (lastSubmitText.current) setRetryText(lastSubmitText.current)
@@ -87,11 +87,16 @@ export function useTurnTracking(port: UiPort): {
     // pendingPermission 通过 ref 闭包读取——用 state 会在 effect deps 中失效。
   }, [port])
 
-  const resolve = useCallback((id: string, tool: string, decision: ToolDecision) => {
+  const resolve = useCallback((id: string, tool: string, decision: ToolDecision, scopePattern?: string) => {
     permissionDecisions.current.set(tool, decision)
-    // 乐观更新提升镜像——allow_always 在 permission.apply 即刻生效，
-    // 不等 permissions_list 往返，同轮内后续同名工具的 tool_start 就能按 always 展示。
-    if (decision === 'allow_always') sessionAllowed.current.add(tool)
+    // 乐观更新提升镜像——提升在 permission.apply 即刻生效，不等 permissions_list 往返，
+    // 同轮内后续同范围工具的 tool_start 就能按 always/scoped 展示（随后端广播校正）。
+    if (decision === 'allow_always') sessionRules.current.set(tool, [])
+    else if (decision === 'allow_always_scoped' && scopePattern) {
+      const cur = sessionRules.current.get(tool)
+      if (!cur || cur.length > 0) sessionRules.current.set(tool, cur && !cur.includes(scopePattern) ? [...cur, scopePattern] : cur ?? [scopePattern])
+    }
+    if (decision === 'allow_always' || decision === 'allow_always_scoped') port.post({ type: 'permissions_request' })
     pendingRef.current = null
     port.post({ type: 'permission_decision', id, decision })
     setPendingPermission(null)

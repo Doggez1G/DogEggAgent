@@ -326,7 +326,7 @@ describe('reducer — 不产生 block 的消息类型', () => {
   const noChangeTypes: AgentToUiMessage[] = [
     { type: 'tools_list', tools: [] },
     { type: 'status_state', sessionId: 's1', provider: 'p', model: 'm', cwd: '/', state: 'idle', estimatedTokens: 0, windowTokens: 1000 },
-    { type: 'context_state', estimatedTokens: 0, windowTokens: 1000, percent: 0 },
+    { type: 'context_state', estimatedTokens: 0, windowTokens: 1000, percent: 0, compactions: 0 },
     { type: 'system_state', path: '/p', content: 'c' },
     { type: 'log_state', path: '/l', tail: 't' },
   ]

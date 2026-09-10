@@ -1,4 +1,5 @@
-import type { Message, PermissionDecision } from '@dogegg/bridge'
+import type { Message } from '@dogegg/bridge'
+import type { PermissionResolution } from './pending'
 import type { AgentToUiMessage } from '@dogegg/bridge'
 import type { LlmClient } from '../llm'
 import type { ToolRegistry } from '../tools'
@@ -18,7 +19,7 @@ export interface LoopServices {
   machine: StateMachine
   compactor: Compactor
   emit: (e: AgentToUiMessage) => void
-  requestPermission: (tool: string, input: unknown) => Promise<PermissionDecision>
+  requestPermission: (tool: string, input: unknown) => Promise<PermissionResolution>
   checkCancelled: () => boolean
 }
 
@@ -49,6 +50,10 @@ export interface LoopResult {
   newMessages: Message[]
   /** 本轮的思考内容（assistant 推理文本），按顺序排列，不进 history/context。 */
   thinking: { text: string }[]
+  /** 本轮真实用量（API 返回，轮内多次调用累加）——写入会话累计并进 lastTurn/状态展示。 */
+  usage?: { promptTokens: number; completionTokens: number }
+  /** 本轮发生的自动压缩次数（供会话统计与 /context 仪表盘）。 */
+  compactions?: number
   /** 是否被用户取消（Ctrl+C / cancel）。true 时 context 可能含未完成的 tool_calls。 */
   cancelled?: boolean
   /** 错误信息（maxIterations / API 失败等）。非空时 context 含已完成的 assistant/tool 消息。 */

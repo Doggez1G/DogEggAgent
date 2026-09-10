@@ -8,6 +8,7 @@ export interface StatusBarData {
   sessionId?: string
   tokens?: number
   windowTokens?: number
+  usage?: { promptTokens: number; completionTokens: number; turns: number }
   cwd?: string
 }
 
@@ -50,7 +51,7 @@ export function useAgentEvents(deps: AgentEventsDeps): void {
       // 错误恢复：error 时自动预填上次提交的文本到输入框，用户可直接改或重新提交。
       if (msg.type === 'error') d.onErrorRetry()
       if (msg.type === 'permission_request') {
-        d.setView({ kind: 'permission', id: msg.id, tool: msg.tool, input: msg.input, cursor: 0 })
+        d.setView({ kind: 'permission', id: msg.id, tool: msg.tool, input: msg.input, alwaysScope: msg.alwaysScope, cursor: 0 })
       } else if (msg.type === 'state' && msg.to !== 'waiting_permission' && d.viewRef.current.kind === 'permission') {
         // 权限等待期间状态离开 waiting_permission（如 cancel）→ 关闭 permission overlay。
         d.setView({ kind: 'none' })
@@ -74,7 +75,7 @@ export function useAgentEvents(deps: AgentEventsDeps): void {
         d.setInfoScroll(0); d.setView({ kind: 'info', title: '工具', lines: msg.tools.map((t) => `${t.name} — ${t.description}`) })
       } else if (msg.type === 'status_state') {
         d.currentCwdRef.current = msg.cwd
-        d.setStatusBarData({ provider: msg.provider, model: msg.model, sessionId: msg.sessionId, tokens: msg.estimatedTokens, windowTokens: msg.windowTokens, cwd: msg.cwd })
+        d.setStatusBarData({ provider: msg.provider, model: msg.model, sessionId: msg.sessionId, tokens: msg.estimatedTokens, windowTokens: msg.windowTokens, usage: msg.usage, cwd: msg.cwd })
         // 仅显式请求（/status）时打开 info overlay；启动时的自动请求静默更新。
         if (d.explicitInfoRef.current) {
           d.explicitInfoRef.current = false
@@ -88,26 +89,52 @@ export function useAgentEvents(deps: AgentEventsDeps): void {
           ] })
         }
       } else if (msg.type === 'context_state') {
-        d.setStatusBarData((prev) => ({ ...prev, tokens: msg.estimatedTokens, windowTokens: msg.windowTokens }))
+        d.setStatusBarData((prev) => ({ ...prev, tokens: msg.estimatedTokens, windowTokens: msg.windowTokens, usage: msg.sessionUsage }))
         // 仅显式请求（/context）时打开 info overlay；轮询静默更新 StatusBar。
         if (d.explicitInfoRef.current) {
           d.explicitInfoRef.current = false
-          d.setInfoScroll(0); d.setView({ kind: 'info', title: '上下文', lines: [
-            `${msg.estimatedTokens} / ${msg.windowTokens} tokens（${msg.percent}%）`,
-            `压缩阈值：窗口 80% = ${Math.round(msg.windowTokens * 0.8)}`,
-          ] })
+          const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
+          const lines: string[] = [
+            // 「当前 context」= 下一轮请求的粗估（system + 消息 + 工具 schema）；与会话累计口径不同（见下）。
+            `当前 context（估算）　${msg.estimatedTokens} / ${msg.windowTokens} tokens（${msg.percent}%）`,
+          ]
+          if (msg.breakdown) {
+            const b = msg.breakdown
+            lines.push(`　分段　　system ${fmt(b.system)} ｜ 用户 ${fmt(b.user)} ｜ 助手 ${fmt(b.assistant)} ｜ 工具输出 ${fmt(b.tool)} ｜ schema ${fmt(b.tools)}`)
+          }
+          if (msg.lastTurn) {
+            lines.push(`上一轮 API 实际　prompt ${msg.lastTurn.promptTokens} + completion ${msg.lastTurn.completionTokens}（并排对照估算，可见校准误差）`)
+          }
+          if (msg.sessionUsage && msg.sessionUsage.turns > 0) {
+            const u = msg.sessionUsage
+            // 口径说明：累计含「已被压缩掉的历史轮次」——因此会大于当前 context 估算，是预期行为。
+            lines.push(`会话累计 API 实际　prompt ${u.promptTokens} + completion ${u.completionTokens}（${u.turns} 轮，含已被压缩的历史）`)
+          }
+          lines.push(`已压缩　${msg.compactions} 次`)
+          lines.push(`压缩阈值　窗口 80% = ${Math.round(msg.windowTokens * 0.8)}`)
+          d.setInfoScroll(0); d.setView({ kind: 'info', title: '上下文', lines })
         }
       } else if (msg.type === 'system_state') {
         d.setInfoScroll(0); d.setView({ kind: 'info', title: 'system prompt', lines: [`路径：${msg.path}`, '─'.repeat(40), msg.content] })
       } else if (msg.type === 'permissions_list') {
-        // /permissions：用 menu overlay 显示当前会话的 allow_always 授权列表。
-        if (msg.tools.length === 0) {
+        // /permissions：按工具分组展示会话内提升——有模式者下钻逐条撤（撤光即整条移除），整工具者就地撤；
+        // 每次撤销后 agent 重推 permissions_list，菜单刷新回顶层。
+        if (msg.permissions.length === 0) {
           d.setInfoScroll(0)
-          d.setView({ kind: 'info', title: '会话权限', lines: ['当前会话没有 allow_always 授权的工具', '（选择权限弹层时选「始终允许」才会出现在这里）'] })
+          d.setView({ kind: 'info', title: '会话权限', lines: ['当前会话没有任何权限提升', '（权限弹层选「始终允许」或「对此范围不再询问」会出现在这里）'] })
         } else {
-          d.openMenu('会话权限（回车撤销授权）', msg.tools.map((t) => ({
-            label: `${t}  （回车撤销）`,
-            onSelect: () => { d.port.post({ type: 'permission_revoke', tool: t }) },
+          d.openMenu('会话权限（回车撤销）', msg.permissions.map(({ tool, patterns }) => ({
+            label: `${tool} — ${patterns.length === 0 ? '整工具' : patterns.join('  ')}`,
+            onSelect: () => {
+              if (patterns.length === 0) { d.port.post({ type: 'permission_revoke', tool }); return }
+              d.openMenu(`会话权限 / ${tool}`, [
+                ...patterns.map((p) => ({
+                  label: `${p}（回车撤销）`,
+                  onSelect: () => { d.port.post({ type: 'permission_revoke', tool, pattern: p }) },
+                })),
+                { label: '撤销该工具全部提升', onSelect: () => { d.port.post({ type: 'permission_revoke', tool }) } },
+              ])
+            },
           })))
         }
       } else if (msg.type === 'log_state') {

@@ -1,5 +1,5 @@
 import type { Message } from '@dogegg/bridge'
-import type { LlmStreamEvent, ChatRequest, LlmClientConn } from '../..'
+import type { LlmStreamEvent, LlmUsage, ChatRequest, LlmClientConn } from '../..'
 import { createOpenAiStreamParser } from './parser'
 import { buildRequest } from './request'
 import { HttpError, NetworkError, StreamTimeoutError } from './errors'
@@ -14,7 +14,7 @@ const IDLE_TIMEOUT_MS = 60_000
 // 单次流式请求：fetch → 逐行读 SSE 流 → 喂 parser → 累积最终 message + reasoning。
 // 不做重试（重试在 OpenAiClient 层）。HTTP 错误 / 流中断 / 超时 / 无最终消息均抛错。
 // 错误类型分类（HttpError / NetworkError / StreamTimeoutError），供 retry 层判断可重试性。
-export async function streamOnce(conn: LlmClientConn, req: ChatRequest, signal: AbortSignal, emit: (e: LlmStreamEvent) => void): Promise<{ message: Message; reasoning?: string }> {
+export async function streamOnce(conn: LlmClientConn, req: ChatRequest, signal: AbortSignal, emit: (e: LlmStreamEvent) => void): Promise<{ message: Message; reasoning?: string; usage?: LlmUsage }> {
   const { url, init } = buildRequest(req, conn)
 
   // 连接超时：独立 controller 承载——超时 abort 与用户 abort 需区分归因。
@@ -55,6 +55,7 @@ export async function streamOnce(conn: LlmClientConn, req: ChatRequest, signal: 
   let buf = ''
   let finalMessage: Message | null = null
   let finalReasoning: string | undefined
+  let finalUsage: LlmUsage | undefined
 
 
   try {
@@ -88,7 +89,7 @@ export async function streamOnce(conn: LlmClientConn, req: ChatRequest, signal: 
         const line = buf.slice(0, nl).trimEnd()
         buf = buf.slice(nl + 1)
         for (const e of parser.feed(line)) {
-          if (e.type === 'done') { finalMessage = e.message; finalReasoning = e.reasoning }
+          if (e.type === 'done') { finalMessage = e.message; finalReasoning = e.reasoning; finalUsage = e.usage }
           else emit(e)
         }
       }
@@ -97,7 +98,7 @@ export async function streamOnce(conn: LlmClientConn, req: ChatRequest, signal: 
     // 处理残余行：连接关闭时最后一批字节可能没有尾随换行。
     if (buf.trim()) {
       for (const e of parser.feed(buf.trim())) {
-        if (e.type === 'done') { finalMessage = e.message; finalReasoning = e.reasoning }
+        if (e.type === 'done') { finalMessage = e.message; finalReasoning = e.reasoning; finalUsage = e.usage }
         else emit(e)
       }
     }
@@ -110,7 +111,7 @@ export async function streamOnce(conn: LlmClientConn, req: ChatRequest, signal: 
     if (timeout) throw timeout
     throw new Error('流未产生最终消息')
   }
-  return { message: finalMessage, reasoning: finalReasoning }
+  return { message: finalMessage, reasoning: finalReasoning, usage: finalUsage }
 }
 
 // 解析 Retry-After header：支持秒数（"120"）和 HTTP-date 两种格式。

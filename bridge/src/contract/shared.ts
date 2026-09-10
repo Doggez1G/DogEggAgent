@@ -17,7 +17,25 @@ export type State =
   | 'error'
   | 'compacting'
 
-export type PermissionDecision = 'allow_once' | 'allow_always' | 'reject'
+// allow_always_scoped：对此范围不再询问（范围由 agent 推导并随 permission_request.alwaysScope 下发，
+// 见 ADR-0010 与 2026-09-09-permission-promotion-design.md）。
+export type PermissionDecision = 'allow_once' | 'allow_always' | 'allow_always_scoped' | 'reject'
+
+// 会话内提升的按工具分组形态（/permissions 展示、会话文件 sessionPermissions 同构）。
+// patterns 空 = 整工具提升；非空 = 范围模式列表。
+export interface ToolPermission {
+  tool: string
+  patterns: string[]
+}
+
+// context token 分段估算（/context 仪表盘）：system 提示词 / 用户消息 / 助手消息 / 工具输出 / 工具 schema。
+export interface ContextBreakdown {
+  system: number
+  user: number
+  assistant: number
+  tool: number
+  tools: number
+}
 
 export interface ToolCall {
   id: string

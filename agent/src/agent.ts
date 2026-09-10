@@ -5,14 +5,14 @@ import type { Message, Config } from '@dogegg/bridge'
 import { isConfigured } from '@dogegg/bridge'
 import { statSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { StateMachine, type TransitionInput, PendingPermissions, TurnRunner, type TurnParams, AgentLoop, Compactor, summarizeHistory } from './turn'
+import { StateMachine, type TransitionInput, PendingPermissions, TurnRunner, type TurnParams, AgentLoop, Compactor, summarizeHistory, type PermissionResolution } from './turn'
 import { BusyGate, newId, CancelledError, Logger } from './shared'
 import { Conversation, SessionManager, SessionStore } from './session'
 import { ConfigController, ConfigStore, ConfigEditor, resolveCurrent } from './config'
-import { ContextAssembler } from './context'
+import { ContextAssembler, breakdownContextTokens } from './context'
 import { ToolRegistry } from './tools'
 import { clientFor, type LlmClient } from './llm'
-import { PermissionManager } from './permission'
+import { PermissionManager, deriveAlwaysScope } from './permission'
 import type { AgentContext } from './ctx'
 
 // Agent 构造选项：依赖注入（生产组合根传 logger；client/sessionsDir/registry 为测试接缝）。
@@ -113,7 +113,7 @@ export class Agent {
       // 状态变化时同步推送 token 信息（thinking→responding→tool_calling 等都会触发）。
       try {
         const cur = this.current()
-        this.emit({ type: 'status_state', sessionId: this.conversation.getId(), provider: cur.providerName, model: cur.modelName, cwd: this.conversation.getCwd(), state: next, estimatedTokens: this.estimateCurrentTokens(), windowTokens: cur.contextWindow })
+        this.emit({ type: 'status_state', sessionId: this.conversation.getId(), provider: cur.providerName, model: cur.modelName, cwd: this.conversation.getCwd(), state: next, estimatedTokens: this.estimateCurrentTokens(), windowTokens: cur.contextWindow, usage: this.conversation.getUsage() })
       } catch { /* 配置未就绪时跳过 */ }
     }
   }
@@ -163,16 +163,18 @@ export class Agent {
   // 统一的 status_state 发射——status_request 与 set_cwd 共用，避免字段重复。
   private emitStatusState(): void {
     const cur = this.current()
-    this.emit({ type: 'status_state', sessionId: this.conversation.getId(), provider: cur.providerName, model: cur.modelName, cwd: this.conversation.getCwd(), state: this.ctx.machine.state, estimatedTokens: this.estimateCurrentTokens(), windowTokens: cur.contextWindow })
+    this.emit({ type: 'status_state', sessionId: this.conversation.getId(), provider: cur.providerName, model: cur.modelName, cwd: this.conversation.getCwd(), state: this.ctx.machine.state, estimatedTokens: this.estimateCurrentTokens(), windowTokens: cur.contextWindow, usage: this.conversation.getUsage() })
   }
 
   // 向 UI 提出权限请求，返回一个在收到 permission_decision 时才决议的 Promise。
   // 【SDK 接缝】无头使用时可注入程序化 permissionHandler 替代此 Port 往返。
-  private requestPermission(tool: string, input: unknown): Promise<'allow_once' | 'allow_always' | 'reject'> {
+  private requestPermission(tool: string, input: unknown): Promise<PermissionResolution> {
     return new Promise((resolve, reject) => {
       const id = newId()
-      this.pending.add(id, { resolve, reject })
-      this.emit({ type: 'permission_request', id, tool, input })
+      // 推导「对此范围不再询问」的模式（deriveAlwaysScope）随请求下发；推导不出时 UI 维持三档。
+      const scopePattern = deriveAlwaysScope(tool, input, this.conversation.getCwd())
+      this.pending.add(id, { resolve, reject, scopePattern })
+      this.emit({ type: 'permission_request', id, tool, input, ...(scopePattern ? { alwaysScope: { pattern: scopePattern } } : {}) })
     })
   }
 
@@ -203,9 +205,9 @@ export class Agent {
   // PermissionManager 重建时保留运行时 allow_always 授权；ContextAssembler 重建使新 prompt 路径生效。
   private onConfigChanged(config: Config): void {
     this.ctx.config = config
-    const savedAllowed = this.ctx.permission.snapshot()
+    const saved = this.ctx.permission.snapshotPermissions()
     this.ctx.permission = new PermissionManager(config.permission)
-    for (const t of savedAllowed) this.ctx.permission.apply(t, 'allow_always')
+    this.ctx.permission.restore(saved)
     this.ctx.assembler = new ContextAssembler(config.systemPrompt, this.registry)
   }
 
@@ -272,7 +274,16 @@ export class Agent {
         try {
           const m = this.current()
           const tokens = this.estimateCurrentTokens()
-          this.emit({ type: 'context_state', estimatedTokens: tokens, windowTokens: m.contextWindow, percent: m.contextWindow ? Math.round((tokens / m.contextWindow) * 100) : 0 })
+          this.emit({
+            type: 'context_state',
+            estimatedTokens: tokens,
+            windowTokens: m.contextWindow,
+            percent: m.contextWindow ? Math.round((tokens / m.contextWindow) * 100) : 0,
+            breakdown: breakdownContextTokens(this.ctx.assembler.systemPrompt(), this.conversation.getContext(), this.registry.schemas()),
+            lastTurn: this.conversation.getLastTurn(),
+            sessionUsage: this.conversation.getUsage(),
+            compactions: this.conversation.getCompactions(),
+          })
         } catch { this.emit({ type: 'notice', text: '上下文状态读取失败' }) }
         break
       }
@@ -291,13 +302,13 @@ export class Agent {
         catch { this.emit({ type: 'notice', text: '日志读取失败' }) }
         break
       case 'permissions_request':
-        // /permissions：返回当前会话的 allow_always 授权列表。
-        this.emit({ type: 'permissions_list', tools: this.ctx.permission.listAllowed() })
+        // /permissions：返回当前会话的提升清单（按工具分组；patterns 空 = 整工具）。
+        this.emit({ type: 'permissions_list', permissions: this.ctx.permission.snapshotPermissions() })
         break
       case 'permission_revoke':
-        // 撤销某工具的 allow_always 授权。
-        this.ctx.permission.revoke(cmd.tool)
-        this.emit({ type: 'permissions_list', tools: this.ctx.permission.listAllowed() })
+        // 撤销会话提升：带 pattern 撤单条模式，不带撤整工具；撤后重推清单。
+        this.ctx.permission.revoke(cmd.tool, cmd.pattern)
+        this.emit({ type: 'permissions_list', permissions: this.ctx.permission.snapshotPermissions() })
         break
       case 'set_cwd': {
         // 运行时切换工作目录——运行中阻塞（避免 in-flight 工具写到错误目录）。

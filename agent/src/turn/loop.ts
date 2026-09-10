@@ -1,8 +1,9 @@
 import type { Message, State } from '@dogegg/bridge'
 import { COMPACTION_THRESHOLD } from '@dogegg/bridge'
 import type { TransitionInput } from './state'
-import { estimateContextTokens, enforceContextLimit } from '../context'
+import { estimateContextTokens } from '../context'
 import { CancelledError, newId } from '../shared'
+import type { LlmUsage } from '../llm'
 import type { LoopServices, TurnInput, LoopResult } from './types'
 import { ToolExecutor } from './tool-executor'
 
@@ -21,6 +22,10 @@ export class AgentLoop {
   async run(turn: TurnInput): Promise<LoopResult> {
     const context = [...turn.context]
     const newMessages: Message[] = []
+    // 本轮真实用量累计（一次提交可能多次调用模型：工具轮回）。精确值来自 API，
+    // 与本地粗估并排展示可见校准误差（context_state.lastTurn）。
+    const turnUsage = { promptTokens: 0, completionTokens: 0 }
+    let turnCompactions = 0
     const machine = this.services.machine
     let iterations = 0
     // 每轮新建执行器：permission 是轮次参数（config 编辑重建的实例要在下一轮生效）。
@@ -88,41 +93,26 @@ export class AgentLoop {
         }
 
         // 上下文窗口管理：逼近上限时压缩 context（只改 context，不动 history）。
+        // 压缩 = 把整个 context 交给模型总结、替换为一条摘要消息（无保留尾巴、无淘汰、无硬丢弃——
+        // 诚实失败：压缩失败异常上抛，轮次以 error 收尾，由用户决定 /compact 重试或 /new）。
         // 压缩期间 emit state → compacting 让 UI 可感知，完成后回到 thinking/responding（继续本轮请求）。
-        // 压缩失败时降级——跳过压缩继续用未压缩 context 请求模型，不 abort 整个 turn。
         const used = estimateContextTokens(turn.systemPrompt, context, this.services.registry.schemas())
         if (used > turn.windowTokens * COMPACTION_THRESHOLD) {
           trans({ kind: 'compact_start' })
-          try {
-            const result = await this.services.compactor.compact({
-              context,
-              systemPrompt: turn.systemPrompt,
-              tools: this.services.registry.schemas(),
-              windowTokens: turn.windowTokens,
-              signal: turn.signal,
-            })
-            if (result.compacted) {
-              context.length = 0
-              context.push(...result.context)
-              this.services.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after, source: 'auto' })
-            }
-          } catch {
-            // 压缩失败（如 LLM 调用出错）——降级继续，模型仍可用未压缩 context 回答。
-          }
-          state = trans({ kind: 'compact_done', next: turn.reasoning ? 'thinking' : 'responding' })
-
-          // 硬上限兜底：压缩后仍超 80%（单条消息极大或压缩失败降级），从头部丢弃最旧消息。
-          // 被丢弃的消息在 history 中仍保留，只是不再发给模型。
-          const enforced = enforceContextLimit({
-            systemPrompt: turn.systemPrompt,
+          const result = await this.services.compactor.compact({
             context,
+            systemPrompt: turn.systemPrompt,
             tools: this.services.registry.schemas(),
             windowTokens: turn.windowTokens,
+            signal: turn.signal,
           })
-          if (enforced.dropped > 0) {
+          if (result.compacted) {
             context.length = 0
-            context.push(...enforced.context)
+            context.push(...result.context)
+            turnCompactions++
+            this.services.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after, source: 'auto' })
           }
+          state = trans({ kind: 'compact_done', next: turn.reasoning ? 'thinking' : 'responding' })
         }
 
         // 用外部传入的 signal（由 Agent 持有，cancel 时 abort），使取消能真正中断在飞的 fetch 与工具。
@@ -161,6 +151,10 @@ export class AgentLoop {
           throw e
         }
 
+        if (result.usage) {
+          turnUsage.promptTokens += result.usage.promptTokens
+          turnUsage.completionTokens += result.usage.completionTokens
+        }
         const assistant = result.message
         // 每轮 LLM 调用都 push 一个 thinking 条目——保持与 assistant 消息数一一对应。
         // 只在 turn.reasoning（当前模型开启了思考）时才记录实际 reasoning 内容；
@@ -178,8 +172,8 @@ export class AgentLoop {
         const calls = assistant.tool_calls ?? []
         if (calls.length === 0) {
           trans({ kind: 'final_answer' })
-          this.services.emit({ type: 'finished' })
-          return { context, newMessages, thinking }
+          this.services.emit({ type: 'finished', usage: { ...turnUsage } })
+          return { context, newMessages, thinking, usage: { ...turnUsage }, compactions: turnCompactions }
         }
 
         state = trans({ kind: 'tool_calls' })
@@ -210,9 +204,9 @@ export class AgentLoop {
       // 之前错误路径直接 throw 导致 newMessages 丢失——现在统一返回部分结果，agent 保存已完成的工具执行。
       patchUnpairedToolCalls(context)
       if (e instanceof CancelledError) {
-        return { context, newMessages, thinking, cancelled: true }
+        return { context, newMessages, thinking, usage: { ...turnUsage }, compactions: turnCompactions, cancelled: true }
       }
-      return { context, newMessages, thinking, error: (e as Error).message }
+      return { context, newMessages, thinking, usage: { ...turnUsage }, compactions: turnCompactions, error: (e as Error).message }
     }
   }
 }

@@ -32,15 +32,46 @@ describe('ConfigStore.load', () => {
     expect(cfg.defaultModel).toBe('m')
   })
 
-  it('parses permission buckets', () => {
+  it('parses permission buckets (legacy 扁平条目 → v2 grouped 归一化)', () => {
     const cfg = store.load({
       providers: [
         { name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] },
       ],
-      permission: { allow: ['read_file'] },
+      permission: { allow: ['read_file', { tool: 'shell', command: 'git *' }], reject: ['shell'] },
     })
-    expect(cfg.permission.allow).toEqual(['read_file'])
-    expect(cfg.permission.ask).toEqual([])
+    // legacy 兼容：裸名 → 空数组（整工具）；规则对象 → 主参数模式数组。
+    expect(cfg.permission.allow).toEqual({ read_file: [], shell: ['git *'] })
+    expect(cfg.permission.reject).toEqual({ shell: [] })
+    expect(cfg.permission.ask).toEqual({})
+  })
+
+  it('parses v2 grouped permission (桶 → 工具 → 模式数组，空 = 整工具)', () => {
+    const cfg = store.load({
+      providers: [
+        { name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] },
+      ],
+      permission: { allow: { shell: ['git *', 'npm run *'], read_file: [] }, reject: {}, ask: { shell: ['rm *'] } },
+    })
+    expect(cfg.permission.allow).toEqual({ shell: ['git *', 'npm run *'], read_file: [] })
+    expect(cfg.permission.ask).toEqual({ shell: ['rm *'] })
+  })
+
+  it('factory default: read-class allow / write-class ask when permission omitted (设计 §4.1)', () => {
+    const cfg = store.load({
+      providers: [
+        { name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] },
+      ],
+    })
+    expect(cfg.permission.allow).toEqual({ read_file: [], ls: [], glob: [], grep: [] })
+    expect(cfg.permission.ask).toEqual({ write_file: [], edit_file: [], shell: [] })
+    expect(cfg.permission.reject).toEqual({})
+  })
+
+  it('bare pattern（缺作用域前缀）拒绝加载', () => {
+    expect(() => store.load({
+      providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] }],
+      permission: { allow: { read_file: ['docs/**'] } },
+    })).toThrow(/作用域前缀/)
   })
 
   it('save then load roundtrips', () => {

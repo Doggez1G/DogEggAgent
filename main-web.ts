@@ -3,11 +3,22 @@
 
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { ZodError } from 'zod'
 import { Agent, ConfigStore, Logger } from '@dogegg/agent'
 import { HttpServer, Router, SseChannel } from '@dogegg/server'
 
-// 加载配置（找不到文件返回空配置，不抛错——让 server 能启动、引导用户 /config）。
-const config = new ConfigStore().load()
+// 加载配置（找不到文件返回空配置；存在但非法则给出人话提示后退出，与 bin/dogegg.ts 同一策略）。
+function loadConfigOrExit(): ReturnType<ConfigStore['load']> {
+  try {
+    return new ConfigStore().load()
+  } catch (err) {
+    const detail = err instanceof ZodError ? err.issues.map((i) => i.message).join('；') : String(err)
+    console.error(`配置加载失败：${detail}`)
+    process.exit(1)
+  }
+}
+
+const config = loadConfigOrExit()
 
 // SSE 通道：本身就是 AgentPort——agent 与 HTTP 路由共享同一实例。
 const channel = new SseChannel()

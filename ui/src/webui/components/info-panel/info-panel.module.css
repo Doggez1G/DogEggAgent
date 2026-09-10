@@ -312,3 +312,19 @@
   color: var(--color-subtext);
   margin: 0;
 }
+
+/* Context 仪表盘行（M2）：标签左、数值右的键值行——三个口径（当前估算/上轮实际/会话累计）并排
+   容易混淆，每行标明口径 */
+.contextRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  font-size: 11px;
+  color: var(--color-muted, var(--color-subtext));
+}
+
+.contextRow span:last-child {
+  font-family: var(--font-mono);
+  color: var(--color-text);
+}

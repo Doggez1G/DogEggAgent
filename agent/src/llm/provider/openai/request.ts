@@ -11,6 +11,8 @@ export function buildRequest(req: ChatRequest, conn: LlmClientConn): { url: stri
       body: JSON.stringify({
         model: req.model,
         stream: true,
+        // include_usage：流式模式拿到真实用量（usage 随流末尾的独立 chunk 返回）。
+        stream_options: { include_usage: true },
         messages: [{ role: 'system', content: req.systemPrompt }, ...req.messages],
         tools: req.tools,
         max_tokens: req.maxOutput,

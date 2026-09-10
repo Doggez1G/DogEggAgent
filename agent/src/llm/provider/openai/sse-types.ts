@@ -12,6 +12,13 @@ export interface SseChoiceDelta {
   reasoning?: string
   tool_calls?: SseToolCallDelta[]
 }
+// usage：流式模式下随 stream_options:{include_usage:true} 在末尾 chunk 返回（choices 为空）。
+export interface SseUsage {
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+}
 export interface SseChunk {
   choices?: { delta?: SseChoiceDelta }[]
+  usage?: SseUsage
 }

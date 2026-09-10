@@ -10,10 +10,18 @@ export function usePanelData(port: UiPort): {
   cwd: string
   sessionId: string
   toolsList: { name: string; description: string }[]
-  contextState: { estimatedTokens: number; windowTokens: number; percent: number } | null
+  contextState: {
+    estimatedTokens: number
+    windowTokens: number
+    percent: number
+    breakdown?: { system: number; user: number; assistant: number; tool: number; tools: number }
+    lastTurn?: { promptTokens: number; completionTokens: number }
+    sessionUsage?: { promptTokens: number; completionTokens: number; turns: number }
+    compactions: number
+  } | null
   systemState: { path: string; content: string } | null
   logState: { path: string; tail: string } | null
-  permissionsList: string[]
+  permissionsList: { tool: string; patterns: string[] }[]
   refreshContext(): void
   refreshLog(): void
 } {
@@ -22,10 +30,18 @@ export function usePanelData(port: UiPort): {
   const [sessionId, setSessionId] = useState('')
   const [statusBar, setStatusBar] = useState<{ provider?: string; model?: string; tokens?: number; windowTokens?: number }>({})
   const [toolsList, setToolsList] = useState<{ name: string; description: string }[]>([])
-  const [contextState, setContextState] = useState<{ estimatedTokens: number; windowTokens: number; percent: number } | null>(null)
+  const [contextState, setContextState] = useState<{
+    estimatedTokens: number
+    windowTokens: number
+    percent: number
+    breakdown?: { system: number; user: number; assistant: number; tool: number; tools: number }
+    lastTurn?: { promptTokens: number; completionTokens: number }
+    sessionUsage?: { promptTokens: number; completionTokens: number; turns: number }
+    compactions: number
+  } | null>(null)
   const [systemState, setSystemState] = useState<{ path: string; content: string } | null>(null)
   const [logState, setLogState] = useState<{ path: string; tail: string } | null>(null)
-  const [permissionsList, setPermissionsList] = useState<string[]>([])
+  const [permissionsList, setPermissionsList] = useState<{ tool: string; patterns: string[] }[]>([])
 
   const refreshContext = useCallback(() => { port.post({ type: 'context_request' }) }, [port])
   const refreshLog = useCallback(() => { port.post({ type: 'log_request' }) }, [port])
@@ -55,13 +71,21 @@ export function usePanelData(port: UiPort): {
       } else if (msg.type === 'tools_list') {
         setToolsList(msg.tools)
       } else if (msg.type === 'context_state') {
-        setContextState({ estimatedTokens: msg.estimatedTokens, windowTokens: msg.windowTokens, percent: msg.percent })
+        setContextState({
+          estimatedTokens: msg.estimatedTokens,
+          windowTokens: msg.windowTokens,
+          percent: msg.percent,
+          breakdown: msg.breakdown,
+          lastTurn: msg.lastTurn,
+          sessionUsage: msg.sessionUsage,
+          compactions: msg.compactions,
+        })
       } else if (msg.type === 'system_state') {
         setSystemState({ path: msg.path, content: msg.content })
       } else if (msg.type === 'log_state') {
         setLogState({ path: msg.path, tail: msg.tail })
       } else if (msg.type === 'permissions_list') {
-        setPermissionsList(msg.tools)
+        setPermissionsList(msg.permissions)
       } else if (msg.type === 'compaction') {
         port.post({ type: 'context_request' })
       } else if (msg.type === 'finished' || msg.type === 'error') {

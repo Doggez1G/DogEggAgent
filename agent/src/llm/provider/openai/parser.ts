@@ -1,4 +1,4 @@
-import type { LlmStreamEvent } from '../../types'
+import type { LlmStreamEvent, LlmUsage } from '../../types'
 import type { Message } from '@dogegg/bridge'
 import type { SseChunk } from './sse-types'
 
@@ -15,6 +15,7 @@ interface PendingToolCall {
 export function createOpenAiStreamParser() {
   let content = ''
   let reasoning = ''
+  let usage: LlmUsage | undefined
   const calls = new Map<number, PendingToolCall>()
 
   // [DONE] 时组装最终 assistant 消息：content（可能为 null）+ tool_calls（按 index 排序）。
@@ -34,7 +35,7 @@ export function createOpenAiStreamParser() {
         for (const [idx, c] of [...calls.entries()].sort((a, b) => a[0] - b[0])) {
           events.push({ type: 'tool_call_end', index: idx, id: c.id, name: c.name, arguments: c.args })
         }
-        events.push({ type: 'done', message: buildMessage(), ...(reasoning ? { reasoning } : {}) })
+        events.push({ type: 'done', message: buildMessage(), ...(reasoning ? { reasoning } : {}), ...(usage ? { usage } : {}) })
         return events
       }
       let json: SseChunk
@@ -42,6 +43,14 @@ export function createOpenAiStreamParser() {
         json = JSON.parse(data) as SseChunk
       } catch {
         return events // 非 JSON 行（如注释/心跳）静默跳过
+      }
+      // usage 随 stream_options.include_usage 在流末尾的独立 chunk 返回（choices 为空数组）。
+      if (json.usage) {
+        usage = {
+          promptTokens: json.usage.prompt_tokens ?? 0,
+          completionTokens: json.usage.completion_tokens ?? 0,
+          totalTokens: json.usage.total_tokens ?? 0,
+        }
       }
       const delta = json.choices?.[0]?.delta ?? {}
 

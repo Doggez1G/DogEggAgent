@@ -56,3 +56,25 @@ describe('openai stream parser', () => {
     expect(events.some((e) => e.type === 'thought_delta')).toBe(true)
   })
 })
+describe('usage 捕获（stream_options.include_usage）', () => {
+  it('末尾 chunk 的 usage 随 done 事件下发并归一为 camelCase', () => {
+    const parser = createOpenAiStreamParser()
+    const events = [
+      ...parser.feed('data: ' + JSON.stringify({ choices: [{ delta: { content: 'hi' } }] })),
+      ...parser.feed('data: ' + JSON.stringify({ choices: [], usage: { prompt_tokens: 120, completion_tokens: 30, total_tokens: 150 } })),
+      ...parser.feed('data: [DONE]'),
+    ]
+    const done = events.find((e) => e.type === 'done')
+    expect(done && 'usage' in done ? done.usage : undefined).toEqual({ promptTokens: 120, completionTokens: 30, totalTokens: 150 })
+  })
+
+  it('无 usage chunk 时 done 不带 usage 字段', () => {
+    const parser = createOpenAiStreamParser()
+    const events = [
+      ...parser.feed('data: ' + JSON.stringify({ choices: [{ delta: { content: 'x' } }] })),
+      ...parser.feed('data: [DONE]'),
+    ]
+    const done = events.find((e) => e.type === 'done')
+    expect(done && 'usage' in done).toBe(false)
+  })
+})

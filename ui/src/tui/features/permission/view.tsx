@@ -1,7 +1,7 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import { palette } from '../../theme'
-import { DECISION_LABELS } from './decisions'
+import { decisionItems } from './decisions'
 import type { View } from '../../view-state'
 
 // 权限弹层视图：工具名 + 参数 diff 预览（edit_file 显示 old→new，write_file 显示写入内容）+ 决策列表。
@@ -27,8 +27,8 @@ export function PermissionOverlay({ view }: { view: Extract<View, { kind: 'permi
       {view.tool === 'shell' && inp && (
         <Text dimColor>命令：{String(inp.command ?? '')}</Text>
       )}
-      {DECISION_LABELS.map((label, i) => (
-        <Text key={label} inverse={i === view.cursor}>{i === view.cursor ? '> ' : '  '}{label}</Text>
+      {decisionItems(view.alwaysScope?.pattern).map((item, i) => (
+        <Text key={item.decision} inverse={i === view.cursor}>{i === view.cursor ? '> ' : '  '}{item.label}</Text>
       ))}
       <Text dimColor>↑↓ 选择 · 回车确认 · esc 拒绝</Text>
     </Box>

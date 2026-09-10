@@ -1,4 +1,5 @@
-import type { Message, PermissionDecision } from '@dogegg/bridge'
+import type { Message } from '@dogegg/bridge'
+import type { PermissionResolution } from './pending'
 import type { AgentToUiMessage } from '@dogegg/bridge'
 import type { Tool, ToolContext } from '../tools'
 import type { ToolRegistry } from '../tools'
@@ -23,7 +24,7 @@ export class ToolExecutor {
     registry: ToolRegistry
     permission: PermissionManager
     emit: (e: AgentToUiMessage) => void
-    requestPermission: (tool: string, input: unknown) => Promise<PermissionDecision>
+    requestPermission: (tool: string, input: unknown) => Promise<PermissionResolution>
   }) {}
 
   // trans：状态迁移回调（由 loop 接到自己的状态机上）。
@@ -56,7 +57,9 @@ export class ToolExecutor {
       return { toolMessage: { role: 'tool', tool_call_id: call.id, content }, transitionInput: rejectOrDone() }
     }
 
-    const verdict = this.services.permission.classify(tool.name)
+    // 权限判定：args（zod 解析后）与 cwd 一并交给 manager——参数化规则需要参数值，
+    // cwd 用于把路径类规则/参数归一到同一坐标系（见 PermissionManager.classify）。
+    const verdict = this.services.permission.classify(tool.name, args as Record<string, unknown>, ctx.cwd)
 
     // 拒绝/失败的回填消息——明确告诉模型发生了什么，避免模型盲目重试同一工具。
     // 用户拒绝时尤其要说明「不要再次调用此工具」，否则模型可能在下一轮重新请求权限，造成循环。
@@ -71,8 +74,9 @@ export class ToolExecutor {
     // ask 桶：需用户审批，挂起等待决议。用户 reject 同样发 tool_end。
     if (verdict === 'ask') {
       trans({ kind: 'tool_needs_permission' })
-      const decision = await this.services.requestPermission(tool.name, args)
-      this.services.permission.apply(tool.name, decision)
+      const { decision, scopePattern } = await this.services.requestPermission(tool.name, args)
+      // 提升落库：allow_always = 整工具；allow_always_scoped 用挂起项带回的范围模式（path 落库时解析为绝对）。
+      this.services.permission.apply(tool.name, decision, scopePattern, ctx.cwd)
       if (decision === 'reject') {
         this.services.emit({ type: 'tool_end', id: call.id, name: tool.name, output: 'denied', error: 'denied' })
         return { toolMessage: { role: 'tool', tool_call_id: call.id, content: deniedMessage }, transitionInput: rejectOrDone() }

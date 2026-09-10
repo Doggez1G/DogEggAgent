@@ -109,11 +109,18 @@ export class TurnRunner {
       })
       if (result.compacted) {
         this.deps.conversation.replaceContext(result.context)
-        this.deps.sessions.save(this.deps.conversation.snapshotFull(this.deps.ctx.permission.listAllowed()))
+        this.deps.conversation.incrementCompaction() // 手动压缩的计数入口（自动压缩走 LoopResult.compactions）
+        this.deps.sessions.save(
+        this.deps.conversation.snapshotFull(
+          this.deps.ctx.permission.snapshotPermissions(),
+          this.deps.conversation.getUsage(),
+          this.deps.conversation.getCompactions(),
+        ),
+      )
         this.deps.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after, source: 'manual' })
       } else {
-        // context 为空——没有消息可压。
-        this.deps.emit({ type: 'notice', text: '上下文为空，无需压缩' })
+        // context 为空，或摘要不比原文短（非劣原则）——都没有压缩的意义。
+        this.deps.emit({ type: 'notice', text: '当前上下文无需压缩' })
       }
     } catch (e) {
       // AbortError 是用户取消——走 cancelled 态而非 error（与 runTurn catch 一致）。
@@ -135,7 +142,13 @@ export class TurnRunner {
   // 落盘（轮次结束）：失败发 notice 提醒用户，不静默。
   private saveOrNotice(): void {
     try {
-      this.deps.sessions.save(this.deps.conversation.snapshotFull(this.deps.ctx.permission.listAllowed()))
+      this.deps.sessions.save(
+        this.deps.conversation.snapshotFull(
+          this.deps.ctx.permission.snapshotPermissions(),
+          this.deps.conversation.getUsage(),
+          this.deps.conversation.getCompactions(),
+        ),
+      )
     } catch {
       this.deps.emit({ type: 'notice', text: '会话保存失败（磁盘空间不足或权限问题）' })
     }

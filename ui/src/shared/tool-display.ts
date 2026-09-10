@@ -16,6 +16,9 @@ export function formatToolArgs(name: string, input: unknown): string {
   switch (name) {
     case 'shell': return `$ ${String(inp.command ?? '')}`
     case 'read_file': return String(inp.path ?? '')
+    case 'ls': return String(inp.path ?? '')
+    case 'glob': return joinSegments([String(inp.pattern ?? ''), subIn(inp.path)])
+    case 'grep': return joinSegments([String(inp.pattern ?? ''), subIn(inp.glob)])
     case 'edit_file': {
       const stat = diffStat(String(inp.old_string ?? ''), String(inp.new_string ?? ''))
       return joinSegments([String(inp.path ?? ''), `+${stat.added} -${stat.removed}`])
@@ -41,6 +44,15 @@ export function formatToolResult(name: string, output?: string, error?: string):
     return `${countLines(parsed ? parsed.body : output)} 行输出`
   }
   if (name === 'read_file') return `${countLines(output)} 行`
+  // 探索类工具：数据行数剔除截断/跳过说明行后的量化结果。
+  if (name === 'ls') return `${countDataLines(output)} 项`
+  if (name === 'glob') return `${countDataLines(output)} 个文件`
+  if (name === 'grep') {
+    // content 模式行带 `:行号: ` 坐标，文件级模式只有路径——按回执形状区分标签
+    //（探索类回执格式的展示层解析，同 shell exit= / edit 行号锚点先例）。
+    const contentShape = dataLines(output).length > 0 && dataLines(output).every((l) => /:\d+: /.test(l))
+    return contentShape ? `${countDataLines(output)} 处命中` : `${countDataLines(output)} 个文件`
+  }
   return '完成'
 }
 
@@ -163,6 +175,22 @@ function compactArgs(inp: Record<string, unknown>): string {
     const s = typeof v === 'string' ? v : JSON.stringify(v) ?? String(v)
     return `${k}=${truncate(s, 24)}`
   }).join(' ')
+}
+
+// 探索类工具（ls/glob/grep）的数据行 = 回执行剔除截断/跳过说明行
+//（说明行形如「（仅显示前 100 个…）」或「path（该文件还有 N 处未显示）」——后者是 grep
+// 单文件封顶的补数说明，唯一不以（开头的非数据行）。
+function dataLines(output: string): string[] {
+  return output.split('\n').filter((l) => l !== '' && !l.startsWith('（') && !l.includes('处未显示'))
+}
+
+function countDataLines(output: string): number {
+  return dataLines(output).length
+}
+
+// grep/glob 头行的可选限定段：`pattern in *.ts` / `pattern in src`。
+function subIn(v: unknown): string {
+  return typeof v === 'string' && v !== '' ? `in ${v}` : ''
 }
 
 function plainLines(s: string): ToolBodyLine[] {

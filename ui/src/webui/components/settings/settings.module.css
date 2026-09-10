@@ -438,18 +438,43 @@
   gap: var(--sp-4);
 }
 
-.permSection {
-  margin-bottom: var(--sp-3);
-}
-
-.permHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--sp-3) var(--sp-4);
-  background: var(--color-bg);
+.permCard {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.permCardHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--color-surface-elevated);
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.permCardHeader .permCount {
+  margin-left: auto;
+}
+
+.permCardChevron {
+  color: var(--color-muted, var(--color-subtext));
+  transition: transform 0.15s ease;
+}
+
+.permCardChevron[data-open='true'] {
+  transform: rotate(180deg);
+}
+
+.permCardBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border-top: 1px solid var(--color-border);
 }
 
 .permName {
@@ -680,4 +705,70 @@
   display: flex;
   gap: var(--sp-2);
   justify-content: flex-end;
+}
+
+/* ── 权限工具分组（v2：桶 → 工具 → 模式数组）── */
+.permTool {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--color-bg);
+}
+
+.permToolHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-1);
+}
+
+.permToolName {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.permToolSummary {
+  font-size: 11px;
+  color: var(--color-muted, var(--color-subtext));
+  flex: 1;
+}
+
+.permToolRemove {
+  border: none;
+  background: transparent;
+  color: var(--color-muted, var(--color-subtext));
+  cursor: pointer;
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.permToolRemove:hover {
+  color: var(--color-danger);
+}
+
+.permChipEdit {
+  cursor: text;
+}
+
+.permPatternInput {
+  width: 100%;
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.permPatternInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.permPatternInputError {
+  border-color: var(--color-danger);
 }

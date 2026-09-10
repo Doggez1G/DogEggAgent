@@ -3,6 +3,5 @@
 // 压缩的「机制/编排」在 turn/compactor（要接线 LLM 与事件），此处只保留「策略」。
 export { ContextAssembler } from './assembler'
 export { truncate, TOOL_RESULT_CAP } from './truncate'
-export { estimateTokens, estimateContextTokens } from './token'
-export { enforceContextLimit } from './token/enforce'
-export { shouldCompact, splitForCompaction } from './compaction'
+export { estimateTokens, estimateContextTokens, breakdownContextTokens } from './token'
+export { shouldCompact } from './compaction'

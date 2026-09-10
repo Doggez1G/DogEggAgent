@@ -14,14 +14,22 @@ interface InfoPanelProps {
   status: string
   tokens: number | undefined
   windowTokens: number | undefined
-  toolCalls: { id: string; name: string; status: 'running' | 'done' | 'error' | 'rejected'; output?: string; decision?: 'allow_once' | 'allow_always' | 'reject'; perm: string; seq: number }[]
+  toolCalls: { id: string; name: string; status: 'running' | 'done' | 'error' | 'rejected'; output?: string; decision?: 'allow_once' | 'allow_always' | 'allow_always_scoped' | 'reject'; perm: string; seq: number }[]
   pendingTool?: string | null
   toolsList: { name: string; description: string }[]
-  contextState: { estimatedTokens: number; windowTokens: number; percent: number } | null
+  contextState: {
+    estimatedTokens: number
+    windowTokens: number
+    percent: number
+    breakdown?: { system: number; user: number; assistant: number; tool: number; tools: number }
+    lastTurn?: { promptTokens: number; completionTokens: number }
+    sessionUsage?: { promptTokens: number; completionTokens: number; turns: number }
+    compactions: number
+  } | null
   systemState: { path: string; content: string } | null
   logState: { path: string; tail: string } | null
   filesTouched: { path: string; action: 'edit' | 'write'; toolName: string; time: number }[]
-  permissionsList: string[]
+  permissionsList: { tool: string; patterns: string[] }[]
   config: Config | null
   highlightSection: string | null
   collapsed: boolean
@@ -115,6 +123,41 @@ export function InfoPanel(props: InfoPanelProps) {
                 <span className={styles.contextWindow}>{windowTokens.toLocaleString()}</span>
                 <span className={styles.contextPercent} data-overload={overload}>{percent}%</span>
               </div>
+              {/* 分段与用量用带标签的行呈现——三个口径（当前估算/上轮实际/会话累计）并排容易混淆，
+                  每行标明口径；会话累计含已被压缩掉的历史，因此大于当前估算属预期 */}
+              {(() => {
+                const cs = props.contextState
+                if (!cs) return null
+                return (
+                  <>
+                    {cs.breakdown && (
+                      <>
+                        <div className={styles.contextRow}><span>System prompt</span><span>{cs.breakdown.system.toLocaleString()}</span></div>
+                        <div className={styles.contextRow}><span>User messages</span><span>{cs.breakdown.user.toLocaleString()}</span></div>
+                        <div className={styles.contextRow}><span>Assistant</span><span>{cs.breakdown.assistant.toLocaleString()}</span></div>
+                        <div className={styles.contextRow}><span>Tool output</span><span>{cs.breakdown.tool.toLocaleString()}</span></div>
+                        <div className={styles.contextRow}><span>Tool schemas</span><span>{cs.breakdown.tools.toLocaleString()}</span></div>
+                      </>
+                    )}
+                    {cs.lastTurn && (
+                      <div className={styles.contextRow} title="Actual usage returned by the API">
+                        <span>Last turn (actual)</span>
+                        <span>{cs.lastTurn.promptTokens.toLocaleString()} + {cs.lastTurn.completionTokens.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {cs.sessionUsage && cs.sessionUsage.turns > 0 && (
+                      <div
+                        className={styles.contextRow}
+                        title="Cumulative API usage across turns, incl. compacted-away history — larger than the current context estimate by design"
+                      >
+                        <span>Session total ({cs.sessionUsage.turns} turns, incl. compacted)</span>
+                        <span>{(cs.sessionUsage.promptTokens + cs.sessionUsage.completionTokens).toLocaleString()}</span>
+                      </div>
+                    )}
+                    <div className={styles.contextRow}><span>Compactions</span><span>{cs.compactions}</span></div>
+                  </>
+                )
+              })()}
             </>
           ) : <p className={styles.emptyText}>Not available</p>}
         </InfoCard>
@@ -196,12 +239,12 @@ export function InfoPanel(props: InfoPanelProps) {
         {/* Session Permissions — allow_always 授权列表，可撤销 */}
         <InfoCard title="Session Permissions" icon={ShieldCheck} defaultOpen={false} highlight={props.highlightSection === 'permissions'}>
           {props.permissionsList.length === 0 ? (
-            <p className={styles.emptyText}>No always-allowed tools this session</p>
+            <p className={styles.emptyText}>No promotions this session</p>
           ) : (
             <div className={styles.toolList}>
-              {props.permissionsList.map((tool) => (
+              {props.permissionsList.map(({ tool, patterns }) => (
                 <div key={tool} className={styles.fileItem}>
-                  <code className={styles.miniName}>{tool}</code>
+                  <code className={styles.miniName}>{tool}{patterns.length > 0 ? ' — ' + patterns.join('  ') : ' — whole tool'}</code>
                   <button
                     className={styles.permRevokeBtn}
                     onClick={() => props.port.post({ type: 'permission_revoke', tool })}

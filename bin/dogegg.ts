@@ -5,6 +5,7 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
+import { ZodError } from 'zod'
 import { Agent, ConfigStore, Logger } from '@dogegg/agent'
 import { InMemoryChannel } from '@dogegg/bridge'
 import { renderTui } from '@dogegg/ui'
@@ -13,8 +14,19 @@ import { HttpServer, Router, SseChannel } from '@dogegg/server'
 const args = process.argv.slice(2)
 const isWeb = args.includes('-web') || args.includes('--web')
 
-// 加载配置（找不到文件返回空配置，不抛错——让程序能启动、引导用户 /config）。
-const config = new ConfigStore().load()
+// 加载配置（找不到文件返回空配置；存在但非法——如权限模式缺作用域前缀——则给出人话提示后退出，
+// 而不是裸抛 zod 堆栈）。
+function loadConfigOrExit(): ReturnType<ConfigStore['load']> {
+  try {
+    return new ConfigStore().load()
+  } catch (err) {
+    const detail = err instanceof ZodError ? err.issues.map((i) => i.message).join('；') : String(err)
+    console.error(`配置加载失败：${detail}`)
+    process.exit(1)
+  }
+}
+
+const config = loadConfigOrExit()
 const logger = new Logger(join(homedir(), '.dogegg', 'logs'))
 
 if (isWeb) {

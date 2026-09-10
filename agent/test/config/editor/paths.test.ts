@@ -9,8 +9,10 @@ describe('parseConfigSet', () => {
   it('顶层标量：number 字段', () => {
     expect(parseConfigSet('maxIterations', 99)).toEqual({ kind: 'top', field: 'maxIterations', value: 99 })
   })
-  it('permission.<bucket>', () => {
-    expect(parseConfigSet('permission.allow', ['read_file'])).toEqual({ kind: 'permission', bucket: 'allow', value: ['read_file'] })
+  it('permission.<bucket>（v2 桶对象）', () => {
+    expect(parseConfigSet('permission.allow', { shell: ['git *'], read_file: [] })).toEqual({ kind: 'permission', bucket: 'allow', value: { shell: ['git *'], read_file: [] } })
+    // legacy 条目数组容错：归一为 grouped
+    expect(parseConfigSet('permission.allow', ['read_file', { tool: 'shell', command: 'git *' }])).toEqual({ kind: 'permission', bucket: 'allow', value: { read_file: [], shell: ['git *'] } })
   })
   it('permission 非法 bucket 返回 null', () => {
     expect(parseConfigSet('permission.nope', [])).toBeNull()

@@ -4,7 +4,7 @@ import type { Entry, TreeCtx } from './entries'
 import { nan } from './label'
 import { detectShells } from './shells'
 import { THEMES, themeRegistry } from '../../theme'
-import { KNOWN_TOOLS } from '../../../shared'
+import { KNOWN_TOOLS, describeBucketTool } from '../../../shared'
 
 // 生成给定路径下的一层字段列表。依据 config + path 决定展示哪些字段、它们的交互形态。
 export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): Entry[] {
@@ -23,26 +23,57 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): En
       ]
 
     case 'permission':
-      return (['allow', 'reject', 'ask'] as const).map((b) => ({
-        label: b,
-        kind: 'goto' as const,
-        value: `${config.permission[b].length} 个工具`,
-        subPath: { kind: 'permissionBucket', bucket: b } as ConfigPath,
-      }))
+      return [
+        ...(['allow', 'reject', 'ask'] as const).map((b) => ({
+          label: b,
+          kind: 'goto' as const,
+          value: `${Object.keys(config.permission[b]).length} 个工具`,
+          subPath: { kind: 'permissionBucket', bucket: b } as ConfigPath,
+        })),
+        // 固定安全默认的只读说明行——不可编辑（default 不可配置是立法：防线不能被一行配置拆掉）。
+        { label: '（未列出的工具一律询问——固定安全默认）', kind: 'action', value: '', run: () => {} },
+      ]
 
     case 'permissionBucket': {
-      const bucket = path.bucket
-      const tools = config.permission[bucket]
-      return [
-        ...tools.map((tool) => ({
-          label: tool,
-          kind: 'action' as const,
-          value: '按 d 删 · 回车同样移除',
-          run: () => ctx.set(`permission.${bucket}`, tools.filter((t) => t !== tool)),
-          del: () => ctx.set(`permission.${bucket}`, tools.filter((t) => t !== tool)),
-        })),
-        { label: '＋ 添加工具', kind: 'goto', value: '', subPath: { kind: 'selectTool', bucket } },
-      ]
+      // 桶内按工具分组（v2：工具 → 模式数组，空数组 = 整工具）。
+      const bucketName = path.bucket
+      const bucket = config.permission[bucketName]
+      const entries: Entry[] = Object.entries(bucket).map(([tool, patterns]) => ({
+        label: tool,
+        kind: 'goto' as const,
+        value: describeBucketTool(patterns) + crossBucketHint(config, bucketName, tool),
+        subPath: { kind: 'permissionTool', bucket: bucketName, tool } as ConfigPath,
+        del: () => ctx.set(`permission.${bucketName}`, omitKey(bucket, tool)),
+      }))
+      entries.push({ label: '＋ 添加工具', kind: 'goto', value: '', subPath: { kind: 'selectTool', bucket: bucketName } })
+      return entries
+    }
+
+    case 'permissionTool': {
+      // 工具的模式列表：空数组 = 整工具（显示两态转换提示），有模式 = 逐条就地编辑/删除。
+      // 变更原语统一为「重算整桶对象 → config_set 桶路径」（设计 §3）。
+      const bucket = config.permission[path.bucket]
+      const patterns = bucket[path.tool] ?? []
+      const setPatterns = (next: string[]): void =>
+        ctx.set(`permission.${path.bucket}`, { ...bucket, [path.tool]: next })
+      const entries: Entry[] = patterns.length === 0
+        ? [{ label: '（整工具生效——添加模式后将改为按模式限定）', kind: 'action', value: '', run: () => {} }]
+        : patterns.map((p, i) => ({
+            label: p,
+            kind: 'scalar' as const,
+            value: p,
+            save: (v) => {
+              const t = v.trim()
+              if (!t || t === p || patterns.includes(t)) return // 非空 + 去重（fail-closed 的编辑器补偿）
+              setPatterns(patterns.map((x, j) => (j === i ? t : x)))
+            },
+            del: () => setPatterns(patterns.filter((_, j) => j !== i)), // 删光即回整工具
+          }))
+      entries.push({ label: '＋ 添加模式', kind: 'prompt', title: `输入模式（${path.tool} 主参数，支持 * ? **）`, save: (v) => {
+        const t = v.trim()
+        if (t && !patterns.includes(t)) setPatterns([...patterns, t])
+      } })
+      return entries
     }
 
     case 'providers': {
@@ -142,15 +173,32 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): En
 
     case 'selectTool': {
       // 从已知工具列表中选择——排除已在当前桶中的工具（避免重复添加）。
-      const existing = config.permission[path.bucket]
+      // 加入即空数组（整工具生效）；同一工具允许出现在多个桶（优先级语义的用途）。
+      const bucket = config.permission[path.bucket]
       return KNOWN_TOOLS
-        .filter((t) => !existing.includes(t))
+        .filter((t) => !(t in bucket))
         .map((t) => ({
           label: t,
           kind: 'action' as const,
           value: '',
-          run: () => ctx.set(`permission.${path.bucket}`, [...existing, t]),
+          run: () => ctx.set(`permission.${path.bucket}`, { ...bucket, [t]: [] }),
         }))
     }
   }
+}
+
+// ── permission 编辑的私有辅助 ──
+
+// 跨桶提示：同一工具在其它桶也有规则时提醒（防「已放行为什么还问我」的困惑——
+// ask 规则优先于 allow 是判定语义，桶间互相独立呈现在配置里并不直观）。
+function crossBucketHint(config: Config, from: 'allow' | 'reject' | 'ask', tool: string): string {
+  const others = (['allow', 'reject', 'ask'] as const).filter((b) => b !== from && tool in config.permission[b])
+  return others.length > 0 ? `（另在 ${others.join('/')} 桶有规则）` : ''
+}
+
+// 删除对象的一个键（不改变其余键）——桶内移除工具用。
+function omitKey(bucket: Record<string, string[]>, key: string): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  for (const [k, v] of Object.entries(bucket)) if (k !== key) out[k] = v
+  return out
 }

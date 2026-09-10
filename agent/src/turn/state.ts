@@ -75,6 +75,8 @@ export function transition(s: State, input: TransitionInput): State {
 }
 
 // 10 态状态机：封装当前态 + 迁移行为。迁移表本体（transition 纯函数）在同文件上方，有独立测试。
+// 全项目唯一实例住在 ctx.machine：loop 在轮内 fire，门面的 emitState 在轮外 fire——
+// 双机镜像（sync）已随状态机归一删除，不存在第二个事实源。
 export class StateMachine {
   constructor(private current: State = 'idle') {}
 
@@ -86,10 +88,5 @@ export class StateMachine {
   fire(input: TransitionInput): State {
     this.current = transition(this.current, input)
     return this.current
-  }
-
-  // 镜像同步：loop 拥有自己的 StateMachine，其迁移事件到达 Agent 时直接对齐当前态（不走迁移表重复计算）。
-  sync(state: State): void {
-    this.current = state
   }
 }

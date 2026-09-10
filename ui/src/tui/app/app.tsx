@@ -344,7 +344,16 @@ export function App({ port }: { port: UiPort }) {
       </Box>
 
       {/* StatusBar 始终在动态区底部 */}
-      <StatusBar state={chat.status} provider={statusBarData.provider} model={statusBarData.model} sessionId={statusBarData.sessionId} tokens={statusBarData.tokens} windowTokens={statusBarData.windowTokens} cwd={statusBarData.cwd} />
+      <StatusBar
+        state={chat.status}
+        provider={statusBarData.provider}
+        model={statusBarData.model}
+        sessionId={statusBarData.sessionId}
+        tokens={statusBarData.tokens}
+        windowTokens={statusBarData.windowTokens}
+        usage={statusBarData.usage}
+        cwd={statusBarData.cwd}
+      />
     </>
   )
 }

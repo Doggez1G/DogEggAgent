@@ -130,3 +130,40 @@ describe('formatToolBody', () => {
     expect(body[200]!.text).toBe('…（其余 5 行）')
   })
 })
+
+describe('探索类工具（ls/glob/grep）formatter', () => {
+  it('args：ls 路径 / glob 模式+起点 / grep 模式+glob 过滤', () => {
+    expect(formatToolArgs('ls', { path: 'src' })).toBe('src')
+    expect(formatToolArgs('glob', { pattern: '**/*.ts' })).toBe('**/*.ts')
+    expect(formatToolArgs('glob', { pattern: '**/*.ts', path: 'src' })).toBe('**/*.ts in src')
+    expect(formatToolArgs('grep', { pattern: 'needle', glob: '*.ts' })).toBe('needle in *.ts')
+  })
+
+  it('result：ls 项数 / glob 文件数 / grep content 模式处命中', () => {
+    expect(formatToolResult('ls', 'src/\npackage.json  1.2 KB')).toBe('2 项')
+    expect(formatToolResult('glob', 'a.ts\nsrc/b.ts')).toBe('2 个文件')
+    expect(formatToolResult('grep', 'a.ts:1: needle\nsrc/b.ts:2: needle')).toBe('2 处命中')
+  })
+
+  it('result：grep 文件级模式（files_with_matches/count）按形状识别为文件数', () => {
+    expect(formatToolResult('grep', 'a.ts\nb.ts')).toBe('2 个文件')
+    expect(formatToolResult('grep', 'a.ts: 2\nb.ts: 1')).toBe('2 个文件')
+  })
+
+  it('result：截断说明行不计数（ls 封顶说明 / grep 单文件补数说明）', () => {
+    const lsOutput = `${Array.from({ length: 500 }, (_, i) => `f${i}`).join('\n')}\n（仅显示前 500 项，共 505 项）`
+    expect(formatToolResult('ls', lsOutput)).toBe('500 项')
+    const grepOutput = 'a.ts:1: hit\na.ts（该文件还有 3 处未显示）'
+    expect(formatToolResult('grep', grepOutput)).toBe('1 处命中')
+  })
+
+  it('body：走默认 plainLines（命中行保留 path:line: 前缀原文）', () => {
+    expect(formatToolBody('grep', { pattern: 'x' }, 'a.ts:1: hit')).toEqual([
+      { text: 'a.ts:1: hit', kind: 'plain' },
+    ])
+  })
+
+  it('title：折叠头行拼装（args · result）', () => {
+    expect(formatToolTitle('grep', { pattern: 'needle' }, 'a.ts:1: needle')).toBe('grep needle · 1 处命中')
+  })
+})

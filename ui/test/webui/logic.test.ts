@@ -53,17 +53,21 @@ describe('extractFilesTouched', () => {
 })
 
 describe('effectivePerm', () => {
-  const cfg = { allow: ['read_file'], reject: [], ask: ['shell'] }
+  // v2 grouped 形态：桶 → 工具 → 模式数组（空数组 = 整工具）。
+  const cfg = { allow: { read_file: [] }, reject: {}, ask: { shell: [] } }
   it('配置桶优先：allow/reject/ask 原样返回', () => {
-    expect(effectivePerm(cfg, 'read_file', new Set())).toBe('allow')
-    expect(effectivePerm(cfg, 'shell', new Set())).toBe('ask')
-    expect(effectivePerm({ allow: [], reject: ['shell'], ask: [] }, 'shell', new Set())).toBe('reject')
+    expect(effectivePerm(cfg, 'read_file', new Map())).toBe('allow')
+    expect(effectivePerm(cfg, 'shell', new Map())).toBe('ask')
+    expect(effectivePerm({ allow: {}, reject: { shell: [] }, ask: {} }, 'shell', new Map())).toBe('reject')
   })
   it('会话内 allow_always 提升显示为 always（区别于配置永久 allow）', () => {
-    expect(effectivePerm(cfg, 'shell', new Set(['shell']))).toBe('always')
+    expect(effectivePerm(cfg, 'shell', new Map([['shell', []]]))).toBe('always')
   })
   it('配置 allow 与会话提升同时存在时显示 allow（配置来源优先）', () => {
-    expect(effectivePerm({ allow: ['shell'], reject: [], ask: [] }, 'shell', new Set(['shell']))).toBe('allow')
+    expect(effectivePerm({ allow: { shell: [] }, reject: {}, ask: {} }, 'shell', new Map([['shell', []]]))).toBe('allow')
+  })
+  it('模式数组工具在 display（无参数）下保守回落默认 ask', () => {
+    expect(effectivePerm({ allow: { shell: ['git *'] }, reject: {}, ask: {} }, 'shell', new Map())).toBe('ask')
   })
 })
 

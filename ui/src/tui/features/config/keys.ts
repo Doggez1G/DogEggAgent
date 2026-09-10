@@ -43,7 +43,8 @@ export function handleConfigKeys(v: Extract<View, { kind: 'config' }>, key: Key,
     else api.setView({ kind: 'none' })
   } else if (inputChar === 'd' && entry) {
     // d 键删除：执行 del 后留在同页，clamp cursor 防越界（删最后一项时 cursor 回退）。
-    if ((entry.kind === 'goto' || entry.kind === 'action') && entry.del) {
+    // scalar 带 del 用于模式列表（permissionTool 的模式行）——回车编辑、d 删该条。
+    if ((entry.kind === 'goto' || entry.kind === 'action' || entry.kind === 'scalar') && entry.del) {
       entry.del()
       api.setView({ ...v, cursor: Math.min(v.cursor, Math.max(0, entries.length - 2)), preview: null })
     }

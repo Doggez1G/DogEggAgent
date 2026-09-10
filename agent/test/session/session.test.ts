@@ -11,9 +11,10 @@ describe('SessionStore', () => {
   it('R1: 双持久化 save/load（history + context）', () => {
     const history = [{ role: 'user' as const, content: 'hi' }]
     const context = [{ role: 'user' as const, content: 'hi' }]
-    store.save({ id: 's1', history, context, allowedTools: [], cwd: '', thinking: [] })
+    store.save({ id: 's1', history, context, sessionPermissions: [], usage: { promptTokens: 100, completionTokens: 20, turns: 1 }, compactions: 0, cwd: '', thinking: [] })
     const loaded = store.load('s1')
     expect(loaded.id).toBe('s1')
+    expect(loaded.usage).toEqual({ promptTokens: 100, completionTokens: 20, turns: 1 })
     expect(loaded.history[0]).toMatchObject({ role: 'user', content: 'hi' })
     expect(loaded.context[0]).toMatchObject({ role: 'user', content: 'hi' })
   })

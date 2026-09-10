@@ -60,6 +60,7 @@ export function StatusBar(props: {
   sessionId?: string
   tokens?: number
   windowTokens?: number
+  usage?: { promptTokens: number; completionTokens: number; turns: number }
   cwd?: string
 }) {
   const meta = STATE_META[props.state] ?? { emoji: '🥚', label: props.state }
@@ -86,6 +87,9 @@ export function StatusBar(props: {
       <Text backgroundColor={isSpinning ? palette.yellow : palette.surfaceAlt} color={isSpinning ? '#1e2030' : metaColor}> {meta.emoji} {isSpinning ? spinner + ' ' : ''}{meta.label} </Text>
       {modelStr && <Text color={palette.subtext}>· {modelStr}</Text>}
       {ctx && <Text color={ctx.color}>· [{ctx.bar}] {ctx.text}</Text>}
+      {props.usage && props.usage.turns > 0 && (
+        <Text color={palette.subtext}>· Σ {fmtTokens(props.usage.promptTokens + props.usage.completionTokens)} tok / {props.usage.turns} 轮</Text>
+      )}
       {cwdStr && <Text color={palette.subtext}>· 📂 {cwdStr}</Text>}
       {props.sessionId && <Text color={palette.faint}>· 🔖 {props.sessionId.slice(0, 8)}</Text>}
     </Box>
