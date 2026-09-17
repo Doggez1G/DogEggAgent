@@ -4,6 +4,7 @@ import type { TransitionInput } from './state'
 import type { Conversation } from '../session'
 import type { AgentLoop } from './loop'
 import type { Compactor } from './compactor'
+import { generateTitle } from './title'
 import type { SessionStore } from '../session'
 import type { ToolRegistry } from '../tools'
 import type { LlmClient } from '../llm'
@@ -37,6 +38,47 @@ export class TurnRunner {
   async submit(text: string, params: TurnParams): Promise<void> {
     if (this.deps.ctx.gate.busy) { this.deps.emit({ type: 'notice', text: '运行中，请稍候' }); return }
     await this.runTurn(text, params)
+    // 首轮成功结束后台生成标题（fire-and-forget：不阻塞下一轮提交，失败静默——标题是装饰）。
+    void this.maybeAutoTitle(params)
+  }
+
+  // 自动标题：仅在会话尚无标题、首轮已有用户+助手消息、且 gate 空闲时生成一次；
+  // 生成中再次完成轮次会因 in-flight 去重跳过。写回前再查一次标题——
+  // 生成期间 /rename 手动命名可能已落（竞态窗口），手动命名优先，自动结果直接丢弃。
+  private titleGenerating = false
+  private maybeAutoTitle(params: TurnParams): void {
+    if (this.titleGenerating) return
+    if (this.deps.conversation.getTitle()) return
+    if (this.deps.ctx.gate.busy) return
+    const history = this.deps.conversation.getHistory()
+    const user = history.find((m) => m.role === 'user')
+    const assistant = history.find((m) => m.role === 'assistant')
+    if (!user || !assistant || typeof user.content !== 'string') return
+    this.titleGenerating = true
+    void (async () => {
+      try {
+        const title = await generateTitle(
+          { client: params.client, model: params.model },
+          user.content,
+          String(assistant.content ?? ''),
+        )
+        if (!title || this.deps.conversation.getTitle()) return
+        this.deps.conversation.setTitle(title)
+        try {
+          this.deps.sessions.save(
+            this.deps.conversation.snapshotFull(
+              this.deps.ctx.permission.snapshotPermissions(),
+              this.deps.conversation.getUsage(),
+              this.deps.conversation.getCompactions(),
+            ),
+          )
+        } catch { /* 标题落盘失败静默 */ }
+        this.deps.emit({ type: 'notice', text: `已自动生成会话标题「${title}」（/rename 可重命名）` })
+        this.deps.emit({ type: 'session_list', sessions: this.deps.sessions.list() })
+      } finally {
+        this.titleGenerating = false
+      }
+    })()
   }
 
   cancel(): void {

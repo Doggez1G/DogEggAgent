@@ -1,14 +1,15 @@
-// 会话搜索过滤：按预览文本模糊匹配（大小写不敏感）。
+// 会话搜索过滤：按标题/预览文本模糊匹配（大小写不敏感）。
 export interface SessionListItem {
   id: string
   preview: string
+  title?: string
   updatedAt: string
 }
 
 export function filterSessions(sessions: SessionListItem[], query: string): SessionListItem[] {
   if (!query) return sessions
   const q = query.toLowerCase()
-  return sessions.filter((s) => s.preview.toLowerCase().includes(q) || s.id.toLowerCase().includes(q))
+  return sessions.filter((s) => (s.title || s.preview).toLowerCase().includes(q) || s.id.toLowerCase().includes(q))
 }
 
 // 相对时间格式化：now/m/h/d。

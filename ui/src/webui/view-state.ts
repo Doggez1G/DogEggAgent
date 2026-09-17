@@ -31,6 +31,8 @@ export interface SessionItem {
   id: string
   updatedAt: string
   preview: string
+  /** 会话标题（/rename 手动命名或首轮自动生成）；缺省时列表展示 preview。 */
+  title?: string
   cwd?: string
 }
 

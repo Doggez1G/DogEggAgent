@@ -50,7 +50,7 @@ export function Sidebar(props: SidebarProps) {
   const filteredProjects = search
     ? projects.map(p => ({
       ...p,
-      sessions: p.sessions.filter(s => s.preview.toLowerCase().includes(search.toLowerCase())),
+      sessions: p.sessions.filter(s => (s.title || s.preview).toLowerCase().includes(search.toLowerCase())),
     })).filter(p => p.sessions.length > 0)
     : projects
 
@@ -186,7 +186,7 @@ function ProjectTree(props: {
               onClick={() => props.onResumeSession(s.id)}
             >
               <span className={styles.sessionDot} />
-              <span className={styles.sessionPreview}>{s.preview || 'New Session'}</span>
+              <span className={styles.sessionPreview}>{s.title || s.preview || 'New Session'}</span>
               <span className={styles.sessionTime}>{relTime(s.updatedAt)}</span>
               <button className={styles.sessionDel} onClick={(e) => { e.stopPropagation(); props.onDeleteSession(s.id) }} title="Delete session" aria-label="Delete session">
                 <Trash2 size={10} strokeWidth={1.5} />

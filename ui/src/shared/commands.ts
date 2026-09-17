@@ -12,6 +12,7 @@ export const COMMANDS: { cmd: string; desc: string }[] = [
   { cmd: '/model', desc: '快速切换模型' },
   { cmd: '/new', desc: '新建会话' },
   { cmd: '/permissions', desc: '查看/撤销会话权限授权' },
+  { cmd: '/rename', desc: '重命名当前会话' },
   { cmd: '/quit', desc: '退出' },
   { cmd: '/session', desc: '切换会话' },
   { cmd: '/status', desc: '状态一览' },
@@ -63,6 +64,12 @@ export function parseCommand(text: string): CommandResult {
     case '/status': return { kind: 'message', msg: { type: 'status_request' } }
     case '/log': return { kind: 'message', msg: { type: 'log_request' } }
     case '/permissions': return { kind: 'message', msg: { type: 'permissions_request' } }
+    case '/rename': {
+      // /rename <名称>——参数为标题（支持空格：取 /rename 之后的全部文本）。
+      const title = trimmed.slice('/rename'.length).trim()
+      if (!title) return { kind: 'help' }
+      return { kind: 'message', msg: { type: 'rename_session', title } }
+    }
     case '/quit': return { kind: 'message', msg: { type: 'quit' } }
     case '/help': return { kind: 'help' }
     default: return { kind: 'help' } // 未知命令也显示帮助

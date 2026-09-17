@@ -51,13 +51,15 @@ function fmtTokens(n: number): string {
   return String(n)
 }
 
-// 状态栏：Emoji + spinner + 状态 + provider/model + context 进度条 + cwd + session。
+// 状态栏：Emoji + spinner + 状态 + provider/model + context 进度条 + cwd + 会话名。
 // 运行态显示 spinner 旋转动画，非运行态静态显示。
 export function StatusBar(props: {
   state: string
   provider?: string
   model?: string
   sessionId?: string
+  /** 会话名（/rename 或自动标题；经 session_list 同步）——缺省回退短 sessionId。 */
+  title?: string
   tokens?: number
   windowTokens?: number
   usage?: { promptTokens: number; completionTokens: number; turns: number }
@@ -80,6 +82,10 @@ export function StatusBar(props: {
   // cwd 缩短为 basename（完整路径太长放不进状态栏）。
   const cwdStr = props.cwd ? props.cwd.replace(/\\/g, '/').split('/').pop() ?? props.cwd : ''
   const modelStr = props.provider && props.model ? `${props.provider}/${props.model}` : ''
+  // 会话名优先（超长截断防状态栏溢出），无标题回退短 sessionId。
+  const sessionLabel = props.title
+    ? (props.title.length > 24 ? props.title.slice(0, 24) + '…' : props.title)
+    : props.sessionId?.slice(0, 8)
 
   return (
     <Box gap={1}>
@@ -91,7 +97,7 @@ export function StatusBar(props: {
         <Text color={palette.subtext}>· Σ {fmtTokens(props.usage.promptTokens + props.usage.completionTokens)} tok / {props.usage.turns} 轮</Text>
       )}
       {cwdStr && <Text color={palette.subtext}>· 📂 {cwdStr}</Text>}
-      {props.sessionId && <Text color={palette.faint}>· 🔖 {props.sessionId.slice(0, 8)}</Text>}
+      {sessionLabel && <Text color={palette.faint}>· 🔖 {sessionLabel}</Text>}
     </Box>
   )
 }

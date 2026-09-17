@@ -24,6 +24,7 @@ export const uiToAgentMessageSchema: z.ZodType<UiToAgentMessage> = z.discriminat
   z.object({ type: z.literal('log_request') }),
   z.object({ type: z.literal('permissions_request') }),
   z.object({ type: z.literal('permission_revoke'), tool: z.string(), pattern: z.string().optional() }),
+  z.object({ type: z.literal('rename_session'), title: z.string() }),
   z.object({ type: z.literal('set_cwd'), path: z.string() }),
   z.object({ type: z.literal('delete_session'), id: z.string() }),
   z.object({ type: z.literal('clear_history') }),

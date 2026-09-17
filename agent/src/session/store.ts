@@ -17,6 +17,8 @@ export interface SessionSnapshot {
   sessionPermissions: ToolPermission[]
   usage: { promptTokens: number; completionTokens: number; turns: number }
   compactions: number
+  /** 会话标题（/rename 手动命名或首轮后自动生成）；缺省时列表展示 preview。 */
+  title?: string
   cwd: string
   thinking: { text: string }[]
 }
@@ -27,6 +29,7 @@ export interface SessionSummary {
   updatedAt: string
   preview: string
   cwd: string
+  title?: string
 }
 
 export function defaultSessionsDir(): string {
@@ -52,6 +55,7 @@ export class SessionStore {
       compactions: snapshot.compactions,
       cwd: snapshot.cwd,
       thinking: snapshot.thinking,
+      ...(snapshot.title ? { title: snapshot.title } : {}),
     }))
     renameSync(tmp, target)
   }
@@ -65,9 +69,10 @@ export class SessionStore {
     const sessionPermissions: ToolPermission[] = raw.sessionPermissions ?? []
     const usage = raw.usage ?? { promptTokens: 0, completionTokens: 0, turns: 0 }
     const compactions: number = raw.compactions ?? 0
+    const title: string | undefined = typeof raw.title === 'string' ? raw.title : undefined
     const cwd: string = raw.cwd ?? ''
     const thinking: { text: string }[] = raw.thinking ?? []
-    return { id: raw.id ?? id, history, context, sessionPermissions, usage, compactions, cwd, thinking }
+    return { id: raw.id ?? id, history, context, sessionPermissions, usage, compactions, title, cwd, thinking }
   }
 
   // 删除会话文件。文件不存在时静默成功（幂等）。
@@ -92,7 +97,8 @@ export class SessionStore {
           const last: Message | undefined = history[history.length - 1]
           const preview = last && last.role !== 'tool' && typeof last.content === 'string' ? last.content.slice(0, 40) : ''
           const cwd: string = raw.cwd ?? ''
-          return { id: raw.id ?? f.replace('.json', ''), updatedAt: raw.updatedAt ?? '', preview, cwd }
+          const title: string | undefined = typeof raw.title === 'string' ? raw.title : undefined
+          return { id: raw.id ?? f.replace('.json', ''), updatedAt: raw.updatedAt ?? '', preview, cwd, title }
         } catch {
           return { id: f.replace('.json', ''), updatedAt: '', preview: '（文件损坏）', cwd: '' }
         }

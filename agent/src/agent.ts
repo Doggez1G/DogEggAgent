@@ -305,6 +305,24 @@ export class Agent {
         // /permissions：返回当前会话的提升清单（按工具分组；patterns 空 = 整工具）。
         this.emit({ type: 'permissions_list', permissions: this.ctx.permission.snapshotPermissions() })
         break
+      case 'rename_session': {
+        // /rename：手动命名当前会话（手动命名优先于自动标题）。notice 让两端对话流都有可见回执。
+        const title = cmd.title.trim()
+        if (!title) { this.emit({ type: 'notice', text: '用法：/rename <名称>' }); break }
+        this.conversation.setTitle(title)
+        try {
+          this.sessions.save(
+            this.conversation.snapshotFull(
+              this.ctx.permission.snapshotPermissions(),
+              this.conversation.getUsage(),
+              this.conversation.getCompactions(),
+            ),
+          )
+        } catch { /* 命名落盘失败静默 */ }
+        this.emit({ type: 'notice', text: `会话已命名「${title}」` })
+        this.emit({ type: 'session_list', sessions: this.sessions.list() })
+        break
+      }
       case 'permission_revoke':
         // 撤销会话提升：带 pattern 撤单条模式，不带撤整工具；撤后重推清单。
         this.ctx.permission.revoke(cmd.tool, cmd.pattern)

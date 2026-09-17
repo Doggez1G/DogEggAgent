@@ -31,6 +31,7 @@ export class Conversation {
   private usage: SessionUsage = { promptTokens: 0, completionTokens: 0, turns: 0 }
   private lastTurn: { promptTokens: number; completionTokens: number } | undefined
   private compactions = 0
+  private title: string | undefined
 
   constructor(cwd: string) {
     this.cwdValue = cwd
@@ -94,6 +95,15 @@ export class Conversation {
     return this.compactions
   }
 
+  getTitle(): string | undefined {
+    return this.title
+  }
+
+  // setTitle：/rename 手动命名或自动标题写入；有值后自动生成跳过（手动命名优先）。
+  setTitle(title: string): void {
+    this.title = title
+  }
+
   // 手动 /compact 的计数入口（自动压缩的计数随 LoopResult.compactions 走 applyTurnResult）。
   incrementCompaction(): void {
     this.compactions += 1
@@ -119,6 +129,7 @@ export class Conversation {
     this.usage = { promptTokens: 0, completionTokens: 0, turns: 0 }
     this.lastTurn = undefined
     this.compactions = 0
+    this.title = undefined
   }
 
   // resume：整体替换工作集；快照带 cwd 时一并恢复（项目→会话切换恢复目录）。
@@ -131,10 +142,11 @@ export class Conversation {
     this.usage = s.usage ?? { promptTokens: 0, completionTokens: 0, turns: 0 }
     this.lastTurn = undefined
     this.compactions = s.compactions ?? 0
+    this.title = s.title
   }
 
   // 落盘快照——组装的唯一入口（三个落盘调用点共用；sessionPermissions/usage 归各自提供方传入）。
   snapshotFull(sessionPermissions: ToolPermission[], usage: SessionUsage, compactions: number): SessionSnapshot {
-    return { id: this.sessionId, history: this.history, context: this.context, sessionPermissions, cwd: this.cwdValue, thinking: this.thinking, usage, compactions }
+    return { id: this.sessionId, history: this.history, context: this.context, sessionPermissions, cwd: this.cwdValue, thinking: this.thinking, usage, compactions, title: this.title }
   }
 }

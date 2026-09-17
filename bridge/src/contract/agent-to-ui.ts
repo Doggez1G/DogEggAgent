@@ -13,7 +13,7 @@ export type AgentToUiMessage =
   | { type: 'tool_end'; id: string; name: string; output: string; error?: string } // 拒绝/失败工具也发 tool_end（error 标明原因），不再静默塞消息
   | { type: 'permission_request'; id: string; tool: string; input: unknown; alwaysScope?: { pattern: string } } // alwaysScope = agent 推导的范围模式（存在时 UI 渲染第四档「对此范围不再询问」）；措辞由各 UI 自组
   | { type: 'session_ready'; id: string; messages: Message[]; thinking?: { text: string }[] }
-  | { type: 'session_list'; sessions: { id: string; updatedAt: string; preview: string; cwd?: string }[] }
+  | { type: 'session_list'; sessions: { id: string; updatedAt: string; preview: string; cwd?: string; title?: string }[] }
   | { type: 'session_deleted'; id: string } // 会话已删除——UI 据此刷新侧栏列表
   | { type: 'config_state'; config: Config }
   | { type: 'config_updated'; config: Config }

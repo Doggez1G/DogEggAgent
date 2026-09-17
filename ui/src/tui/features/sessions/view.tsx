@@ -21,7 +21,7 @@ export function SessionPickerOverlay({ view, cwd }: { view: Extract<View, { kind
         windowed.map((s, i) => {
           const realIdx = start + i
           return (
-            <Text key={s.id} inverse={realIdx === view.cursor}>{realIdx === view.cursor ? '> ' : '  '}{s.preview} <Text dimColor>{relTime(s.updatedAt)}</Text></Text>
+            <Text key={s.id} inverse={realIdx === view.cursor}>{realIdx === view.cursor ? '> ' : '  '}{s.title || s.preview} <Text dimColor>{relTime(s.updatedAt)}</Text></Text>
           )
         })
       )}
