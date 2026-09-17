@@ -31,7 +31,8 @@ export function handleSessionPickerKeys(v: Extract<View, { kind: 'sessionPicker'
     if (s) {
       api.suppressEnter()
       api.setView({ kind: 'menu', title: `删除会话 ${s.id}？`, items: [
-        { label: '确认删除', onSelect: () => { api.post({ type: 'delete_session', id: s.id }) } },
+        // 确认后先回选择器空壳再删除——session_list 响应只刷新已开的选择器（推送不弹层），删除后列表由此重建。
+        { label: '确认删除', onSelect: () => { api.setView({ kind: 'sessionPicker', sessions: [], cursor: 0, query: '' }); api.post({ type: 'delete_session', id: s.id }) } },
         { label: '取消', onSelect: () => api.setView({ kind: 'none' }) },
       ], cursor: 0 })
     }

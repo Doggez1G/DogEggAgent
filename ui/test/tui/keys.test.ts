@@ -1,11 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { Key } from 'ink'
 import type { Config } from '@dogegg/bridge'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { handlePermissionKeys } from '../../src/tui/features/permission/keys'
 import { handleMenuKeys } from '../../src/tui/features/menu/keys'
 import { handleSessionPickerKeys } from '../../src/tui/features/sessions/keys'
 import { handleConfigKeys } from '../../src/tui/features/config/keys'
-import { handleSuggestionKeys, handleHistoryKeys } from '../../src/tui/features/input/keys'
+import { handleSuggestionKeys, handleHistoryKeys, handlePathSuggestKeys } from '../../src/tui/features/input/keys'
 import { handleBrowseKeys } from '../../src/tui/features/browse/keys'
 import { handleInfoKeys } from '../../src/tui/features/info/keys'
 import { filterSessions } from '../../src/tui/features/sessions/filter'
@@ -77,13 +80,15 @@ describe('handleSessionPickerKeys', () => {
     handleSessionPickerKeys({ ...pickerView, query: 'ab' }, key({}), '\u007f', api)
     expect(setView).toHaveBeenCalledWith(expect.objectContaining({ query: 'a', cursor: 0 }))
   })
-  it('d 键仅在未搜索时打开删除确认菜单（吞回车）', () => {
+  it('d 键仅在未搜索时打开删除确认菜单（吞回车）；确认后回选择器空壳再删除', () => {
     const suppressEnter = vi.fn()
     handleSessionPickerKeys(pickerView, key({}), 'd', { setView, post, suppressEnter })
     expect(suppressEnter).toHaveBeenCalled()
     const call = setView.mock.calls[0]![0]! as { kind: string; title: string; items: { label: string; onSelect: () => void }[] }
     expect(call.kind).toBe('menu')
     call.items[0]!.onSelect()
+    // 空壳先于删除消息——session_list 响应只刷新已开的选择器（推送不弹层），删除后列表由此重建。
+    expect(setView).toHaveBeenCalledWith({ kind: 'sessionPicker', sessions: [], cursor: 0, query: '' })
     expect(post).toHaveBeenCalledWith({ type: 'delete_session', id: 's1' })
   })
 })
@@ -225,5 +230,51 @@ describe('filterSessions', () => {
     expect(filterSessions(sessions, '登录')).toHaveLength(1)
     expect(filterSessions(sessions, 'B2').map((s) => s.id)).toEqual(['b2'])
     expect(filterSessions(sessions, '不存在的词')).toHaveLength(0)
+  })
+})
+
+describe('handlePathSuggestKeys', () => {
+  // matchPathToken 内部读真实目录——用临时目录构造确定候选（目录在前：sub, a.txt）。
+  let dir: string
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'dogegg-keys-'))
+    writeFileSync(join(dir, 'a.txt'), 'x')
+    mkdirSync(join(dir, 'sub'))
+  })
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
+
+  const api = (input: string, cursor: number | null, over: Record<string, unknown> = {}) => ({
+    getInput: () => input, getSuggestCursor: () => cursor,
+    setSuggestCursor: vi.fn(), applyCompletion: vi.fn(),
+    cwd: dir, dismissed: false, dismiss: vi.fn(), ...over,
+  })
+
+  it('↑↓ 在候选间循环（目录在前；↑ 从未选中跳到末项）', () => {
+    const down = api('@', null)
+    handlePathSuggestKeys(key({ downArrow: true }), '', down)
+    expect(down.setSuggestCursor).toHaveBeenCalledWith(0)
+    const up = api('@', null)
+    handlePathSuggestKeys(key({ upArrow: true }), '', up)
+    expect(up.setSuggestCursor).toHaveBeenCalledWith(1)
+  })
+
+  it('Tab 未选中时补第一个候选（目录）', () => {
+    const a = api('@', null)
+    handlePathSuggestKeys(key({ tab: true }), '', a)
+    expect(a.applyCompletion).toHaveBeenCalledWith({ name: 'sub', isDir: true })
+    expect(a.setSuggestCursor).toHaveBeenCalledWith(null)
+  })
+
+  it('esc 清除选中并关闭弹框', () => {
+    const a = api('@', 0)
+    expect(handlePathSuggestKeys(key({ escape: true }), '', a)).toBe(true)
+    expect(a.setSuggestCursor).toHaveBeenCalledWith(null)
+    expect(a.dismiss).toHaveBeenCalled()
+  })
+
+  it('dismissed（已关闭）时整体跳过，Esc 落回其他处理', () => {
+    const a = api('@', null, { dismissed: true })
+    expect(handlePathSuggestKeys(key({ escape: true }), '', a)).toBe(false)
+    expect(a.dismiss).not.toHaveBeenCalled()
   })
 })

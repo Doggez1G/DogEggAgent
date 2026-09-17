@@ -22,6 +22,7 @@ function loadConfigOrExit(): ReturnType<ConfigStore['load']> {
   } catch (err) {
     const detail = err instanceof ZodError ? err.issues.map((i) => i.message).join('；') : String(err)
     console.error(`配置加载失败：${detail}`)
+    console.error('配置怎么写：https://github.com/Doggez1G/DogEggAgent/blob/main/docs/config.md（与你的 dogegg-agent 版本对应）')
     process.exit(1)
   }
 }

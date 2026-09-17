@@ -6,6 +6,8 @@ export interface StatusBarData {
   provider?: string
   model?: string
   sessionId?: string
+  /** 会话名（/rename 或自动标题；经 session_list 同步到状态栏）。 */
+  title?: string
   tokens?: number
   windowTokens?: number
   usage?: { promptTokens: number; completionTokens: number; turns: number }
@@ -18,6 +20,8 @@ export interface AgentEventsDeps {
   currentCwdRef: { current: string }
   /** 显式信息请求标记：/context /status 等命令置 true，回响应时打开 info overlay；轮询静默。 */
   explicitInfoRef: { current: boolean }
+  /** /tools 独立 intent：工具面板只由显式 /tools 打开——与后台播种的 tools_list 互不干扰。 */
+  toolsIntentRef: { current: boolean }
   /** /model vs /config 的 intent：后端回 config_state 时据此打开对应选择器。 */
   configIntentRef: { current: 'model' | 'config' | null }
   setView(view: View): void
@@ -26,6 +30,7 @@ export interface AgentEventsDeps {
   openModelPicker(c: Config): void
   openConfigTree(c: Config): void
   setStatusBarData(updater: StatusBarData | ((d: StatusBarData) => StatusBarData)): void
+  setToolsList(tools: { name: string; description: string }[]): void
   clearScreenRemount(): void
   /** 会话切换/清空后的 UI 复位（联想、浏览焦点、展开集合）。 */
   onSessionCleared(): void
@@ -39,6 +44,8 @@ export interface AgentEventsDeps {
 export function useAgentEvents(deps: AgentEventsDeps): void {
   const ref = useRef(deps)
   useEffect(() => { ref.current = deps })
+  // 当前会话 id 镜像——session_list 回来时据此找到「当前会话」的标题同步进状态栏。
+  const sessionIdRef = useRef('')
 
   useEffect(() => {
     const off = deps.port.onMessage((msg: AgentToUiMessage) => {
@@ -48,6 +55,12 @@ export function useAgentEvents(deps: AgentEventsDeps): void {
         d.clearScreenRemount()
         d.onSessionCleared()
       }
+      if (msg.type === 'session_ready') {
+        // 新建/切换会话：标题清零并重拉列表回填——resume 恢复的标题由此回来，全新会话保持无名。
+        sessionIdRef.current = msg.id
+        d.setStatusBarData((prev) => ({ ...prev, title: undefined }))
+        d.port.post({ type: 'list_sessions' })
+      }
       // 错误恢复：error 时自动预填上次提交的文本到输入框，用户可直接改或重新提交。
       if (msg.type === 'error') d.onErrorRetry()
       if (msg.type === 'permission_request') {
@@ -56,12 +69,18 @@ export function useAgentEvents(deps: AgentEventsDeps): void {
         // 权限等待期间状态离开 waiting_permission（如 cancel）→ 关闭 permission overlay。
         d.setView({ kind: 'none' })
       } else if (msg.type === 'session_list') {
+        // 当前会话名同步进状态栏——启动播种、/session 响应、重命名、自动标题、切换会话后的刷新都汇聚到此。
+        const cur = msg.sessions.find((s) => s.id === sessionIdRef.current)
+        d.setStatusBarData((prev) => ({ ...prev, title: cur?.title }))
+        // 会话列表更新只刷新「已打开的」选择器（/session 请求响应、删除后刷新），并保留搜索词与光标；
+        // 重命名/自动标题等后端主动推送不带弹层语义——选择器未开时忽略（否则每次改名都蹦出列表）。
+        if (d.viewRef.current.kind !== 'sessionPicker') return
         // 按 cwd 过滤：只显示当前工作目录下的会话（Claude 式——每个目录独立）。
         // 路径归一化：统一为小写 + 正斜杠，兼容 Windows 反斜杠 + 大小写不敏感。
         const normalize = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
         const cwd = normalize(d.currentCwdRef.current)
         const filtered = msg.sessions.filter((s) => normalize(s.cwd ?? '') === cwd)
-        d.setView({ kind: 'sessionPicker', sessions: filtered.map((s) => ({ id: s.id, preview: s.preview || '（空会话）', updatedAt: s.updatedAt })), cursor: 0, query: '' })
+        d.setView({ ...d.viewRef.current, sessions: filtered.map((s) => ({ id: s.id, preview: s.preview || '（空会话）', title: s.title, updatedAt: s.updatedAt })) })
       } else if (msg.type === 'session_deleted') {
         // 会话删除后刷新列表——重新请求 session_list（会触发 sessionPicker 重建）。
         d.port.post({ type: 'list_sessions' })
@@ -71,9 +90,18 @@ export function useAgentEvents(deps: AgentEventsDeps): void {
         else if (d.configIntentRef.current === 'config') { d.openConfigTree(msg.config); d.configIntentRef.current = null }
       } else if (msg.type === 'config_updated') {
         d.updateConfig(msg.config)
+        // 配置变更可能增删 MCP 等运行时工具——重新播种工具清单镜像（静默，不开面板）。
+        d.port.post({ type: 'tools_request' })
       } else if (msg.type === 'tools_list') {
-        d.setInfoScroll(0); d.setView({ kind: 'info', title: '工具', lines: msg.tools.map((t) => `${t.name} — ${t.description}`) })
+        // 运行时清单镜像：一律更新（/config 工具选择器的候选来源，MCP 运行期注册的工具自动出现）；
+        // info 面板仅在显式请求（/tools，独立 intent）时打开——挂载/配置变更的播种是静默的。
+        d.setToolsList(msg.tools)
+        if (d.toolsIntentRef.current) {
+          d.toolsIntentRef.current = false
+          d.setInfoScroll(0); d.setView({ kind: 'info', title: '工具', lines: msg.tools.map((t) => `${t.name} — ${t.description}`) })
+        }
       } else if (msg.type === 'status_state') {
+        sessionIdRef.current = msg.sessionId
         d.currentCwdRef.current = msg.cwd
         d.setStatusBarData({ provider: msg.provider, model: msg.model, sessionId: msg.sessionId, tokens: msg.estimatedTokens, windowTokens: msg.windowTokens, usage: msg.usage, cwd: msg.cwd })
         // 仅显式请求（/status）时打开 info overlay；启动时的自动请求静默更新。
@@ -141,9 +169,12 @@ export function useAgentEvents(deps: AgentEventsDeps): void {
         d.setInfoScroll(0); d.setView({ kind: 'info', title: '调试日志', lines: [`路径：${msg.path}`, '─'.repeat(40), msg.tail] })
       }
     })
-    // 订阅后主动取一次配置 + 状态，用于顶部品牌头和 CWD 过滤。
+    // 订阅后主动取一次配置 + 状态 + 工具清单 + 会话列表：
+    // 品牌头/CWD 过滤/权限工具选择器/状态栏会话名都依赖它们。
     deps.port.post({ type: 'config_request' })
     deps.port.post({ type: 'status_request' })
+    deps.port.post({ type: 'tools_request' })
+    deps.port.post({ type: 'list_sessions' })
     return off
   }, [deps.port])
 }

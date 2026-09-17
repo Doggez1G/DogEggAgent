@@ -7,7 +7,8 @@ import { THEMES, themeRegistry } from '../../theme'
 import { KNOWN_TOOLS, describeBucketTool } from '../../../shared'
 
 // 生成给定路径下的一层字段列表。依据 config + path 决定展示哪些字段、它们的交互形态。
-export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): Entry[] {
+// tools：运行时工具清单（tools_list 消息的镜像）——权限桶选择器用它；缺省回退静态 KNOWN_TOOLS。
+export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx, tools?: { name: string; description: string }[]): Entry[] {
   switch (path.kind) {
     case 'root':
       return [
@@ -172,10 +173,11 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx): En
     }
 
     case 'selectTool': {
-      // 从已知工具列表中选择——排除已在当前桶中的工具（避免重复添加）。
+      // 从运行时工具清单中选择——排除已在当前桶中的工具（避免重复添加）。
       // 加入即空数组（整工具生效）；同一工具允许出现在多个桶（优先级语义的用途）。
       const bucket = config.permission[path.bucket]
-      return KNOWN_TOOLS
+      const names = tools?.map((t) => t.name) ?? [...KNOWN_TOOLS]
+      return names
         .filter((t) => !(t in bucket))
         .map((t) => ({
           label: t,

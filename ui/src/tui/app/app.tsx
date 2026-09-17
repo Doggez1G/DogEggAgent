@@ -6,6 +6,7 @@ import { palette, themeRegistry } from '../theme'
 import { renderMarkdown } from '../markdown'
 import { clearScreen } from './entry'
 import { reducer, type ChatState, type Block, parseCommand, matchCommands } from '../../shared'
+import { matchPathToken, applyPathCompletion, PATH_SUGGEST_WINDOW } from '../features/input'
 import { buildEntries, type TreeCtx } from '../features/config'
 import { useKeyRouting } from './use-key-routing'
 import { useChat } from './use-chat'
@@ -36,9 +37,12 @@ export function App({ port }: { port: UiPort }) {
   const setSuggestCursor = useCallback((c: number | null) => { suggestCursorRef.current = c; setSuggestCursorState(c) }, [])
   const [infoScroll, setInfoScroll] = useState(0) // info overlay 独立翻页
   const [statusBarData, setStatusBarData] = useState<StatusBarData>({})
+  const [toolsList, setToolsList] = useState<{ name: string; description: string }[]>([]) // 运行时工具清单（/config 选择器 + /tools 面板）
   const currentCwdRef = useRef<string>('')
   // 标记是否为显式信息请求（/context /status 等），用于区分轮询的静默更新。
   const explicitInfoRef = useRef(false)
+  // /tools 的独立 intent 标志：工具面板只由显式 /tools 打开；后台播种（挂载/config_updated）不弹面板。
+  const toolsIntentRef = useRef(false)
   // Static 重挂载 key——会话切换/清空/折叠展开切换时清屏重绘。
   const [staticKey, setStaticKey] = useState(0)
   // 浏览模式：Ctrl+Up/Down 在块间移动焦点，Enter 切换折叠/展开。
@@ -58,6 +62,14 @@ export function App({ port }: { port: UiPort }) {
   const configRef = useRef<Config | null>(null)
   const configIntent = useRef<'model' | 'config' | null>(null)
   const statusRef = useRef(chat.status) // 镜像 chat.status 供 useInput 读取（闭包防过期）
+  const cwdRef = useRef<string | undefined>(undefined) // 镜像 cwd 供 useInput/handleSubmit 读取（@path 联想）
+  // @path 弹框的 Esc 关闭标记：弹框派生自输入文本，需要一个显式「已关闭」状态；
+  // 输入一变即恢复（继续输入等于重新联想）。
+  const [pathDismissed, setPathDismissed] = useState(false)
+  useEffect(() => { setPathDismissed(false) }, [input])
+  // 输入变化即复位联想光标：斜杠联想与 @path 联想共用 cursor，
+  // 残留的选中下标会让下一次回车误补全（选中项被静默插入）而非提交。
+  useEffect(() => { setSuggestCursor(null) }, [input, setSuggestCursor])
 
   const setView = useCallback((v: View) => { viewRef.current = v; setViewState(v) }, [])
   const updateConfig = useCallback((c: Config) => { configRef.current = c; setConfigSnapshot(c) }, [])
@@ -81,6 +93,7 @@ export function App({ port }: { port: UiPort }) {
   }, [setInput])
 
   useEffect(() => { statusRef.current = chat.status }, [chat.status])
+  cwdRef.current = statusBarData.cwd
 
   // 配置树变更入口：翻译成 config_set/add/remove 消息发给后端。
   const treeCtx: TreeCtx = {
@@ -119,6 +132,9 @@ export function App({ port }: { port: UiPort }) {
     treeCtx,
     input,
     setInput,
+    cwd: cwdRef.current,
+    pathDismissed,
+    dismissPathSuggest: () => setPathDismissed(true),
     suggest: { get: () => suggestCursorRef.current, set: setSuggestCursor },
     browse: {
       get: () => browseIdxRef.current,
@@ -144,6 +160,7 @@ export function App({ port }: { port: UiPort }) {
     viewRef,
     currentCwdRef,
     explicitInfoRef,
+    toolsIntentRef,
     configIntentRef: configIntent,
     setView,
     updateConfig,
@@ -151,6 +168,7 @@ export function App({ port }: { port: UiPort }) {
     openModelPicker: (c) => openModelPicker(c),
     openConfigTree: (c) => openConfigTree(c),
     setStatusBarData,
+    setToolsList,
     clearScreenRemount,
     onSessionCleared,
     onErrorRetry,
@@ -167,6 +185,14 @@ export function App({ port }: { port: UiPort }) {
 
   // ── 命令提交流程：联想拦截 → parseCommand → 确认弹层 → intent 标记 ──
   const handleSubmit = (raw: string) => {
+    // @path 联想拦截：输入末尾有 @token 且选中了候选时，回车替换为补全路径而非提交（Esc 关闭后不拦截）。
+    const ps = matchPathToken(raw, cwdRef.current)
+    if (ps && !pathDismissed && suggestCursorRef.current !== null) {
+      const entry = ps.entries[suggestCursorRef.current]
+      if (entry) setInput(applyPathCompletion(raw, ps.replaceStart, entry))
+      setSuggestCursor(null)
+      return
+    }
     // 联想补全拦截：有联想匹配且选中了项时，回车补全到输入框而非提交。
     const matches = matchCommands(raw)
     if (matches.length > 0 && suggestCursorRef.current !== null) {
@@ -220,9 +246,19 @@ export function App({ port }: { port: UiPort }) {
         const cmd = raw.trim().split(/\s+/)[0]
         configIntent.current = cmd === '/model' ? 'model' : 'config'
       }
-      // 显式信息请求标记：/context /status /tools /system /log 会回 info overlay。
-      if (['context_request', 'status_request', 'tools_request', 'system_request', 'log_request'].includes(result.msg.type)) {
+      // 显式信息请求标记：/context /status /system /log 会回 info overlay。
+      // /tools 不共用此标志——tools_list 有后台播种（挂载/config_updated），共享会误消费
+      // （编辑配置后立刻 /context，播种响应先到会抢开工具面板）。
+      if (['context_request', 'status_request', 'system_request', 'log_request'].includes(result.msg.type)) {
         explicitInfoRef.current = true
+      }
+      if (result.msg.type === 'tools_request') {
+        toolsIntentRef.current = true
+      }
+      // /session：先开空壳选择器，session_list 响应到达后填充（选择器已开才会被刷新——
+      // 重命名/自动标题等后端推送不再承担弹层职责，见 use-agent-events）。
+      if (result.msg.type === 'list_sessions') {
+        setView({ kind: 'sessionPicker', sessions: [], cursor: 0, query: '' })
       }
       // 所有会打开 overlay 的命令统一吞掉提交回车——
       // port 是同步通道，agent 回响应可能立即设 view 为 menu/info，
@@ -234,8 +270,10 @@ export function App({ port }: { port: UiPort }) {
   }
 
   // ── 渲染 ──
-  const configEntries = view.kind === 'config' && configSnapshot ? buildEntries(configSnapshot, view.path, treeCtx) : []
+  // 工具清单：运行时镜像为空时传 undefined——buildEntries 回退静态 KNOWN_TOOLS（空数组不是「无工具」而是「未播种」）。
+  const configEntries = view.kind === 'config' && configSnapshot ? buildEntries(configSnapshot, view.path, treeCtx, toolsList.length > 0 ? toolsList : undefined) : []
   const suggestMatches = view.kind === 'none' ? matchCommands(input) : []
+  const pathSuggest = view.kind === 'none' && suggestMatches.length === 0 && !pathDismissed ? matchPathToken(input, cwdRef.current) : null
 
   const headerInfo = configSnapshot
     ? (configSnapshot.defaultProvider ? `${configSnapshot.defaultProvider}/${configSnapshot.defaultModel ?? '?'}` : '未配置 provider（请先 /config）')
@@ -300,6 +338,27 @@ export function App({ port }: { port: UiPort }) {
                 ))}
               </Box>
             )}
+            {pathSuggest && (() => {
+              // 候选全量返回，仅渲染光标附近的滑动窗口（↑↓ 时窗口跟随滚动）；超出窗口时提示总数。
+              const total = pathSuggest.entries.length
+              const win = PATH_SUGGEST_WINDOW
+              const cur = suggestCursor ?? 0
+              const start = Math.max(0, Math.min(cur - win + 1, total - win))
+              const windowed = pathSuggest.entries.slice(start, start + win)
+              return (
+                <Box flexDirection="column">
+                  {windowed.map((e, i) => {
+                    const real = start + i
+                    return (
+                      <Text key={e.name} inverse={real === suggestCursor} color={real === suggestCursor ? undefined : palette.subtext}>
+                        {real === suggestCursor ? '> ' : '  '}{e.name}{e.isDir ? '/' : ''}
+                      </Text>
+                    )
+                  })}
+                  {total > win && <Text dimColor>　…共 {total} 项（↑↓ 滚动选择）</Text>}
+                </Box>
+              )
+            })()}
             {/* 输入框：surface 背景块 + 左侧 accent 竖线（OpenCode 同款） */}
             <Box
               borderStyle="round"
@@ -349,6 +408,7 @@ export function App({ port }: { port: UiPort }) {
         provider={statusBarData.provider}
         model={statusBarData.model}
         sessionId={statusBarData.sessionId}
+        title={statusBarData.title}
         tokens={statusBarData.tokens}
         windowTokens={statusBarData.windowTokens}
         usage={statusBarData.usage}
