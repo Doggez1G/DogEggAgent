@@ -1,4 +1,5 @@
-import { resolve } from 'node:path'
+import { basename, dirname, resolve } from 'node:path'
+import { realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import type { PermissionDecision, PermissionConfig, ToolPermission, ToolArgs } from '@dogegg/bridge'
 import { classifyPermission as classify, primarySpecifier } from '@dogegg/bridge'
@@ -64,10 +65,11 @@ export class PermissionManager {
     for (const { tool, patterns } of permissions) this.sessionRules.set(tool, [...patterns])
   }
 
-  // 参数侧归一化：path 字段 → 绝对 posix 路径（与规则侧同一函数，同一坐标系）。
+  // 参数侧归一化：path 字段 → 真实绝对 posix 路径（realpath），供「按真实位置」的权限匹配
+  //（符号链接逃逸在此被识别：真实位置越出规则范围 → 失配 → 落 ask）。
   private normalizeArgs(args: ToolArgs | undefined, cwd: string): ToolArgs | undefined {
     if (!args || typeof args.path !== 'string') return args
-    return { ...args, path: toMatchablePath(args.path, cwd) }
+    return { ...args, path: realTargetPath(args.path, cwd) }
   }
 
   // 规则侧归一化：主参数为 path 的工具，其模式按锚点声明归一（见 normalizePattern）；
@@ -100,7 +102,26 @@ function normalizePattern(p: string, cwd: string): string {
   return unified
 }
 
+// 参数 → 真实绝对 posix 路径（realpath）。
+// 权限按「真实位置」判定：词法解析（resolve）会被符号链接欺骗——cwd 内的链接指向 cwd 外时，
+// 词法路径在范围内而实际读取越界（ADR-0010 匹配语义的边界补全，M2.5）。
+// - 目标存在 → realpathSync（OS 沿链接解析真实位置，含 Windows junction）；
+// - 目标不存在（write_file 新建）→ 真实父目录 + 文件名（新建文件按将落入的真实目录判定）；
+// - 父目录也不存在 → 词法解析兜底（极端）。
+function realTargetPath(p: string, cwd: string): string {
+  const abs = resolve(cwd, p.replace(/\\/g, '/'))
+  try {
+    return realpathSync(abs).replace(/\\/g, '/')
+  } catch {
+    try {
+      return resolve(realpathSync(dirname(abs)), basename(abs)).replace(/\\/g, '/')
+    } catch {
+      return abs.replace(/\\/g, '/')
+    }
+  }
+}
+
 function toMatchablePath(p: string, cwd: string): string {
-  // 参数/绝对模式 → 绝对 posix 形式（resolve 折叠 ..），与库内绝对模式同坐标系。
+  // 范围提升落库等场景的模式解析（词法，不含 realpath——模式描述授权意图）。
   return resolve(cwd, p.replace(/\\/g, '/')).replace(/\\/g, '/')
 }
