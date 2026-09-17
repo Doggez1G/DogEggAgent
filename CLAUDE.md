@@ -37,9 +37,12 @@ DogEggAgent/
 - 后端纵切重构（已实施）：`docs/superpowers/specs/2026-09-07-backend-restructure-design.md`（turn/ 特征切分、ctx 单一所有权、单状态机）
 - 工具扩展设计（已实施）：`docs/superpowers/specs/2026-09-08-tooling-expansion-design.md`（ls/glob/grep 探索工具、输出治理、参数化权限引擎）
 - 权限配置设计（已实施）：`docs/superpowers/specs/2026-09-09-permission-config-design.md`（桶→工具→模式数组、锚点作用域、双匹配语义、两端编辑器）
+- 上下文工程（已实施）：`docs/superpowers/specs/2026-09-10-context-engineering-design.md`（80% 触发自动压缩、全量交接总结、usage 三口径与仪表盘）
+- M2.5 打磨（已实施）：`docs/superpowers/specs/2026-09-10-m25-polish-design.md`（realpath 边界、.gitignore、会话标题、@path 逐层联想、运行时工具清单、配置文档）
 - UI 重构（已实施）：`docs/superpowers/specs/2026-09-07-ui-restructure-design.md`（features/ 纵切、ThemeRegistry、架构边界立法）
+- 语义决策记录：`docs/adr/`（0001–0011——关键语义决策存档，如 0010 权限匹配语义、0011 压缩 = 全量交接总结）
 - 实现详解系列：`docs/learning/`（01-10 章，与当前代码同步的逐模块讲解）
-- 实施计划：`docs/plans/2026-08-28-modular-refactor.md`
+- 实施计划：`docs/plans/`（按日期排列的各批次实施计划）
 
 实现任何功能前先读对应章节；下文规范若与之冲突，以设计文档为准。
 

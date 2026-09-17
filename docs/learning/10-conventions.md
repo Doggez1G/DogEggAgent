@@ -87,7 +87,33 @@ await agent.submit('...'); await agent.session.resume(id)
 
 ```bash
 npm run typecheck   # 五路 tsc
-npm run test:run    # 250 测试（含 5 个表征测试 + 架构测试）
+npm run test:run    # 354 测试（含表征测试与架构测试）
 npm run build       # esbuild → dist/dogegg.js
 npx vitest run agent/test/agent.turn.test.ts   # 单跑表征测试（行为基线）
 ```
+
+## M2.5 打磨（2026-09-10，评审轮修订 2026-09-15）
+
+- **配置报错指引**：配置加载失败时组合根输出「配置怎么写」的文档链接（docs/config.md，随版本演进）；
+- **@path 补全（评审轮后为逐层下钻形态）**：输入末尾 @片段 → cwd 内候选，片段可含 `/` 逐层进入子目录；
+  候选全量返回不截断（目录在前文件在后）——TUI 滑动窗口跟随光标、WebUI 容器滚动 + 高亮项 scrollIntoView；
+  补全只替换名字部分保留目录前缀（replaceStart）；**token 恰好指向已存在的文件即补全终结**，弹框自动关闭；
+  Esc 可关闭弹框（输入一变即恢复）；词法 + realpath 双重越界校验（`..`/绝对路径/符号链接逃逸不提供候选）；
+- **TUI 输入组件光标契约**：外部替换（@补全/历史召回/重试回填）光标跟随到新值末尾，内部编辑自管；
+  联想光标输入一变即复位——斜杠联想与 @path 共用 cursor，残留选中会让回车误补全而非提交；
+- **弹层语义立法（响应 vs 推送）**：`session_list` / `permissions_list` / `tools_list` 的**推送只更新数据不弹层**，
+  弹层只由显式命令的响应打开（TUI /session 先开空壳选择器、响应填充；删除当前会话后同法重建）；
+- **会话标题**：/rename 与自动标题完成都发 notice（两端对话流可见回执）；空标题守卫；
+  自动标题写回前再查标题（/rename 竞态守卫，手动命名任何时刻优先）；
+- **删除当前会话 → 立即切换新会话（不落盘）**：内存旧工作集必须被替换，否则下一轮落盘会把刚删的
+  会话写回（复活 bug）；但替换出的新会话**首次对话才持久化**——立即落盘的空会话会把刚删空的
+  项目又撑成非空（WebUI 删除项目被它挡住）；
+- **/cd 成功即落盘 + 重推 session_list**：会话文件携带 cwd、侧栏按 cwd 分组项目树——不即时保存
+  的话新项目要等下一轮对话才出现；
+- **WebUI 会话命名闭环**：信息面板 Status 卡显示当前会话名（无标题时显示截短 sessionId）+ 铅笔按钮
+  打开重命名编辑框；输入框无参 `/rename` 与命令面板执行 `/rename` → 同一个 prompt 弹框，预填侧栏显示的原名
+  （标题优先、无标题回退预览文本，打开即全选，在其基础上改；空值确认即取消）；命令面板 `/cd` → 与输入框一致弹出路径选择器（裸 parseCommand 对带参命令只得
+  help，此前面板点了没反应）；
+- **工具清单播种**：挂载与 config_updated 后台播种 tools_list；工具面板只由显式 /tools 打开
+  （独立 intent 标志——与 explicitInfoRef 分离，防播种响应误消费 /context 等的显式标志）；
+- **TUI 工具清单运行时化**：/config 选择器消费 tools_list（WebUI 已先行）——MCP 运行期注册的工具自动出现。

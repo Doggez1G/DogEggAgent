@@ -22,7 +22,7 @@
 ## 快速开始读代码
 
 ```bash
-npm run test:run                                # 全量测试（250）
+npm run test:run                                # 全量测试（354）
 npx vitest run agent/test/agent.turn.test.ts    # 表征测试：agent 对外行为的活样本
 npm run build && node dist/dogegg.js            # 真机跑 TUI
 ```
