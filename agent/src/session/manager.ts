@@ -25,7 +25,9 @@ export class SessionManager {
   }
 
   // 新建会话：可选指定工作目录（WebUI 项目树添加会话时传入）。
-  newSession(cwd?: string): void {
+  // persist=false：只换内存、不落盘（删除当前会话的替换场景专用）——新会话等首次对话才持久化，
+  // 否则立即写入的空会话文件会把「刚删空的项目」又撑成非空（WebUI 删除项目被它挡住）。
+  newSession(cwd?: string, opts?: { persist?: boolean }): void {
     if (this.blocked()) return
     if (cwd) {
       try {
@@ -37,7 +39,7 @@ export class SessionManager {
     this.deps.conversation.reset()
     this.deps.ctx.permission.reset() // 会话隔离：allow_always 只对当前会话生效
     // 立即保存空会话——让 list_sessions 能返回新会话（侧栏即时显示）。
-    try { this.save() } catch { /* 磁盘错误忽略 */ }
+    if (opts?.persist !== false) { try { this.save() } catch { /* 磁盘错误忽略 */ } }
     this.deps.emit({ type: 'session_ready', id: this.deps.conversation.getId(), messages: [] })
   }
 
@@ -77,13 +79,17 @@ export class SessionManager {
     if (this.blocked()) return
     try {
       this.deps.sessions.delete(id)
-      this.deps.emit({ type: 'session_deleted', id })
-      // 如果删除的是当前会话，发一个 notice 提示。
-      if (id === this.deps.conversation.getId()) {
-        this.deps.emit({ type: 'notice', text: '当前会话已删除' })
-      }
     } catch {
       this.deps.emit({ type: 'notice', text: `会话 ${id} 删除失败` })
+      return
+    }
+    this.deps.emit({ type: 'session_deleted', id })
+    // 删除的是当前会话 → 立即换一个新空会话（persist=false，首次对话才落盘）。内存旧工作集
+    // 必须被替换：否则下一轮落盘会把刚删掉的会话原样写回（「复活」）；但不能立即落盘新会话：
+    // 否则删空的项目永远非空，WebUI 的删除项目会被这个僵尸空会话挡住。
+    if (id === this.deps.conversation.getId()) {
+      this.deps.emit({ type: 'notice', text: '当前会话已删除，已切换到新会话' })
+      this.newSession(undefined, { persist: false })
     }
   }
 
