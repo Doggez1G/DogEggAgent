@@ -13,7 +13,12 @@ import { IGNORED_DIRS } from './ignore'
 // - 取消：每个目录的处理间隙检查 ctx.signal（signal.throwIfAborted()），turn 取消能中断大仓库遍历。
 export async function* walkFiles(
   rootDir: string,
-  opts: { signal?: AbortSignal; ignored?: ReadonlySet<string> } = {},
+  opts: {
+    signal?: AbortSignal
+    ignored?: ReadonlySet<string>
+    /** 额外的路径谓词（如 .gitignore 匹配，见 ignore-gitignore.ts）——返回 true 则跳过该文件/目录。 */
+    gitignore?: (relPath: string, isDir: boolean) => boolean
+  } = {},
 ): AsyncGenerator<string> {
   const ignored = opts.ignored ?? IGNORED_DIRS
   // 迭代式 DFS：递归生成器在深层树上调用栈更浅，且中断检查点更规整。
@@ -36,8 +41,11 @@ export async function* walkFiles(
       if (e.isSymbolicLink()) continue
       const rel = relDir === '' ? e.name : `${relDir}/${e.name}`
       if (e.isDirectory()) {
-        if (!ignored.has(e.name)) childDirs.push(rel)
+        if (ignored.has(e.name)) continue
+        if (opts.gitignore?.(rel, true)) continue
+        childDirs.push(rel)
       } else if (e.isFile()) {
+        if (opts.gitignore?.(rel, false)) continue
         yield rel
       }
     }

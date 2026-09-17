@@ -3,7 +3,7 @@ import { basename, join } from 'node:path'
 import type { z } from 'zod'
 import { globToRegExp } from '@dogegg/bridge'
 import type { Tool, ToolContext, ToolResult } from '../types'
-import { walkFiles, isBinaryFile } from '../traverse'
+import { walkFiles, isBinaryFile, loadGitIgnore } from '../traverse'
 import { grepSchema, grepParameters } from './schema'
 
 // ── 输出治理四层（设计 §3.3）──
@@ -53,9 +53,11 @@ export class GrepTool implements Tool {
     if (!rootStat) return { error: `路径不存在：${path ?? '.'}` }
 
     // 单文件模式（path 指向文件）：产出一个空 rel，读 root 本身；目录模式：walkFiles 递归。
+    // .gitignore（会话 cwd 根）参与过滤——用户项目的忽略意愿就是搜索的忽略意愿（M2.5）。
+    const gitignore = loadGitIgnore(ctx.cwd)
     const targets: AsyncIterable<string> = rootStat.isFile()
       ? (async function* singleFile() { yield '' })()
-      : walkFiles(root, { signal: ctx.signal })
+      : walkFiles(root, { signal: ctx.signal, gitignore })
 
     const mode = output_mode ?? 'content'
     const lines: string[] = []

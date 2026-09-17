@@ -3,7 +3,7 @@ import { stat } from 'node:fs/promises'
 import type { z } from 'zod'
 import { globToRegExp } from '@dogegg/bridge'
 import type { Tool, ToolContext, ToolResult } from '../types'
-import { walkFiles } from '../traverse'
+import { walkFiles, loadGitIgnore } from '../traverse'
 import { globSchema, globParameters } from './schema'
 
 // 命中封顶：匹配全部文件名的场景（如 **）在大仓库会产出上万条，无封顶会撑爆上下文。
@@ -32,9 +32,11 @@ export class GlobTool implements Tool {
     // 但整个根都不存在必须显式报错——否则「模式写错」和「路径写错」在模型侧不可区分。
     const rootStat = await stat(root).catch(() => null)
     if (!rootStat) return { error: `路径不存在：${path ?? '.'}` }
+    // .gitignore（会话 cwd 根）参与过滤（M2.5）。
+    const gitignore = loadGitIgnore(ctx.cwd)
     const matches: string[] = []
     try {
-      for await (const rel of walkFiles(root, { signal: ctx.signal })) {
+      for await (const rel of walkFiles(root, { signal: ctx.signal, gitignore })) {
         if (re.test(rel)) {
           matches.push(rel)
           if (matches.length > MAX_MATCHES) break // 只为「知道总数之外还有更多」，总数在此场景不重要
