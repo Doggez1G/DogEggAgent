@@ -1,6 +1,6 @@
 import React, { useCallback } from 'react'
 import type { UiPort, UiToAgentMessage } from '@dogegg/bridge'
-import { Sidebar, TopBar, ChatView, InputBar, InfoPanel, CommandPalette, ErrorBoundary, SettingsModal, ConfirmModal, HelpModal, FsBrowserModal, PermissionBanner } from '../components'
+import { Sidebar, TopBar, ChatView, InputBar, InfoPanel, CommandPalette, ErrorBoundary, SettingsModal, ConfirmModal, HelpModal, FsBrowserModal, PromptModal, PermissionBanner } from '../components'
 import { useChatState } from '../features/chat/use-chat-state'
 import { useSessions } from '../features/sessions/use-sessions'
 import { usePanelData } from '../features/info-panel/use-panel-data'
@@ -55,8 +55,22 @@ export function App({ port, connectionState }: AppProps) {
     setModal({ kind: 'confirm', title: 'Quit', message: 'Close the browser tab to quit DogEggAgent WebUI.', onConfirm: () => { setModal({ kind: 'none' }) } })
   }, [setModal])
 
+  // 重命名当前会话：预填现有标题的单行编辑框（/rename 无参、命令面板、信息面板铅笔按钮共用）。
+  const openRename = useCallback(() => {
+    // 预填侧栏实际显示的「原名」：标题优先，无标题回退预览文本（与列表展示 title || preview 一致），
+    // 让用户在原名基础上修改而非从空白开始。
+    const cur = sessions.find((s) => s.id === panel.sessionId)
+    const current = cur?.title || cur?.preview || ''
+    setModal({ kind: 'prompt', title: '重命名会话', value: current, placeholder: '会话名称', onConfirm: (v) => {
+      const title = v.trim()
+      if (title) port.post({ type: 'rename_session', title })
+      setModal({ kind: 'none' })
+    } })
+  }, [sessions, panel.sessionId, port, setModal])
+
   const onCommandFeedback = useCallback((cmd: string) => {
     if (cmd === '/cd') setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'set_cwd', path }); setModal({ kind: 'none' }) } })
+    else if (cmd === '/rename') openRename()
     else {
       const section = getCommandFeedback(cmd)
       if (section) {
@@ -64,7 +78,7 @@ export function App({ port, connectionState }: AppProps) {
         highlightInfoSection(section)
       }
     }
-  }, [setModal, setSidebarCollapsed, highlightInfoSection, port])
+  }, [setModal, setSidebarCollapsed, highlightInfoSection, openRename, port])
 
   const openAddProject = useCallback(() => {
     setModal({ kind: 'fs-browser', onConfirm: (path) => { safePost({ type: 'new_session', cwd: path }, true); setModal({ kind: 'none' }) } })
@@ -126,6 +140,8 @@ export function App({ port, connectionState }: AppProps) {
       <ErrorBoundary area="Info Panel">
         <InfoPanel
           sessionId={panel.sessionId}
+          sessionTitle={sessions.find((s) => s.id === panel.sessionId)?.title}
+          onRename={openRename}
           provider={panel.statusBar.provider}
           model={panel.statusBar.model}
           status={chat.status}
@@ -197,6 +213,9 @@ export function App({ port, connectionState }: AppProps) {
       )}
       {modal.kind === 'help' && (
         <HelpModal onClose={() => setModal({ kind: 'none' })} />
+      )}
+      {modal.kind === 'prompt' && (
+        <PromptModal title={modal.title} value={modal.value} placeholder={modal.placeholder} onConfirm={modal.onConfirm} onClose={() => setModal({ kind: 'none' })} />
       )}
       {modal.kind === 'fs-browser' && (
         <FsBrowserModal onConfirm={modal.onConfirm} onClose={() => setModal({ kind: 'none' })} />

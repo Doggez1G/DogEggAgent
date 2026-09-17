@@ -1,6 +1,6 @@
 import { STATUS_LABELS, getToolPermission, displayPerm } from '../../../shared'
 import { useEffect, useRef, useState } from 'react'
-import { Cpu, Gauge, Activity, Wrench, ChevronRight, ChevronLeft, ChevronDown, Terminal, ScrollText, FileEdit, FilePlus, ShieldCheck, X } from 'lucide-react'
+import { Cpu, Gauge, Activity, Wrench, ChevronRight, ChevronLeft, ChevronDown, Terminal, ScrollText, FileEdit, FilePlus, ShieldCheck, X, Pencil } from 'lucide-react'
 import type { Config, UiPort } from '@dogegg/bridge'
 import { COMPACTION_THRESHOLD } from '@dogegg/bridge'
 import { Badge } from '../primitives'
@@ -9,6 +9,10 @@ import styles from './info-panel.module.css'
 // 右侧信息面板：卡片式可折叠 section + 状态 pill + 渐变进度条。
 interface InfoPanelProps {
   sessionId: string
+  /** 当前会话名称（/rename 或自动标题）；缺省时展示截短的 sessionId。 */
+  sessionTitle?: string
+  /** 打开会话重命名编辑框（铅笔按钮）。 */
+  onRename: () => void
   provider: string | undefined
   model: string | undefined
   status: string
@@ -104,6 +108,15 @@ export function InfoPanel(props: InfoPanelProps) {
               <span className={styles.statusIndicatorDot} data-status={status} />
               <span className={styles.statusLabel}>{statusLabel}</span>
             </div>
+          </div>
+          {/* 会话名：/rename 或自动标题的成果——铅笔按钮打开重命名编辑框。 */}
+          <div className={styles.sessionRow}>
+            <span className={styles.sessionName} title={props.sessionTitle ?? props.sessionId}>
+              {props.sessionTitle ?? props.sessionId.slice(0, 8)}
+            </span>
+            <button className={styles.renameBtn} onClick={props.onRename} aria-label="Rename session">
+              <Pencil size={11} strokeWidth={1.5} />
+            </button>
           </div>
           <div className={styles.modelRow}>
             <span className={styles.modelProvider}>{props.provider ?? '—'}</span>

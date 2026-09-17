@@ -15,6 +15,8 @@ export type Modal =
   | { kind: 'command-palette' }
   | { kind: 'confirm'; title: string; message: string; onConfirm: () => void }
   | { kind: 'fs-browser'; onConfirm: (path: string) => void }
+  /** 单行文本输入弹框（/rename 无参 / 面板执行时的会话重命名编辑）。 */
+  | { kind: 'prompt'; title: string; value: string; placeholder?: string; onConfirm: (value: string) => void }
   | { kind: 'help' }
 
 // 斜杠命令 → modal 导航映射。

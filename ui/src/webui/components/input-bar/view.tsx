@@ -169,6 +169,7 @@ export function InputBar({ port, isRunning, cwd, onCommandNav, onClearHistory, o
       // /help 或未知命令 → 打开帮助 modal。
       const cmd = input.trim().split(/\s+/)[0] ?? ''
       if (cmd === '/cd') { onCommandFeedback?.('/cd') }
+      else if (cmd === '/rename') { onCommandFeedback?.('/rename') }
       else { onCommandNav('/help') }
     } else if (result.kind === 'message') {
       const cmd = input.trim().split(/\s+/)[0] ?? ''

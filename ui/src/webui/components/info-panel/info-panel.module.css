@@ -253,6 +253,36 @@
 .toolPerm[data-perm='rejected'] { background: var(--color-danger-soft); color: var(--color-danger); }
 
 /* 撤销权限按钮 */
+/* 会话名行：名称（超长省略）+ 重命名铅笔按钮 */
+.sessionRow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+.sessionName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--color-text);
+}
+.renameBtn {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-muted, var(--color-subtext));
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.renameBtn:hover { color: var(--color-accent); background: var(--color-surface); }
+
 .permRevokeBtn {
   width: 16px;
   height: 16px;

@@ -54,6 +54,11 @@ export function CommandPalette({
       run: () => {
         if (c.cmd === '/clear') { onClearHistory(); return }
         if (c.cmd === '/config' || c.cmd === '/model') { onOpenSettings(); return }
+        // 需要参数/专用 UI 的命令：路由到与输入框一致的行为（/cd → 路径选择器，/rename → 重命名编辑框），
+        // 裸 parseCommand 对它们只会得到 help（无参数），点了没反应。
+        // 注意：这里不调 onClose——onCommandFeedback 打开的新 modal（路径选择器/重命名框）会
+        // 替换掉命令面板本身，紧跟的 onClose 会把刚打开的弹框抹掉（与 /clear /config 同约定）。
+        if (c.cmd === '/cd' || c.cmd === '/rename') { onCommandFeedback?.(c.cmd); return }
         const result = parseCommand(c.cmd)
         if (result.kind === 'message') {
           onCommandFeedback?.(c.cmd)
