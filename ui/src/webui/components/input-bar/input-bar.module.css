@@ -138,6 +138,9 @@
   background: var(--color-surface-elevated);
   border-radius: var(--radius-md);
   overflow: hidden;
+  /* 候选过多时容器内滚动（@path 全量候选；命令列表短，不会触顶） */
+  max-height: 260px;
+  overflow-y: auto;
   box-shadow: var(--shadow-md);
 }
 .suggestItem {

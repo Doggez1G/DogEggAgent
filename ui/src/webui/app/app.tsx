@@ -157,6 +157,7 @@ export function App({ port, connectionState }: AppProps) {
         )}
         <InputBar
           port={port}
+          cwd={panel.cwd}
           isRunning={isRunning}
           onCommandNav={onCommandNav}
           onClearHistory={onClearHistory}

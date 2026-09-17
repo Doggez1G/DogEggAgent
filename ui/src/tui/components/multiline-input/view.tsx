@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Text, useInput, usePaste } from 'ink'
 import chalk from 'chalk'
 
@@ -18,13 +18,19 @@ export function MultilineInput(props: {
 }) {
   const { value, onChange, onSubmit, focus = true, placeholder = '' } = props
   const [cursorOffset, setCursorOffset] = useState(value.length)
+  // 组件自身编辑产生的最新值——区分「内部编辑」（光标自管）与「外部替换」（光标跟到新值末尾）。
+  const selfValue = useRef(value)
+  const change = (v: string): void => {
+    selfValue.current = v
+    onChange(v)
+  }
 
-  // 外部 value 变更时同步光标（如输入历史回溯清空）。
+  // 外部 value 变更（@path 补全替换 / 历史回溯 / 重试回填 / 提交后清空）→ 光标跟随到新值末尾；
+  // 内部编辑（value === selfValue）光标已由编辑逻辑自管，不动。
   useEffect(() => {
-    setCursorOffset((prev) => {
-      if (prev > value.length) return value.length
-      return prev
-    })
+    if (value === selfValue.current) return
+    selfValue.current = value
+    setCursorOffset(value.length)
   }, [value])
 
   useInput((inputChar, key) => {
@@ -36,8 +42,7 @@ export function MultilineInput(props: {
 
     // Ctrl+J（\n，多数终端的换行键）或 Alt+Enter（meta+return）→ 插入换行。
     if (inputChar === '\n' || (key.meta && key.return)) {
-      const newValue = value.slice(0, cursorOffset) + '\n' + value.slice(cursorOffset)
-      onChange(newValue)
+      change(value.slice(0, cursorOffset) + '\n' + value.slice(cursorOffset))
       setCursorOffset(cursorOffset + 1)
       return
     }
@@ -87,8 +92,7 @@ export function MultilineInput(props: {
 
     if (key.backspace || key.delete) {
       if (cursorOffset > 0) {
-        const newValue = value.slice(0, cursorOffset - 1) + value.slice(cursorOffset)
-        onChange(newValue)
+        change(value.slice(0, cursorOffset - 1) + value.slice(cursorOffset))
         setCursorOffset(cursorOffset - 1)
       }
       return
@@ -96,8 +100,7 @@ export function MultilineInput(props: {
 
     // 普通字符插入（过滤控制字符；\n 已在上面处理）。
     if (inputChar && inputChar.length > 0 && inputChar >= ' ' && inputChar !== '\n') {
-      const newValue = value.slice(0, cursorOffset) + inputChar + value.slice(cursorOffset)
-      onChange(newValue)
+      change(value.slice(0, cursorOffset) + inputChar + value.slice(cursorOffset))
       setCursorOffset(cursorOffset + inputChar.length)
     }
   }, { isActive: focus })
@@ -105,8 +108,7 @@ export function MultilineInput(props: {
   // 粘贴：bracketed paste 事件——整段插入（含换行），不触发提交。
   usePaste((paste) => {
     if (!focus || !paste) return
-    const newValue = value.slice(0, cursorOffset) + paste + value.slice(cursorOffset)
-    onChange(newValue)
+    change(value.slice(0, cursorOffset) + paste + value.slice(cursorOffset))
     setCursorOffset(cursorOffset + paste.length)
   }, { isActive: focus })
 

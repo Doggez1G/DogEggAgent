@@ -9,6 +9,8 @@ import styles from './input-bar.module.css'
 interface InputBarProps {
   port: UiPort
   isRunning: boolean
+  /** 会话 cwd——@path 补全的候选来源（仅 cwd 内提供）。 */
+  cwd?: string
   onCommandNav: (cmd: string) => void
   onClearHistory: () => void
   onQuit: () => void
@@ -24,7 +26,7 @@ interface InputBarProps {
   onRetryConsumed?: () => void
 }
 
-export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit, onUserSubmit, onNewSession, onCompact, onAddProject, onCommandFeedback, onPostError, retryText, onRetryConsumed }: InputBarProps) {
+export function InputBar({ port, isRunning, cwd, onCommandNav, onClearHistory, onQuit, onUserSubmit, onNewSession, onCompact, onAddProject, onCommandFeedback, onPostError, retryText, onRetryConsumed }: InputBarProps) {
   const [input, setInput] = useState('')
   const [suggestIdx, setSuggestIdx] = useState<number | null>(null)
   const [quickMenuOpen, setQuickMenuOpen] = useState(false)
@@ -56,6 +58,95 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
   }, [retryText, onRetryConsumed])
 
   const matches = input.startsWith('/') ? matchCommands(input) : []
+
+  // ── @path 补全（M2.5）：输入末尾 @<路径片段> 时给 cwd 内候选；立法只限 cwd 内（与权限作用域一致）。
+  // 逐层下钻：片段按最后一个 `/` 拆成目录部分 + 名字部分，目录部分解析为 cwd 内子目录再列候选
+  //（完成目录补尾 `/`，继续输入即下钻）；`..`/绝对路径/盘符片段越界 → 无候选（浏览器端无 realpath，
+  // 越界校验在词法层完成；服务端权限系统仍兜底实际工具调用）。
+  const [atMatches, setAtMatches] = useState<{ name: string; isDir: boolean }[]>([])
+  const [atIdx, setAtIdxState] = useState<number | null>(null)
+  const atIdxRef = useRef<number | null>(null)
+  const setAtIdx = useCallback((i: number | null) => { atIdxRef.current = i; setAtIdxState(i) }, [])
+  // 目录列表缓存：按目录绝对路径缓存（逐层下钻会访问多个目录），TTL 内复用避免逐键请求。
+  const fsCacheRef = useRef<Map<string, { at: number; entries: { name: string; isDir: boolean }[] }>>(new Map())
+  // cwd 切换（会话/项目切换）时清空目录缓存——旧目录的候选不该出现在新 cwd 的联想里。
+  useEffect(() => { fsCacheRef.current.clear() }, [cwd])
+  // 键盘导航时高亮候选滚入可视区（候选全量展示后容器可滚动，光标不能滚出视野）。
+  const activeAtRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => { activeAtRef.current?.scrollIntoView({ block: 'nearest' }) }, [atIdx])
+  const latestValue = useRef(input)
+  const FS_CACHE_TTL_MS = 3000
+
+  // 检测输入末尾的 @<路径片段>；@ 前须是行首/空白（避免误匹配邮箱）。
+  // 返回目录部分/名字部分/替换起点（名字部分起始下标，补全保留已输入的目录前缀）；目录部分越界（..、绝对、盘符）返回 null。
+  const atFragment = (value: string): { dirPart: string; namePart: string; start: number } | null => {
+    const m = /(?:^|\s)@([\w./\-]*)$/.exec(value)
+    if (!m) return null
+    const frag = m[1]!
+    const slash = frag.lastIndexOf('/')
+    const dirPart = slash >= 0 ? frag.slice(0, slash) : ''
+    const namePart = slash >= 0 ? frag.slice(slash + 1) : frag
+    if (dirPart.startsWith('/') || /^[a-zA-Z]:/.test(dirPart) || dirPart.split('/').includes('..')) return null
+    return { dirPart, namePart, start: m.index + m[0].length - namePart.length }
+  }
+
+  // 目录部分的请求地址：cwd 拼接相对目录部分（cwd 已由 UI 限定在项目内）。
+  const dirUrl = (dirPart: string): string => {
+    const base = (cwd ?? '').replace(/[\\/]+$/, '')
+    return dirPart === '' ? base : `${base}/${dirPart}`
+  }
+
+  // 用当前输入的 @片段 过滤候选并展示（缓存命中时同步，未命中时异步拉取后补）。
+  const refreshAt = (value: string): void => {
+    const frag = atFragment(value)
+    if (!frag || !cwd) { setAtMatches([]); setAtIdx(null); return }
+    const dirPath = dirUrl(frag.dirPart)
+    const apply = (entries: { name: string; isDir: boolean }[], prefix: string): void => {
+      // token 恰好等于某个已有文件 → 补全终结，关闭弹框（文件没有下一层；目录候选名带尾 / 不会误中）。
+      if (prefix !== '' && entries.some((e) => !e.isDir && e.name.toLowerCase() === prefix)) {
+        setAtMatches([]); setAtIdx(null)
+        return
+      }
+      // 目录在前、文件在后，各自字母序，**全量返回不截断**——展示由容器 max-height + 滚动承载。
+      const byName = (a: { name: string }, b: { name: string }) => (a.name < b.name ? -1 : 1)
+      const list = [
+        ...entries.filter((e) => e.isDir && e.name.toLowerCase().startsWith(prefix)).sort(byName),
+        ...entries.filter((e) => !e.isDir && e.name.toLowerCase().startsWith(prefix)).sort(byName),
+      ]
+      setAtMatches(list)
+      setAtIdx(list.length > 0 ? 0 : null)
+    }
+    const hit = fsCacheRef.current.get(dirPath)
+    if (hit && Date.now() - hit.at < FS_CACHE_TTL_MS) { apply(hit.entries, frag.namePart.toLowerCase()); return }
+    setAtMatches([]); setAtIdx(null)
+    void (async () => {
+      try {
+        const res = await fetch(`/api/fs?path=${encodeURIComponent(dirPath)}&files=true`)
+        if (!res.ok) return
+        const data = await res.json() as { dirs?: string[]; files?: string[] }
+        const entries = [
+          ...(data.dirs ?? []).map((d) => ({ name: d + '/', isDir: true })),
+          ...(data.files ?? []).map((f) => ({ name: f, isDir: false })),
+        ]
+        fsCacheRef.current.set(dirPath, { at: Date.now(), entries })
+        // 拉取期间输入可能已变化——目录一致才补，且按最新输入的名字部分过滤（防旧响应覆盖新状态）。
+        const latest = atFragment(latestValue.current)
+        if (!latest || dirUrl(latest.dirPart) !== dirPath) return
+        apply(entries, latest.namePart.toLowerCase())
+      } catch { setAtMatches([]) }
+    })()
+  }
+
+  // 补全插入：只替换末尾的名字部分（保留 '@' 与已输入的目录前缀），目录补尾 / 后继续输入即下钻。
+  // 插入后立即按新输入刷新候选——目录候选直接列出子层（弹框不中断），文件候选按终结规则关闭。
+  const insertAt = (name: string): void => {
+    const frag = atFragment(input)
+    if (!frag) return
+    const next = input.slice(0, frag.start) + name
+    setInput(next)
+    latestValue.current = next
+    refreshAt(next)
+  }
 
   const handleSubmit = useCallback(() => {
     if (matches.length > 0 && suggestIdxRef.current !== null) {
@@ -101,6 +192,27 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
     setSuggest(null)
   }, [input, matches, port, onCommandNav, onClearHistory, onQuit, onUserSubmit, onCommandFeedback, setSuggest])
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // @path 菜单导航（优先于 slash 联想——两者首字符互斥）：↑↓ 选择、Tab/回车插入、esc 关闭。
+    if (atMatches.length > 0) {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setAtIdx(atIdxRef.current === null ? atMatches.length - 1 : (atIdxRef.current - 1 + atMatches.length) % atMatches.length)
+        return
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setAtIdx(atIdxRef.current === null ? 0 : (atIdxRef.current + 1) % atMatches.length)
+        return
+      }
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        e.preventDefault()
+        const idx = atIdxRef.current ?? 0
+        const picked = atMatches[idx]
+        if (picked) insertAt(picked.name)
+        return
+      }
+      if (e.key === 'Escape') { setAtMatches([]); setAtIdx(null); return }
+    }
     if (matches.length > 0) {
       if (e.key === 'ArrowUp') {
         e.preventDefault()
@@ -171,13 +283,30 @@ export function InputBar({ port, isRunning, onCommandNav, onClearHistory, onQuit
           ))}
         </div>
       )}
+      {atMatches.length > 0 && (
+        <div className={styles.suggestions}>
+          {atMatches.map((m, i) => (
+            <div
+              key={m.name}
+              ref={i === atIdx ? activeAtRef : undefined}
+              className={`${styles.suggestItem} ${i === atIdx ? styles.suggestActive : ''}`}
+              onMouseDown={(e) => { e.preventDefault(); insertAt(m.name) }}
+            >
+              <span className={styles.suggestCmd}>{m.name}</span>
+              <span className={styles.suggestDesc}>{m.isDir ? 'directory' : 'file'}</span>
+            </div>
+          ))}
+        </div>
+      )}
       <div className={styles.inputContainer}>
         <textarea
           className={styles.textarea}
           value={input}
           onChange={(e) => {
             setInput(e.target.value)
+            latestValue.current = e.target.value
             setSuggest(null)
+            refreshAt(e.target.value)
             e.target.style.height = 'auto'
             e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px'
           }}

@@ -1,5 +1,6 @@
 import type { Key } from 'ink'
 import { matchCommands } from '../../../shared'
+import { matchPathToken } from './path-suggest'
 
 export interface SuggestionKeysApi {
   setInput(value: string): void
@@ -32,6 +33,47 @@ export function handleSuggestionKeys(key: Key, inputChar: string, api: Suggestio
     return true
   }
   if (key.escape) { api.setSuggestCursor(null); return true }
+  return false
+}
+
+export interface PathSuggestKeysApi {
+  getInput(): string
+  getSuggestCursor(): number | null
+  setSuggestCursor(value: number | null): void
+  /** 用候选条目补全输入（替换末尾的 @片段）。 */
+  applyCompletion(entry: { name: string; isDir: boolean }): void
+  /** 会话 cwd（候选来源，仅 cwd 内提供补全）。 */
+  cwd: string | undefined
+  /** 弹框已被 Esc 关闭（输入变化前不再弹出）——按键层整体跳过，Esc 落回其他处理。 */
+  dismissed: boolean
+  /** Esc 关闭弹框（输入不变则保持关闭，输入一变即恢复弹出）。 */
+  dismiss(): void
+}
+
+// @path 联想按键：↑↓ 选择、Tab/回车补全选中项（未选中时 Tab 补第一个、回车仍提交）、esc 关闭弹框。
+// 返回 true 表示按键已被联想处理（调用方不再继续分派）。
+export function handlePathSuggestKeys(key: Key, inputChar: string, api: PathSuggestKeysApi): boolean {
+  if (api.dismissed) return false
+  const ps = matchPathToken(api.getInput(), api.cwd)
+  if (!ps) return false
+  if (key.upArrow) {
+    const cur = api.getSuggestCursor()
+    api.setSuggestCursor(cur === null ? ps.entries.length - 1 : (cur - 1 + ps.entries.length) % ps.entries.length)
+    return true
+  }
+  if (key.downArrow) {
+    const cur = api.getSuggestCursor()
+    api.setSuggestCursor(cur === null ? 0 : (cur + 1) % ps.entries.length)
+    return true
+  }
+  if (key.tab || inputChar === '\t') {
+    const idx = api.getSuggestCursor() ?? 0
+    const entry = ps.entries[idx]
+    if (entry) api.applyCompletion(entry)
+    api.setSuggestCursor(null)
+    return true
+  }
+  if (key.escape) { api.setSuggestCursor(null); api.dismiss(); return true }
   return false
 }
 
