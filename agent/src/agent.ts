@@ -322,6 +322,18 @@ export class Agent {
           }
           this.conversation.setCwd(resolved)
           this.emit({ type: 'notice', text: `工作目录已切换到 ${resolved}` })
+          // 立即落盘 + 重推会话列表：会话文件携带 cwd，WebUI 侧栏按 cwd 分组项目树——
+          // 不即时保存的话，新项目要等下一轮对话落盘后才出现。
+          try {
+            this.sessions.save(
+              this.conversation.snapshotFull(
+                this.ctx.permission.snapshotPermissions(),
+                this.conversation.getUsage(),
+                this.conversation.getCompactions(),
+              ),
+            )
+            this.emit({ type: 'session_list', sessions: this.sessions.list() })
+          } catch { /* 落盘失败静默——切换本身已成功并提示 */ }
           // 复用 status_state 通知 UI 更新 cwd 显示（不需要 provider 配置——cwd 独立于 config）。
           if (isConfigured(this.ctx.config)) { this.emitStatusState() }
         } catch {
