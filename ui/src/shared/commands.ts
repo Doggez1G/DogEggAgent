@@ -15,19 +15,25 @@ export const COMMANDS: { cmd: string; desc: string }[] = [
   { cmd: '/rename', desc: '重命名当前会话' },
   { cmd: '/quit', desc: '退出' },
   { cmd: '/session', desc: '切换会话' },
+  { cmd: '/skills', desc: '管理 skills' },
+  { cmd: '/mcp', desc: '管理 MCP servers' },
   { cmd: '/status', desc: '状态一览' },
   { cmd: '/system', desc: '查看 system prompt' },
   { cmd: '/tools', desc: '列出工具' },
 ]
 
-// 前缀匹配：输入以 / 开头时，返回所有以当前输入为前缀的命令。
-// 输入 / → 全部命令；输入 /s → /session, /status, /system；输入 /se → /session。
+// skills 命令项（由 UI 从 skills_list 镜像构造）——与内置命令同池参与联想。
+export interface SkillCommand { cmd: string; desc: string }
+
+// 前缀匹配：输入以 / 开头时，返回所有以当前输入为前缀的命令（内置 + skills 动态命令）。
+// 输入 / → 全部命令；输入 /s → /session, /skills, /status, /system；输入 /se → /session。
 // 输入本身已完整匹配某命令时不再联想（用户已打完）。
-export function matchCommands(input: string): { cmd: string; desc: string }[] {
+export function matchCommands(input: string, skills: SkillCommand[] = []): { cmd: string; desc: string }[] {
   if (!input.startsWith('/')) return []
-  const exact = COMMANDS.find((c) => c.cmd === input)
+  const all = [...COMMANDS, ...skills]
+  const exact = all.find((c) => c.cmd === input)
   if (exact) return []
-  return COMMANDS.filter((c) => c.cmd.startsWith(input))
+  return all.filter((c) => c.cmd.startsWith(input))
 }
 
 // 斜杠命令解析结果：null = 非命令（普通消息）；UiToAgentMessage = 对应的后端消息。
@@ -39,10 +45,17 @@ export type CommandResult =
 
 // 解析输入框文本 → 命令消息。★ 可单测。
 // /model 和 /config 都先请求 config（后端回 config_state），由 App 根据 intent 决定打开哪个 overlay/面板。
-export function parseCommand(text: string): CommandResult {
+export function parseCommand(text: string, skillNames: string[] = []): CommandResult {
   const trimmed = text.trim()
   if (!trimmed) return { kind: 'user', text: '' }
   if (!trimmed.startsWith('/')) return { kind: 'user', text: trimmed }
+  // skills 动态命令：首词命中 skill 名 → invoke_skill（args = 命令后剩余全文）。
+  // 内置命令优先——保留字（/skills /mcp 等内置名）不可被同名 skill 覆盖。
+  const [first, ...rest] = trimmed.split(/\s+/)
+  const isBuiltin = first !== undefined && COMMANDS.some((c) => c.cmd === first)
+  if (first && !isBuiltin && skillNames.includes(first.slice(1))) {
+    return { kind: 'message', msg: { type: 'invoke_skill', name: first.slice(1), args: rest.join(' ') } }
+  }
 
   const cmd = trimmed.split(/\s+/)[0]!
   switch (cmd) {
@@ -64,6 +77,8 @@ export function parseCommand(text: string): CommandResult {
     case '/status': return { kind: 'message', msg: { type: 'status_request' } }
     case '/log': return { kind: 'message', msg: { type: 'log_request' } }
     case '/permissions': return { kind: 'message', msg: { type: 'permissions_request' } }
+    case '/skills': return { kind: 'message', msg: { type: 'skills_request' } }
+    case '/mcp': return { kind: 'message', msg: { type: 'mcp_request' } }
     case '/rename': {
       // /rename <名称>——参数为标题（支持空格：取 /rename 之后的全部文本）。
       const title = trimmed.slice('/rename'.length).trim()

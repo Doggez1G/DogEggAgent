@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentType } from 'react'
-import { Search, MessageSquare, Palette, Settings, Plus, Trash2, Command as CommandIcon } from 'lucide-react'
+import { FileText, Search, MessageSquare, Palette, Settings, Plus, Trash2, Command as CommandIcon } from 'lucide-react'
 import { COMMANDS, parseCommand } from '../../../shared'
 import { THEMES } from '../../app'
 import type { ThemeName, SessionItem } from '../../app'
@@ -11,6 +11,7 @@ import styles from './command-palette.module.css'
 interface CommandPaletteProps {
   sessions: SessionItem[]
   activeSessionId: string
+  skills?: { name: string; description: string }[]
   theme: ThemeName
   onThemeChange: (theme: ThemeName) => void
   onNewSession: (cwd?: string) => void
@@ -33,10 +34,10 @@ interface PaletteItem {
   run: () => void
 }
 
-const GROUPS = ['Commands', 'Sessions', 'Themes', 'Actions'] as const
+const GROUPS = ['Commands', 'Skills', 'Sessions', 'Themes', 'Actions'] as const
 
 export function CommandPalette({
-  sessions, activeSessionId, theme, onThemeChange,
+  sessions, skills, activeSessionId, theme, onThemeChange,
   onNewSession, onResumeSession, onOpenSettings, onClearHistory, onCommandFeedback, onClose, port,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('')
@@ -58,7 +59,7 @@ export function CommandPalette({
         // 裸 parseCommand 对它们只会得到 help（无参数），点了没反应。
         // 注意：这里不调 onClose——onCommandFeedback 打开的新 modal（路径选择器/重命名框）会
         // 替换掉命令面板本身，紧跟的 onClose 会把刚打开的弹框抹掉（与 /clear /config 同约定）。
-        if (c.cmd === '/cd' || c.cmd === '/rename') { onCommandFeedback?.(c.cmd); return }
+        if (c.cmd === '/cd' || c.cmd === '/rename' || c.cmd === '/skills' || c.cmd === '/mcp') { onCommandFeedback?.(c.cmd); return }
         const result = parseCommand(c.cmd)
         if (result.kind === 'message') {
           onCommandFeedback?.(c.cmd)
@@ -66,6 +67,14 @@ export function CommandPalette({
         }
         onClose()
       },
+    })),
+    ...(skills ?? []).map((s) => ({
+      id: 'skill-' + s.name,
+      group: 'Skills',
+      icon: FileText,
+      label: '/' + s.name,
+      desc: s.description,
+      run: () => { port.post({ type: 'invoke_skill', name: s.name, args: '' }); onClose() },
     })),
     ...sessions.slice(0, 10).map((s) => ({
       id: 'sess-' + s.id,

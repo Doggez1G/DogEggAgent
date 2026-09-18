@@ -11,6 +11,8 @@ interface InputBarProps {
   isRunning: boolean
   /** 会话 cwd——@path 补全的候选来源（仅 cwd 内提供）。 */
   cwd?: string
+  /** skills 动态命令（斜杠联想 + /name 调用路由）。 */
+  skills?: { name: string; description: string }[]
   onCommandNav: (cmd: string) => void
   onClearHistory: () => void
   onQuit: () => void
@@ -26,7 +28,7 @@ interface InputBarProps {
   onRetryConsumed?: () => void
 }
 
-export function InputBar({ port, isRunning, cwd, onCommandNav, onClearHistory, onQuit, onUserSubmit, onNewSession, onCompact, onAddProject, onCommandFeedback, onPostError, retryText, onRetryConsumed }: InputBarProps) {
+export function InputBar({ port, isRunning, cwd, skills, onCommandNav, onClearHistory, onQuit, onUserSubmit, onNewSession, onCompact, onAddProject, onCommandFeedback, onPostError, retryText, onRetryConsumed }: InputBarProps) {
   const [input, setInput] = useState('')
   const [suggestIdx, setSuggestIdx] = useState<number | null>(null)
   const [quickMenuOpen, setQuickMenuOpen] = useState(false)
@@ -57,7 +59,8 @@ export function InputBar({ port, isRunning, cwd, onCommandNav, onClearHistory, o
     }
   }, [retryText, onRetryConsumed])
 
-  const matches = input.startsWith('/') ? matchCommands(input) : []
+  const skillCommands = (skills ?? []).map((s) => ({ cmd: '/' + s.name, desc: `skill: ${s.description}` }))
+  const matches = input.startsWith('/') ? matchCommands(input, skillCommands) : []
 
   // ── @path 补全（M2.5）：输入末尾 @<路径片段> 时给 cwd 内候选；立法只限 cwd 内（与权限作用域一致）。
   // 逐层下钻：片段按最后一个 `/` 拆成目录部分 + 名字部分，目录部分解析为 cwd 内子目录再列候选
@@ -154,7 +157,7 @@ export function InputBar({ port, isRunning, cwd, onCommandNav, onClearHistory, o
       if (picked) { setInput(picked.cmd); setSuggest(null) }
       return
     }
-    const result = parseCommand(input)
+    const result = parseCommand(input, (skills ?? []).map((s) => s.name))
     if (result.kind === 'user' && !result.text) return
     if (result.kind === 'user') {
       onUserSubmit(result.text)
@@ -170,6 +173,8 @@ export function InputBar({ port, isRunning, cwd, onCommandNav, onClearHistory, o
       const cmd = input.trim().split(/\s+/)[0] ?? ''
       if (cmd === '/cd') { onCommandFeedback?.('/cd') }
       else if (cmd === '/rename') { onCommandFeedback?.('/rename') }
+      else if (cmd === '/skills') { onCommandFeedback?.('/skills') }
+      else if (cmd === '/mcp') { onCommandFeedback?.('/mcp') }
       else { onCommandNav('/help') }
     } else if (result.kind === 'message') {
       const cmd = input.trim().split(/\s+/)[0] ?? ''

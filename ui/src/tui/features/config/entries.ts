@@ -13,4 +13,7 @@ export interface TreeCtx {
   set: (path: string, value: unknown) => void
   add: (path: string, value: unknown) => void
   remove: (path: string, index: number, providerIndex?: number) => void
+  /** 打开 skills / mcp 管理面板（/skills、/mcp 同款）——/config 树的统一入口。 */
+  openSkills?: () => void
+  openMcp?: () => void
 }

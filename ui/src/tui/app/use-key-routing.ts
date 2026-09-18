@@ -10,6 +10,8 @@ import { handleSessionPickerKeys } from '../features/sessions/keys'
 import { handleConfigKeys } from '../features/config/keys'
 import { handleSuggestionKeys, handleHistoryKeys, handlePathSuggestKeys } from '../features/input/keys'
 import { matchPathToken, applyPathCompletion } from '../features/input'
+import { handleSkillsKeys } from '../features/skills/keys'
+import { handleMcpKeys } from '../features/mcp/keys'
 import { handleBrowseKeys } from '../features/browse/keys'
 import { handleInfoKeys } from '../features/info/keys'
 import { resetSigintTimer } from './entry'
@@ -30,6 +32,10 @@ export interface KeyRoutingDeps {
   /** @path 弹框已 Esc 关闭（输入变化前不再弹出/拦截按键）。 */
   pathDismissed: boolean
   dismissPathSuggest(): void
+  /** skills 动态命令（与内置命令同池联想）。 */
+  skillCommands: () => { cmd: string; desc: string }[]
+  /** 系统编辑器打开文件（skills 的「改」）——阻塞至编辑器退出。 */
+  openEditor(path: string): void
   suggest: { get(): number | null; set(value: number | null): void }
   browse: {
     get(): number | null
@@ -86,11 +92,27 @@ export function useKeyRouting(deps: KeyRoutingDeps): { suppressEnter(): void } {
         return handleSessionPickerKeys(v, key, inputChar, { setView: deps.setView, post: (m) => deps.port.post(m), suppressEnter })
       case 'config':
         return handleConfigKeys(v, key, inputChar, { setView: deps.setView, getConfig: () => deps.configRef.current, treeCtx: deps.treeCtx })
+      case 'skills':
+        return handleSkillsKeys(v, key, inputChar, {
+          setView: deps.setView,
+          post: (m) => deps.port.post(m),
+          openMenu: (title, items) => deps.setView({ kind: 'menu', title, items, cursor: 0 }),
+          suppressEnter,
+          openEditor: deps.openEditor,
+        })
+      case 'mcp':
+        return handleMcpKeys(v, key, inputChar, {
+          setView: deps.setView,
+          post: (m) => deps.port.post(m),
+          openMenu: (title, items) => deps.setView({ kind: 'menu', title, items, cursor: 0 }),
+          suppressEnter,
+          notice: (text) => { deps.infoScroll(() => 0); deps.setView({ kind: 'info', title: '提示', lines: [text] }) },
+        })
       case 'info':
         return handleInfoKeys(v, key, { setView: deps.setView, setInfoScroll: deps.infoScroll })
       case 'none': {
         // 分派顺序即原优先级：联想 → 浏览 → 历史（历史仅在非浏览模式下生效）。
-        if (handleSuggestionKeys(key, inputChar, { setInput: deps.setInput, getInput: () => deps.input, getSuggestCursor: deps.suggest.get, setSuggestCursor: deps.suggest.set })) return
+        if (handleSuggestionKeys(key, inputChar, { setInput: deps.setInput, getInput: () => deps.input, getSuggestCursor: deps.suggest.get, setSuggestCursor: deps.suggest.set, skillCommands: deps.skillCommands })) return
         if (handlePathSuggestKeys(key, inputChar, { getInput: () => deps.input, getSuggestCursor: deps.suggest.get, setSuggestCursor: deps.suggest.set, applyCompletion: (entry) => deps.setInput(applyPathCompletion(deps.input, matchPathToken(deps.input, deps.cwd)!.replaceStart, entry)), cwd: deps.cwd, dismissed: deps.pathDismissed, dismiss: deps.dismissPathSuggest })) return
         if (handleBrowseKeys(key, { getBrowseIdx: deps.browse.get, setBrowseIdx: deps.browse.set, getBlocks: deps.browse.blocks, isExpanded: deps.browse.isExpanded, toggleExpanded: deps.browse.toggle, clearScreenRemount: deps.clearScreenRemount })) return
         if (deps.browse.get() === null) {

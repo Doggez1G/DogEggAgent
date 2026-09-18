@@ -21,6 +21,8 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx, too
         { label: 'theme', kind: 'goto', value: THEMES[themeRegistry.name]?.label ?? '默认', subPath: { kind: 'selectTheme' } },
         { label: 'permission', kind: 'goto', value: 'allow/reject/ask', subPath: { kind: 'permission' } },
         { label: 'providers', kind: 'goto', value: `${config.providers.length} 个`, subPath: { kind: 'providers' } },
+        { label: 'skills', kind: 'action', value: '→ 管理面板（/skills）', run: () => ctx.openSkills?.() },
+        { label: 'mcpServers', kind: 'action', value: '→ 管理面板（/mcp）', run: () => ctx.openMcp?.() },
       ]
 
     case 'permission':

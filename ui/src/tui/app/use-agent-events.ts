@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { AgentToUiMessage, Config, UiPort } from '@dogegg/bridge'
+import type { McpServerEntry } from '../view-state'
 import type { View } from '../view-state'
 
 export interface StatusBarData {
@@ -31,6 +32,8 @@ export interface AgentEventsDeps {
   openConfigTree(c: Config): void
   setStatusBarData(updater: StatusBarData | ((d: StatusBarData) => StatusBarData)): void
   setToolsList(tools: { name: string; description: string }[]): void
+  setSkillsList(skills: { name: string; description: string; scope: 'project' | 'user'; path: string }[]): void
+  setMcpList(servers: McpServerEntry[]): void
   clearScreenRemount(): void
   /** 会话切换/清空后的 UI 复位（联想、浏览焦点、展开集合）。 */
   onSessionCleared(): void
@@ -100,6 +103,17 @@ export function useAgentEvents(deps: AgentEventsDeps): void {
           d.toolsIntentRef.current = false
           d.setInfoScroll(0); d.setView({ kind: 'info', title: '工具', lines: msg.tools.map((t) => `${t.name} — ${t.description}`) })
         }
+      } else if (msg.type === 'skills_list') {
+        // 清单镜像（命令联想/路由）——/skills 面板开着时同步刷新其列表。
+        d.setSkillsList(msg.skills)
+        if (d.viewRef.current.kind === 'skills') d.setView({ ...d.viewRef.current, skills: msg.skills, cursor: Math.min(d.viewRef.current.cursor, Math.max(0, msg.skills.length - 1)) })
+      } else if (msg.type === 'mcp_list') {
+        // 状态镜像（/mcp 面板开着时同步刷新——启停/错误信息实时可见）。
+        d.setMcpList(msg.servers)
+        if (d.viewRef.current.kind === 'mcp') d.setView({ ...d.viewRef.current, servers: msg.servers, cursor: Math.min(d.viewRef.current.cursor, Math.max(0, msg.servers.length - 1)) })
+      } else if (msg.type === 'skill_content') {
+        // 详情查看（skills 面板 Enter）——全文进 info 面板（可翻页）。
+        d.setInfoScroll(0); d.setView({ kind: 'info', title: `skill ${msg.name}（${msg.scope}）`, lines: msg.content.split('\n') })
       } else if (msg.type === 'status_state') {
         sessionIdRef.current = msg.sessionId
         d.currentCwdRef.current = msg.cwd
@@ -175,6 +189,8 @@ export function useAgentEvents(deps: AgentEventsDeps): void {
     deps.port.post({ type: 'status_request' })
     deps.port.post({ type: 'tools_request' })
     deps.port.post({ type: 'list_sessions' })
+    deps.port.post({ type: 'skills_request' })
+    deps.port.post({ type: 'mcp_request' })
     return off
   }, [deps.port])
 }

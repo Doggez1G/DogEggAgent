@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { Trash2, Plus, Server, Cpu, ShieldCheck, SlidersHorizontal, ChevronDown, X, FileText, FolderClosed, FolderUp, ArrowLeft, ChevronRight, Check } from 'lucide-react'
 import type { Config, UiPort } from '@dogegg/bridge'
 import { PermissionsSection } from './permissions'
+import { SkillsSection } from './skills'
+import { McpSection } from './mcp'
 import { Toggle, Button } from '../primitives'
 import styles from './settings.module.css'
 
@@ -10,16 +12,18 @@ import styles from './settings.module.css'
 // General: system prompt 用文件选择器，shell 用检测到的 shell 下拉框。
 // Models: 每个 model 有完整编辑器（name/contextWindow/maxOutput/reasoning + 删除）。
 // Permissions: 从可用工具列表选择添加，不手动输入。
-type Section = 'general' | 'models' | 'permissions'
+type Section = 'general' | 'models' | 'permissions' | 'skills' | 'mcp'
 
 interface SettingsProps {
   config: Config | null
   port: UiPort
   onClose: () => void
+  /** 打开时聚焦的 section（/skills 命令 → skills）——缺省 general。 */
+  initialSection?: 'skills' | 'mcp'
 }
 
-export function Settings({ config, port }: SettingsProps) {
-  const [section, setSection] = useState<Section>('general')
+export function Settings({ config, port, initialSection }: SettingsProps) {
+  const [section, setSection] = useState<Section>(initialSection ?? 'general')
   if (!config) return <div className={styles.loading}>Loading config...</div>
 
   return (
@@ -28,11 +32,15 @@ export function Settings({ config, port }: SettingsProps) {
         <NavBtn icon={SlidersHorizontal} label="General" active={section === 'general'} onClick={() => setSection('general')} />
         <NavBtn icon={Cpu} label="Models" active={section === 'models'} onClick={() => setSection('models')} />
         <NavBtn icon={ShieldCheck} label="Permissions" active={section === 'permissions'} onClick={() => setSection('permissions')} />
+        <NavBtn icon={FileText} label="Skills" active={section === 'skills'} onClick={() => setSection('skills')} />
+        <NavBtn icon={Server} label="MCP Servers" active={section === 'mcp'} onClick={() => setSection('mcp')} />
       </nav>
       <div className={styles.content}>
         {section === 'general' && <GeneralSection config={config} port={port} />}
         {section === 'models' && <ModelsSection config={config} port={port} />}
         {section === 'permissions' && <PermissionsSection config={config} port={port} />}
+        {section === 'skills' && <SkillsSection port={port} />}
+        {section === 'mcp' && <McpSection port={port} />}
       </div>
     </div>
   )

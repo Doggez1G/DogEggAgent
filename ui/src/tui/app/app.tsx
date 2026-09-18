@@ -5,15 +5,19 @@ import { TopBar, MessageBlock, StatusBar, MultilineInput, StreamingBlock, Pendin
 import { palette, themeRegistry } from '../theme'
 import { renderMarkdown } from '../markdown'
 import { clearScreen } from './entry'
+import { spawnSync } from 'node:child_process'
 import { reducer, type ChatState, type Block, parseCommand, matchCommands } from '../../shared'
 import { matchPathToken, applyPathCompletion, PATH_SUGGEST_WINDOW } from '../features/input'
 import { buildEntries, type TreeCtx } from '../features/config'
 import { useKeyRouting } from './use-key-routing'
 import { useChat } from './use-chat'
 import { useAgentEvents, type StatusBarData } from './use-agent-events'
+import type { McpServerEntry, SkillEntry } from '../view-state'
+import { McpPanel } from '../features/mcp'
 import { PermissionOverlay } from '../features/permission/view'
 import { MenuOverlay } from '../features/menu/view'
 import { SessionPickerOverlay } from '../features/sessions/view'
+import { SkillsPanel } from '../features/skills'
 import { ConfigOverlay } from '../features/config/view'
 import { InfoOverlay } from '../features/info/view'
 import { PromptOverlay } from '../features/prompt/view'
@@ -38,6 +42,8 @@ export function App({ port }: { port: UiPort }) {
   const [infoScroll, setInfoScroll] = useState(0) // info overlay 独立翻页
   const [statusBarData, setStatusBarData] = useState<StatusBarData>({})
   const [toolsList, setToolsList] = useState<{ name: string; description: string }[]>([]) // 运行时工具清单（/config 选择器 + /tools 面板）
+  const [skillsList, setSkillsList] = useState<SkillEntry[]>([]) // skills 清单镜像（/skills 面板 + 斜杠命令联想 + invoke 路由）
+  const [mcpList, setMcpList] = useState<McpServerEntry[]>([]) // MCP server 状态镜像（/mcp 面板）
   const currentCwdRef = useRef<string>('')
   // 标记是否为显式信息请求（/context /status 等），用于区分轮询的静默更新。
   const explicitInfoRef = useRef(false)
@@ -77,6 +83,20 @@ export function App({ port }: { port: UiPort }) {
   // 折叠切换/会话切换的清屏 + Static 重挂载（Static 已输出内容无法就地修改）。
   const clearScreenRemount = useCallback(() => { clearScreen(); setStaticKey((k) => k + 1) }, [])
   useEffect(() => themeRegistry.onChange(clearScreenRemount), [clearScreenRemount])
+  // 系统编辑器打开文件（skills 的「改」）：暂停 raw mode → spawnSync 阻塞至编辑器退出 → 恢复 + 清屏重挂 + 重拉清单。
+  const openInEditor = useCallback((path: string) => {
+    const editor = process.env.EDITOR || (process.platform === 'win32' ? 'notepad' : 'vi')
+    const stdin = process.stdin
+    const wasRaw = stdin.isRaw
+    try {
+      stdin.setRawMode?.(false)
+      spawnSync(editor, [path], { stdio: 'inherit' })
+    } finally {
+      stdin.setRawMode?.(wasRaw ?? true)
+      clearScreenRemount()
+      port.post({ type: 'skills_request' })
+    }
+  }, [clearScreenRemount, port])
   // 会话切换/清空后的 UI 复位。
   const onSessionCleared = useCallback(() => {
     setSuggestCursor(null)
@@ -97,6 +117,8 @@ export function App({ port }: { port: UiPort }) {
 
   // 配置树变更入口：翻译成 config_set/add/remove 消息发给后端。
   const treeCtx: TreeCtx = {
+    openSkills: () => setView({ kind: 'skills', cursor: 0, skills: skillsList }),
+    openMcp: () => setView({ kind: 'mcp', cursor: 0, servers: mcpList }),
     set: (path, value) => port.post({ type: 'config_set', path, value }),
     add: (path, value) => port.post({ type: 'config_add', path, value }),
     remove: (path, index, providerIndex) => port.post({ type: 'config_remove', path, index, providerIndex }),
@@ -133,6 +155,8 @@ export function App({ port }: { port: UiPort }) {
     input,
     setInput,
     cwd: cwdRef.current,
+    skillCommands: () => skillCommands,
+    openEditor: openInEditor,
     pathDismissed,
     dismissPathSuggest: () => setPathDismissed(true),
     suggest: { get: () => suggestCursorRef.current, set: setSuggestCursor },
@@ -169,6 +193,8 @@ export function App({ port }: { port: UiPort }) {
     openConfigTree: (c) => openConfigTree(c),
     setStatusBarData,
     setToolsList,
+    setSkillsList,
+    setMcpList,
     clearScreenRemount,
     onSessionCleared,
     onErrorRetry,
@@ -200,7 +226,7 @@ export function App({ port }: { port: UiPort }) {
       setSuggestCursor(null)
       return
     }
-    const result = parseCommand(raw)
+    const result = parseCommand(raw, skillsList.map((s) => s.name))
     if (result.kind === 'user' && !result.text) return
     if (result.kind === 'user') {
       dispatch({ type: 'local_user', text: result.text })
@@ -218,7 +244,8 @@ export function App({ port }: { port: UiPort }) {
         '/cd 切换工作目录    /context 查看占用',
         '/tools 列出工具     /system 系统提示词',
         '/status 状态一览    /log 调试日志',
-        '/permissions 会话权限  /quit 退出',
+        '/permissions 会话权限  /skills 管理 skills',
+        '/mcp 管理 MCP       /quit 退出',
         '/help 本帮助',
       ] })
     } else {
@@ -260,6 +287,9 @@ export function App({ port }: { port: UiPort }) {
       if (result.msg.type === 'list_sessions') {
         setView({ kind: 'sessionPicker', sessions: [], cursor: 0, query: '' })
       }
+      // /skills /mcp：先开面板壳，响应到达后填充（复用同一「响应只刷新已开面板」语义）。
+      if (result.msg.type === 'skills_request') setView({ kind: 'skills', cursor: 0, skills: skillsList })
+      if (result.msg.type === 'mcp_request') setView({ kind: 'mcp', cursor: 0, servers: mcpList })
       // 所有会打开 overlay 的命令统一吞掉提交回车——
       // port 是同步通道，agent 回响应可能立即设 view 为 menu/info，
       // 不吞的话同一个回车被 useInput 在新 view 里处理（误选中第一项）。
@@ -272,7 +302,8 @@ export function App({ port }: { port: UiPort }) {
   // ── 渲染 ──
   // 工具清单：运行时镜像为空时传 undefined——buildEntries 回退静态 KNOWN_TOOLS（空数组不是「无工具」而是「未播种」）。
   const configEntries = view.kind === 'config' && configSnapshot ? buildEntries(configSnapshot, view.path, treeCtx, toolsList.length > 0 ? toolsList : undefined) : []
-  const suggestMatches = view.kind === 'none' ? matchCommands(input) : []
+  const skillCommands = skillsList.map((s) => ({ cmd: '/' + s.name, desc: `skill: ${s.description}` }))
+  const suggestMatches = view.kind === 'none' ? matchCommands(input, skillCommands) : []
   const pathSuggest = view.kind === 'none' && suggestMatches.length === 0 && !pathDismissed ? matchPathToken(input, cwdRef.current) : null
 
   const headerInfo = configSnapshot
@@ -397,6 +428,8 @@ export function App({ port }: { port: UiPort }) {
         {/* overlay 在输入框下方展开——视觉上和输入框一体 */}
         {view.kind === 'permission' && <PermissionOverlay view={view} />}
         {view.kind === 'menu' && <MenuOverlay view={view} />}
+        {view.kind === 'skills' && <SkillsPanel view={view} />}
+        {view.kind === 'mcp' && <McpPanel view={view} />}
         {view.kind === 'sessionPicker' && <SessionPickerOverlay view={view} cwd={currentCwdRef.current} />}
         {view.kind === 'config' && <ConfigOverlay view={view} entries={configEntries} />}
         {view.kind === 'info' && <InfoOverlay view={view} scroll={infoScroll} />}

@@ -772,3 +772,29 @@
 .permPatternInputError {
   border-color: var(--color-danger);
 }
+
+/* ── Skills 全文编辑器 ── */
+.skillEditor {
+  width: 100%;
+  min-height: 320px;
+  padding: var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+}
+
+/* ── 通用条目行（Skills/MCP 列表复用）── */
+.providerItem {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--sp-2);
+}

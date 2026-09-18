@@ -3,6 +3,7 @@ import type { UiPort, UiToAgentMessage } from '@dogegg/bridge'
 import { Sidebar, TopBar, ChatView, InputBar, InfoPanel, CommandPalette, ErrorBoundary, SettingsModal, ConfirmModal, HelpModal, FsBrowserModal, PromptModal, PermissionBanner } from '../components'
 import { useChatState } from '../features/chat/use-chat-state'
 import { useSessions } from '../features/sessions/use-sessions'
+import { useSkills } from '../features/skills/use-skills'
 import { usePanelData } from '../features/info-panel/use-panel-data'
 import { useTurnTracking } from '../features/turn-tracking/use-turn-tracking'
 import { useUiChrome } from '../features/chrome/use-ui-chrome'
@@ -21,6 +22,7 @@ interface AppProps {
 export function App({ port, connectionState }: AppProps) {
   const { chat, dispatch } = useChatState(port)
   const { sessions, knownProjects, refresh: refreshSessions, forgetProject } = useSessions(port)
+  const skills = useSkills(port)
   const panel = usePanelData(port)
   const tracking = useTurnTracking(port)
   const chrome = useUiChrome(connectionState)
@@ -71,6 +73,8 @@ export function App({ port, connectionState }: AppProps) {
   const onCommandFeedback = useCallback((cmd: string) => {
     if (cmd === '/cd') setModal({ kind: 'fs-browser', onConfirm: (path) => { port.post({ type: 'set_cwd', path }); setModal({ kind: 'none' }) } })
     else if (cmd === '/rename') openRename()
+    else if (cmd === '/skills') setModal({ kind: 'settings', section: 'skills' })
+    else if (cmd === '/mcp') setModal({ kind: 'settings', section: 'mcp' })
     else {
       const section = getCommandFeedback(cmd)
       if (section) {
@@ -174,6 +178,7 @@ export function App({ port, connectionState }: AppProps) {
         <InputBar
           port={port}
           cwd={panel.cwd}
+          skills={skills.map((s) => ({ name: s.name, description: s.description }))}
           isRunning={isRunning}
           onCommandNav={onCommandNav}
           onClearHistory={onClearHistory}
@@ -191,11 +196,12 @@ export function App({ port, connectionState }: AppProps) {
 
       {/* 模态层 */}
       {modal.kind === 'settings' && (
-        <SettingsModal config={panel.config} port={port} onClose={() => setModal({ kind: 'none' })} />
+        <SettingsModal config={panel.config} port={port} onClose={() => setModal({ kind: 'none' })} initialSection={modal.section} />
       )}
       {modal.kind === 'command-palette' && (
         <CommandPalette
           sessions={sessions}
+          skills={skills.map((s) => ({ name: s.name, description: s.description }))}
           activeSessionId={panel.sessionId}
           theme={theme}
           onThemeChange={chrome.setTheme}

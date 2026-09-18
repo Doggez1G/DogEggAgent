@@ -11,7 +11,7 @@ export const THEMES: { theme: ThemeName; label: string; color: string }[] = [
 
 export type Modal =
   | { kind: 'none' }
-  | { kind: 'settings' }
+  | { kind: 'settings'; section?: 'skills' | 'mcp' }
   | { kind: 'command-palette' }
   | { kind: 'confirm'; title: string; message: string; onConfirm: () => void }
   | { kind: 'fs-browser'; onConfirm: (path: string) => void }
@@ -25,6 +25,8 @@ export type Modal =
 export const COMMAND_TO_MODAL: Record<string, { modal: Exclude<Modal, { kind: 'none' }> }> = {
   '/config': { modal: { kind: 'settings' } },
   '/model': { modal: { kind: 'settings' } },
+  '/skills': { modal: { kind: 'settings', section: 'skills' } },
+  '/mcp': { modal: { kind: 'settings', section: 'mcp' } },
   '/help': { modal: { kind: 'help' } },
 }
 

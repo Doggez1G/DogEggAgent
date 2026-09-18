@@ -7,12 +7,14 @@ export interface SuggestionKeysApi {
   getInput(): string
   getSuggestCursor(): number | null
   setSuggestCursor(value: number | null): void
+  /** skills 动态命令（可选注入）——与内置命令同池参与联想。 */
+  skillCommands?: () => { cmd: string; desc: string }[]
 }
 
 // 斜杠命令联想按键：有匹配时 ↑↓ 选择、Tab/回车补全、esc 关闭。
 // 返回 true 表示按键已被联想处理（调用方不再继续分派）。
 export function handleSuggestionKeys(key: Key, inputChar: string, api: SuggestionKeysApi): boolean {
-  const matches = matchCommands(api.getInput())
+  const matches = matchCommands(api.getInput(), api.skillCommands?.() ?? [])
   if (matches.length === 0) return false
   if (key.upArrow) {
     const cur = api.getSuggestCursor()
