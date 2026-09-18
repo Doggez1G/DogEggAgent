@@ -77,6 +77,9 @@ export function InputBar({ port, isRunning, cwd, skills, onCommandNav, onClearHi
   // 键盘导航时高亮候选滚入可视区（候选全量展示后容器可滚动，光标不能滚出视野）。
   const activeAtRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => { activeAtRef.current?.scrollIntoView({ block: 'nearest' }) }, [atIdx])
+  // 斜杠联想（含 skills 动态命令）同款：键盘上下选择时高亮项滚入可视区。
+  const activeSuggestRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => { activeSuggestRef.current?.scrollIntoView({ block: 'nearest' }) }, [suggestIdx])
   const latestValue = useRef(input)
   const FS_CACHE_TTL_MS = 3000
 
@@ -280,6 +283,7 @@ export function InputBar({ port, isRunning, cwd, skills, onCommandNav, onClearHi
           {matches.map((m, i) => (
             <div
               key={m.cmd}
+              ref={i === suggestIdx ? activeSuggestRef : undefined}
               className={`${styles.suggestItem} ${i === suggestIdx ? styles.suggestActive : ''}`}
               onMouseDown={(e) => { e.preventDefault(); setInput(m.cmd); setSuggest(null) }}
             >
