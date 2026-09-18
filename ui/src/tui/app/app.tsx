@@ -311,9 +311,12 @@ export function App({ port }: { port: UiPort }) {
     : '加载配置中…'
 
   // Static items：品牌头 + 已完成的块（toolActive 时最后一块未完成，留在动态区）。
+  // 品牌头延迟打印：Static 只在首现时渲染一次——启动瞬间 config/status 还没回来，
+  // 先打印会永远定格在「加载配置中…」/ 短横线；等两者就绪再打印即为准确信息。
+  const headerReady = configSnapshot !== null && statusBarData.cwd !== undefined
   const stableCount = chat.toolActive && chat.blocks.length > 0 ? chat.blocks.length - 1 : chat.blocks.length
   const staticItems: StaticItem[] = [
-    { type: 'header' },
+    ...(headerReady ? [{ type: 'header' as const }] : []),
     ...chat.blocks.slice(0, stableCount).map((block) => ({ type: 'block' as const, block })),
   ]
 

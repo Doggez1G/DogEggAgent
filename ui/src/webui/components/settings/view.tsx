@@ -76,7 +76,7 @@ function GeneralSection({ config, port }: { config: Config; port: UiPort }) {
       <div className={styles.sectionDesc}>Default provider, model, and runtime configuration</div>
       <div className={styles.fieldGroup}>
         <SelectField label="Default Provider" desc="Which API provider to use" value={config.defaultProvider ?? ''} options={providers.length ? providers : [{ value: '', label: '(none)' }]} onChange={(v) => port.post({ type: 'config_set', path: 'defaultProvider', value: v })} />
-        <SelectField label="Default Model" desc="Which model to use for responses" value={config.defaultModel ?? ''} options={modelOptions.length ? modelOptions : [{ value: '', label: '(select provider first)' }]} onChange={(v) => port.post({ type: 'config_set', path: 'defaultModel', value: v })} />
+        <SelectField label="Default Model" desc="Which model to use for responses" value={config.defaultModel ?? ''} options={modelOptions.length ? modelOptions : [{ value: '', label: currentProvider ? '(no models — add them in Models)' : '(select provider first)' }]} onChange={(v) => port.post({ type: 'config_set', path: 'defaultModel', value: v })} />
 
         {/* System Prompt — 原生文件选择对话框 + 清除按钮 */}
         <div className={styles.field}>
@@ -266,13 +266,18 @@ function FsFilePicker({ onConfirm, onClose }: { onConfirm: (path: string) => voi
 
 // ── 通用表单组件 ──
 function SelectField({ label, desc, value, options, onChange }: { label: string; desc?: string; value: string; options: { value: string; label: string }[]; onChange: (v: string) => void }) {
+  // 健壮性：当前值不在选项中（如 provider 的模型清单尚未同步到前端）时，补显「当前值」——
+  // 避免 select 静默回落到第一个选项，造成「配置看似丢失」的错觉。
+  const opts = value && !options.some((o) => o.value === value)
+    ? [{ value, label: `${value}（当前值）` }, ...options]
+    : options
   return (
     <div className={styles.field}>
       <span className={styles.fieldLabel}>{label}</span>
       {desc && <span className={styles.fieldDesc}>{desc}</span>}
       <div className={styles.selectWrap}>
         <select className={styles.select} value={value} onChange={(e) => onChange(e.target.value)}>
-          {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          {opts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         <ChevronDown size={12} strokeWidth={2} className={styles.selectArrow} />
       </div>
