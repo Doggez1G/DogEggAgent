@@ -20,6 +20,10 @@ function configTargetPath(): string {
 
 // 配置存取：读取（zod 校验 + 默认值填充）与落盘。路径策略为模块私有实现。
 export class ConfigStore {
+  // defaultPath：落盘目标的测试接缝——缺省走真实配置路径。⚠️ 凡会触发配置保存的测试
+  //（config_set / mcp_manage 全局写）必须注入临时路径，否则会用测试数据覆写用户真实配置。
+  constructor(private readonly defaultPath?: string) {}
+
   // raw 用于测试注入；运行时传 undefined 从文件加载。
   // 找不到配置文件时返回空配置（providers 为空），让程序能启动、引导用户去 /config。
   load(raw?: unknown): Config {
@@ -42,7 +46,7 @@ export class ConfigStore {
   }
 
   // 把内存中的配置序列化写回 JSON（/config 编辑的持久化）；path 缺省走 configTargetPath()。
-  save(config: Config, path = configTargetPath()): void {
+  save(config: Config, path = this.defaultPath ?? configTargetPath()): void {
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, JSON.stringify(config, null, 2), 'utf8')
   }

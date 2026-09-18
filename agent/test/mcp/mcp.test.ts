@@ -56,16 +56,19 @@ function toolCallScript(): LlmClient {
 function makeAgent(client: LlmClient, mcpServers: McpServerConfig[]) {
   const sessionsDir = mkdtempSync(join(tmpdir(), 'dogegg-mcp-'))
   const cwd = mkdtempSync(join(tmpdir(), 'dogegg-mcpcwd-'))
+  // 配置落盘路径必须指向临时文件——全局 mcp_manage 会触发 config 保存，
+  // 缺省路径是用户真实配置（本测试曾因此覆写真实配置，教训立法）。
+  const configPath = mkdtempSync(join(tmpdir(), 'dogegg-mcpcfg-')) + '/config.json'
   const { agentPort, uiPort } = new InMemoryChannel()
   const events: AgentToUiMessage[] = []
   // eslint-disable-next-line no-new
-  new Agent(agentPort, makeConfig(mcpServers), cwd, { client, sessionsDir })
+  new Agent(agentPort, makeConfig(mcpServers), cwd, { client, sessionsDir, configPath })
   uiPort.onMessage((m) => {
     events.push(m)
     log.push(`${m.type}${m.type === 'mcp_list' ? ':' + JSON.stringify(m.servers.map((s) => ({ name: s.name, enabled: s.enabled, status: s.status }))) : m.type === 'notice' ? ':' + m.text + '|' + (m.channel ?? '-') : m.type === 'tools_list' ? ':' + (m.tools.some((t) => t.name.startsWith('mcp')) ? '有mcp' : '无mcp') : ''}`)
   })
   const post = (m: UiToAgentMessage) => { uiPort.post(m) }
-  return { events, post, cwd, sessionsDir }
+  return { events, post, cwd, sessionsDir, configPath }
 }
 
 async function waitFor(events: AgentToUiMessage[], pred: (e: AgentToUiMessage) => boolean, label: string): Promise<AgentToUiMessage> {
@@ -120,7 +123,7 @@ describe('MCP 端到端（假 stdio server）', () => {
   it('面板 CRUD：停用 → 工具摘除；项目级 save 落盘 .dogegg/.mcp.json；delete 移除', async () => {
     const script = join(mkdtempSync(join(tmpdir(), 'dogegg-mcpbin-')), 'fake.mjs')
     writeFileSync(script, FAKE_SERVER_JS, 'utf8')
-    const { events, post, cwd } = makeAgent(toolCallScript(), [{ name: 'fake', enabled: true, transport: { type: 'stdio', command: process.execPath, args: [script] } }])
+    const { events, post, cwd, configPath } = makeAgent(toolCallScript(), [{ name: 'fake', enabled: true, transport: { type: 'stdio', command: process.execPath, args: [script] } }])
     await waitRunning(post, events)
 
     // 停用 → rebuild → 工具从注册表摘除。
@@ -128,6 +131,8 @@ describe('MCP 端到端（假 stdio server）', () => {
     await waitFor(events, (e) => e.type === 'tools_list' && !(e as Extract<AgentToUiMessage, { type: 'tools_list' }>).tools.some((t) => t.name === 'mcp__fake__echo'), 'tools 摘除')
     const stopped = await waitFor(events, (e) => e.type === 'mcp_list', 'mcp_list 停用')
     expect(JSON.stringify(stopped)).toContain('"stopped"')
+    // 全局写入只落测试配置文件（接缝生效）——用户真实配置永不被测试触碰。
+    expect(readFileSync(configPath, 'utf8')).toContain('"enabled": false')
 
     // 项目级 save → .dogegg/.mcp.json 落盘。
     const cfg2: McpServerConfig = { name: 'proj-srv', enabled: true, transport: { type: 'stdio', command: process.execPath, args: [script] } }

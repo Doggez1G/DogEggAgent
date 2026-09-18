@@ -30,6 +30,8 @@ export interface AgentOptions {
   registry?: ToolRegistry
   /** 用户级 skills 目录——缺省 ~/.dogegg/skills（测试注入临时目录）。 */
   skillsUserDir?: string
+  /** 配置落盘路径——缺省真实配置文件。⚠️ 会触发配置保存的测试必须注入临时路径。 */
+  configPath?: string
 }
 
 // Agent 是后端对外的唯一入口（门面）：持有 port 订阅与消息路由，通过 AgentPort 收发消息，不依赖 ui。
@@ -75,7 +77,7 @@ export class Agent {
       gate: new BusyGate(),
     }
     this.editor = new ConfigEditor(config)
-    this.configs = new ConfigStore()
+    this.configs = new ConfigStore(opts.configPath)
     this.compactor = new Compactor(this.summarize)
     this.loop = new AgentLoop({
       registry: this.registry,
