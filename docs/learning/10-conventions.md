@@ -120,6 +120,11 @@ npx vitest run agent/test/agent.turn.test.ts   # 单跑表征测试（行为基�
 
 ## M4 扩展能力（2026-09-18）
 
+- **shell 身份暴露立法**：shell 解析带 kind（cmd/powershell 5.1/pwsh 7/bash/sh），本机 PATH 扫描
+  约束配置生效（配置的 shell 不在扫描结果内 → 回退平台默认；pwsh 与 powershell 不再混用）；
+  系统提示注入「Shell 环境」段（解释器 + 每类语法要点）——模型训练分布偏 Unix，不注入则
+  Windows 上按 bash 猜语法是 shell 失败的主因；
+
 - **Skills（M4.1）**：自有目录体系（用户级 ~/.dogegg/skills、项目级 .dogegg/skills）+ Agent Skills
   格式（SKILL.md frontmatter）；名字=目录名立法；渐进披露（系统提示只注入清单，模型 read_file 取全文）；
   双通道触发（/命令 + 模型自取）；/skills 面板 CRUD（create 骨架 / $EDITOR / 删除确认）；

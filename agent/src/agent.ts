@@ -10,7 +10,7 @@ import { BusyGate, newId, CancelledError, Logger } from './shared'
 import { Conversation, SessionManager, SessionStore } from './session'
 import { ConfigController, ConfigStore, ConfigEditor, resolveCurrent } from './config'
 import { ContextAssembler, breakdownContextTokens } from './context'
-import { ToolRegistry } from './tools'
+import { ToolRegistry, resolveShell, shellGuidance } from './tools'
 import { clientFor, type LlmClient } from './llm'
 import { PermissionManager, deriveAlwaysScope } from './permission'
 import { SkillsManager } from './skills'
@@ -72,7 +72,7 @@ export class Agent {
     this.ctx = {
       config,
       permission: new PermissionManager(config.permission, [this.skills.userDirPath()]),
-      assembler: new ContextAssembler(config.systemPrompt, this.registry, () => this.skills.promptSection()),
+      assembler: new ContextAssembler(config.systemPrompt, this.registry, () => this.skills.promptSection() + shellGuidance(resolveShell(config.shellProgram))),
       machine: new StateMachine('idle'),
       gate: new BusyGate(),
     }
@@ -327,7 +327,7 @@ export class Agent {
     const saved = this.ctx.permission.snapshotPermissions()
     this.ctx.permission = new PermissionManager(config.permission, [this.skills.userDirPath()])
     this.ctx.permission.restore(saved)
-    this.ctx.assembler = new ContextAssembler(config.systemPrompt, this.registry, () => this.skills.promptSection())
+    this.ctx.assembler = new ContextAssembler(config.systemPrompt, this.registry, () => this.skills.promptSection() + shellGuidance(resolveShell(config.shellProgram)))
     // mcpServers 可能随配置变化——diff 重建（无变化时幂等空转，不广播）。
     void this.rebuildMcp().catch(() => {})
     // provider/model 变更即时推送到状态栏与右侧面板——否则要等下一轮问答的状态机变化才刷新。
