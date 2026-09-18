@@ -15,6 +15,7 @@ const config: Config = {
   defaultModel: 'gpt-4o',
   maxIterations: 50,
   maxRetries: 3,
+    mcpServers: [],
   permission: { allow: {}, reject: {}, ask: {} },
   providers: [provider],
 }

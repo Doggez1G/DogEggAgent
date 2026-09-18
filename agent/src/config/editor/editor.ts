@@ -31,6 +31,12 @@ export class ConfigEditor {
     return this.afterEdit()
   }
 
+  // mcpServers 整组替换（/mcp 面板的写入原语）——不走点号路径文法（数组结构由 zod 整体校验）。
+  setMcpServers(servers: Config['mcpServers']): { ok: boolean; error?: string } {
+    this.config.mcpServers = servers
+    return this.afterEdit()
+  }
+
   remove(path: string, index: number, providerIndex?: number): { ok: boolean; error?: string } {
     if (path !== 'providers' && path !== 'models') return { ok: false, error: `无效的删除路径：${path}` }
     applyRemove(this.config, path, index, providerIndex)

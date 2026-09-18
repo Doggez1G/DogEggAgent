@@ -133,6 +133,8 @@ describe('architecture: agent 子域矩阵（纵切立法，2026-09-07 spec §6�
     llm: [],
     context: ['tools'],
     permission: [],
+    skills: [],
+    mcp: ['tools'],
     shared: [],
   }
 

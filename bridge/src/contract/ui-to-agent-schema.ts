@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { UiToAgentMessage } from './ui-to-agent'
+import { mcpServerSchema } from './config'
 
 // UiToAgentMessage 的 zod schema——用于 POST /api/message 的运行时校验。
 // 与 ui-to-agent.ts 的类型定义一一对应，只是加了运行时验证能力。
@@ -25,6 +26,25 @@ export const uiToAgentMessageSchema: z.ZodType<UiToAgentMessage> = z.discriminat
   z.object({ type: z.literal('permissions_request') }),
   z.object({ type: z.literal('permission_revoke'), tool: z.string(), pattern: z.string().optional() }),
   z.object({ type: z.literal('rename_session'), title: z.string() }),
+  z.object({ type: z.literal('skills_request') }),
+  z.object({
+    type: z.literal('skills_manage'),
+    action: z.enum(['create', 'update', 'delete', 'get']),
+    scope: z.enum(['project', 'user']),
+    name: z.string(),
+    description: z.string().optional(),
+    content: z.string().optional(),
+  }),
+  z.object({ type: z.literal('invoke_skill'), name: z.string(), args: z.string() }),
+  z.object({ type: z.literal('mcp_request') }),
+  z.object({
+    type: z.literal('mcp_manage'),
+    action: z.enum(['save', 'delete', 'toggle']),
+    scope: z.enum(['global', 'project']),
+    server: mcpServerSchema.optional(),
+    name: z.string().optional(),
+    enabled: z.boolean().optional(),
+  }),
   z.object({ type: z.literal('set_cwd'), path: z.string() }),
   z.object({ type: z.literal('delete_session'), id: z.string() }),
   z.object({ type: z.literal('clear_history') }),

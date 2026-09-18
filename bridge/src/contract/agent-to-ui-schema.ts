@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { mcpTransportSchema } from './config'
 import type { AgentToUiMessage } from './agent-to-ui'
 
 // AgentToUiMessage 的 zod schema——用于 SSE 客户端校验下行消息。
@@ -47,12 +48,29 @@ export const agentToUiMessageSchema: z.ZodType<AgentToUiMessage> = z.discriminat
   z.object({ type: z.literal('status_state'), sessionId: z.string(), provider: z.string(), model: z.string(), cwd: z.string(), state: stateSchema, estimatedTokens: z.number(), windowTokens: z.number(), usage: z.object({ promptTokens: z.number(), completionTokens: z.number(), turns: z.number() }).optional() }),
   z.object({ type: z.literal('log_state'), path: z.string(), tail: z.string() }),
   z.object({ type: z.literal('history_cleared') }),
-  z.object({ type: z.literal('notice'), text: z.string() }),
+  z.object({ type: z.literal('notice'), text: z.string(), channel: z.enum(['skills', 'mcp']).optional() }),
   z.object({
     type: z.literal('permissions_list'),
     permissions: z.array(z.object({ tool: z.string(), patterns: z.array(z.string()) })),
   }),
   z.object({ type: z.literal('compaction'), before_tokens: z.number(), after_tokens: z.number(), source: z.enum(['manual', 'auto']) }),
+  z.object({
+    type: z.literal('skills_list'),
+    skills: z.array(z.object({ name: z.string(), description: z.string(), scope: z.enum(['project', 'user']), path: z.string() })),
+  }),
+  z.object({ type: z.literal('skill_content'), scope: z.enum(['project', 'user']), name: z.string(), content: z.string() }),
+  z.object({
+    type: z.literal('mcp_list'),
+    servers: z.array(z.object({
+      name: z.string(),
+      enabled: z.boolean(),
+      scope: z.enum(['global', 'project']),
+      transport: mcpTransportSchema,
+      status: z.enum(['running', 'starting', 'error', 'stopped']),
+      error: z.string().optional(),
+      tools: z.array(z.object({ name: z.string(), description: z.string() })),
+    })),
+  }),
   z.object({ type: z.literal('finished'), usage: z.unknown().optional() }),
   z.object({ type: z.literal('error'), error: z.object({ message: z.string(), name: z.string().optional() }) }),
 ])

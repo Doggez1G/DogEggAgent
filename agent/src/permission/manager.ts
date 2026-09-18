@@ -10,15 +10,28 @@ import { classifyPermission as classify, primarySpecifier } from '@dogegg/bridge
 export class PermissionManager {
   // tool → 模式数组（空数组 = 整工具提升；非空 = 范围模式，path 已是绝对形式、command 为原文通配）。
   private sessionRules = new Map<string, string[]>()
+  // 内置读豁免目录（posix 归一）：read_file 落 ask 且目标在其中时自动 allow。
+  // 用途：用户级 skills 目录是 agent 管理的资产——系统提示引导模型读 SKILL.md，不应反复弹审批。
+  private readonly builtinReadDirs: string[]
 
-  constructor(private cfg: PermissionConfig) {}
+  constructor(private cfg: PermissionConfig, builtinReadDirs: string[] = []) {
+    this.builtinReadDirs = builtinReadDirs.map((d) => d.replace(/\\/g, '/').replace(/\/+$/, ''))
+  }
 
   // classify 的本域职责：把「路径类匹配」归一化到统一坐标系（绝对 posix 路径）后再交给 bridge 引擎。
   // cwd 由调用方传入（ToolExecutor 持有 turn.cwd）——set_cwd 切换目录后天然生效。
   // cwd 缺省（UI display-only 调用）时跳过归一化：display 不传 args，参数化规则本就不参与展示判定。
   classify(tool: string, args?: ToolArgs, cwd?: string): 'allow' | 'reject' | 'ask' {
-    if (!cwd) return classify(this.cfg, tool, args, this.sessionRules)
-    return classify(this.normalizeRules(cwd), tool, this.normalizeArgs(args, cwd), this.sessionRules)
+    const normalizedArgs = cwd ? this.normalizeArgs(args, cwd) : args
+    const decision = cwd
+      ? classify(this.normalizeRules(cwd), tool, normalizedArgs, this.sessionRules)
+      : classify(this.cfg, tool, normalizedArgs, this.sessionRules)
+    // 内置读豁免：仅 read_file、仅配置桶落 ask（reject / 会话提升等更早判定不受影响）。
+    if (decision === 'ask' && tool === 'read_file' && this.builtinReadDirs.length > 0) {
+      const p = typeof normalizedArgs?.path === 'string' ? normalizedArgs.path : undefined
+      if (p && this.builtinReadDirs.some((d) => p === d || p.startsWith(d + '/'))) return 'allow'
+    }
+    return decision
   }
 
   // 会话提升落库。allow_always = 整工具（patterns 空，覆盖同工具已有窄范围——提宽不提示，

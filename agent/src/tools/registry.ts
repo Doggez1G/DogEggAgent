@@ -34,6 +34,11 @@ export class ToolRegistry {
     this.tools.set(tool.name, tool)
   }
 
+  // 运行期摘除（MCP server 停止/工具清单变化时用）——不存在时静默。
+  unregister(name: string): void {
+    this.tools.delete(name)
+  }
+
   get(name: string): Tool | undefined {
     return this.tools.get(name)
   }

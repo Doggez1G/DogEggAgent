@@ -2,6 +2,12 @@
   "name": "@dogegg/agent",
   "version": "0.1.0",
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
-  "dependencies": { "zod": "^4.4.3", "@dogegg/bridge": "*" }
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@dogegg/bridge": "*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.4.3"
+  }
 }

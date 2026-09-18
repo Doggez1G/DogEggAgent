@@ -30,6 +30,12 @@ export class ConfigController {
     this.edit((e) => e.remove(path, index, providerIndex))
   }
 
+  // mcpServers 整组替换（/mcp 面板全局写入原语）——与 set/add/remove 同一条 edit 链路
+  //（gate 阻塞 / zod 校验 / 落盘 / config 广播 / onConfigChanged 运行时联动）。
+  replaceMcpServers(servers: Config['mcpServers']): void {
+    this.edit((e) => e.setMcpServers(servers))
+  }
+
   // 配置编辑统一入口：委托 ConfigEditor，成功后同步运行时 + 落盘 + emit。
   private edit(fn: (e: ConfigEditor) => { ok: boolean; error?: string }): void {
     if (this.deps.ctx.gate.busy) { this.deps.emit({ type: 'notice', text: '运行中，请稍候' }); return }

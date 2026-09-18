@@ -1,10 +1,10 @@
 import type { AgentPort } from '@dogegg/bridge'
 import type { UiToAgentMessage } from '@dogegg/bridge'
 import type { AgentToUiMessage } from '@dogegg/bridge'
-import type { Message, Config } from '@dogegg/bridge'
+import type { Message, Config, McpServerConfig } from '@dogegg/bridge'
 import { isConfigured } from '@dogegg/bridge'
 import { statSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { StateMachine, type TransitionInput, PendingPermissions, TurnRunner, type TurnParams, AgentLoop, Compactor, summarizeHistory, type PermissionResolution } from './turn'
 import { BusyGate, newId, CancelledError, Logger } from './shared'
 import { Conversation, SessionManager, SessionStore } from './session'
@@ -13,6 +13,9 @@ import { ContextAssembler, breakdownContextTokens } from './context'
 import { ToolRegistry } from './tools'
 import { clientFor, type LlmClient } from './llm'
 import { PermissionManager, deriveAlwaysScope } from './permission'
+import { SkillsManager } from './skills'
+import { McpManager, readProjectMcp, writeProjectMcp, mergeMcpServers, type McpMergedEntry } from './mcp'
+import { homedir } from 'node:os'
 import type { AgentContext } from './ctx'
 
 // Agent 构造选项：依赖注入（生产组合根传 logger；client/sessionsDir/registry 为测试接缝）。
@@ -25,6 +28,8 @@ export interface AgentOptions {
   logger?: Logger
   /** 工具注册表——缺省内置四工具（测试可注入子集）。 */
   registry?: ToolRegistry
+  /** 用户级 skills 目录——缺省 ~/.dogegg/skills（测试注入临时目录）。 */
+  skillsUserDir?: string
 }
 
 // Agent 是后端对外的唯一入口（门面）：持有 port 订阅与消息路由，通过 AgentPort 收发消息，不依赖 ui。
@@ -46,6 +51,8 @@ export class Agent {
   private readonly turnRunner: TurnRunner
   private readonly sessionManager: SessionManager
   private readonly configController: ConfigController
+  private readonly skills: SkillsManager
+  private readonly mcp: McpManager
 
   constructor(
     private port: AgentPort,
@@ -58,10 +65,12 @@ export class Agent {
     this.registry = opts.registry ?? ToolRegistry.withBuiltins()
     this.clientOverride = opts.client
     this.conversation = new Conversation(cwd)
+    this.skills = new SkillsManager(opts.skillsUserDir ?? join(homedir(), '.dogegg', 'skills'))
+    this.skills.setProjectDir(cwd)
     this.ctx = {
       config,
-      permission: new PermissionManager(config.permission),
-      assembler: new ContextAssembler(config.systemPrompt, this.registry),
+      permission: new PermissionManager(config.permission, [this.skills.userDirPath()]),
+      assembler: new ContextAssembler(config.systemPrompt, this.registry, () => this.skills.promptSection()),
       machine: new StateMachine('idle'),
       gate: new BusyGate(),
     }
@@ -99,6 +108,9 @@ export class Agent {
       emit: (m) => this.emit(m),
       onConfigChanged: (config) => this.onConfigChanged(config),
     })
+    this.mcp = new McpManager({ registry: this.registry, emit: (m) => this.emit(m) })
+    // 启动即拉起已配置的 MCP server（异步——不阻塞消息循环；失败在 mcp_list 里可见）。
+    void this.rebuildMcp().catch(() => {})
     // 自订阅：UI 发来的消息都经 port 路由到 send。
     this.port.onMessage((msg) => { this.send(msg).catch(() => {}) })
   }
@@ -166,6 +178,111 @@ export class Agent {
     this.emit({ type: 'status_state', sessionId: this.conversation.getId(), provider: cur.providerName, model: cur.modelName, cwd: this.conversation.getCwd(), state: this.ctx.machine.state, estimatedTokens: this.estimateCurrentTokens(), windowTokens: cur.contextWindow, usage: this.conversation.getUsage() })
   }
 
+  // skills 清单广播：扫描两级目录（项目级随 cwd），供面板/命令联想/系统提示段共用同一事实源。
+  private emitSkillsList(): void {
+    // 失效缓存强制重扫——面板/命令联想的清单永远反映磁盘事实（外部手改文件也在此可见）。
+    this.skills.invalidate()
+    this.emit({ type: 'skills_list', skills: this.skills.list() })
+  }
+
+  // MCP 工具清单广播（tools_request 与 MCP 生命周期变化共用同一形状）。
+  private emitToolsList(): void {
+    this.emit({ type: 'tools_list', tools: this.registry.all().map((t) => ({ name: t.name, description: t.description })) })
+  }
+
+  // 生效的 MCP server 列表 = 全局 config.mcpServers ⊕ 项目 .dogegg/.mcp.json（同名项目覆盖，scope 随条目下发）。
+  private mergeMcp(): McpMergedEntry[] {
+    return mergeMcpServers(this.ctx.config.mcpServers, readProjectMcp(this.conversation.getCwd()))
+  }
+
+  // diff 重建 MCP server（异步；变化后自动广播 mcp_list + tools_list）。
+  // 串行化：触发源多（启动/config_updated/set_cwd/面板 manage），链式排队防交错重入——
+  // 交错会让同一 server 被起两个进程、旧 client 变孤儿泄漏。merge 在执行时刻取值（总是最新配置）。
+  private mcpRebuildChain: Promise<void> = Promise.resolve()
+  private rebuildMcp(): Promise<void> {
+    this.mcpRebuildChain = this.mcpRebuildChain
+      .then(() => this.mcp.rebuild(this.mergeMcp()))
+      .catch(() => { /* 重建失败不中断后续重建——状态在 mcp_list 可见 */ })
+    return this.mcpRebuildChain
+  }
+
+  private emitMcpList(): void {
+    this.emit({ type: 'mcp_list', servers: this.mcp.listStatus() })
+  }
+
+  // /mcp 面板 CRUD 的实现归属：global 走 ConfigEditor（复用校验/落盘/广播链路），project 直写 .mcp.json。
+  // 保存/启停后触发 rebuild（全局经 config_updated 钩子，项目显式触发）。
+  private handleMcpManage(cmd: Extract<UiToAgentMessage, { type: 'mcp_manage' }>): void {
+    if (cmd.scope === 'global') {
+      const next = [...this.ctx.config.mcpServers]
+      const findIdx = (name?: string): number => next.findIndex((s) => s.name === name)
+      if (cmd.action === 'save') {
+        if (!cmd.server) { this.emit({ type: 'notice', text: '缺少 server 配置', channel: 'mcp' }); return }
+        const i = findIdx(cmd.server.name)
+        if (i >= 0) next[i] = cmd.server; else next.push(cmd.server)
+        this.configController.replaceMcpServers(next) // config_updated → onConfigChanged → rebuild
+        return
+      }
+      if (cmd.action === 'delete') {
+        this.configController.replaceMcpServers(next.filter((s) => s.name !== cmd.name))
+        this.emitMcpList()
+        return
+      }
+      if (cmd.action === 'toggle') {
+        const i = findIdx(cmd.name)
+        if (i < 0) { this.emit({ type: 'notice', text: `未找到 server：${cmd.name}`, channel: 'mcp' }); return }
+        next[i] = { ...next[i]!, enabled: cmd.enabled ?? !next[i]!.enabled }
+        this.configController.replaceMcpServers(next)
+        return
+      }
+      return
+    }
+    // ── 项目级：直写 .dogegg/.mcp.json ──
+    const cwd = this.conversation.getCwd()
+    const list = readProjectMcp(cwd)
+    if (cmd.action === 'save') {
+      if (!cmd.server) { this.emit({ type: 'notice', text: '缺少 server 配置', channel: 'mcp' }); return }
+      const i = list.findIndex((s) => s.name === cmd.server!.name)
+      if (i >= 0) list[i] = cmd.server; else list.push(cmd.server)
+      writeProjectMcp(cwd, list)
+    } else if (cmd.action === 'delete') {
+      writeProjectMcp(cwd, list.filter((s) => s.name !== cmd.name))
+    } else if (cmd.action === 'toggle') {
+      const i = list.findIndex((s) => s.name === cmd.name)
+      if (i < 0) { this.emit({ type: 'notice', text: `未找到 server：${cmd.name}`, channel: 'mcp' }); return }
+      list[i] = { ...list[i]!, enabled: cmd.enabled ?? !list[i]!.enabled }
+      writeProjectMcp(cwd, list)
+    }
+    void this.rebuildMcp().catch(() => {})
+    this.emitMcpList()
+  }
+
+  // skills 面板 CRUD 的实现归属：create（骨架生成）/ update（全文替换）/ delete（删目录）/ get（回全文）。
+  // 操作失败（名称非法/已存在/越界）转 notice——面板原地可见，不静默。
+  private handleSkillsManage(cmd: Extract<UiToAgentMessage, { type: 'skills_manage' }>): void {
+    try {
+      switch (cmd.action) {
+        case 'create':
+          this.skills.create(cmd.scope, cmd.name, cmd.description ?? '')
+          this.emit({ type: 'notice', text: `skill 已创建：${cmd.name}（${cmd.scope}）——正文记得用编辑器充实` })
+          break
+        case 'update':
+          this.skills.update(cmd.scope, cmd.name, cmd.content ?? '')
+          break
+        case 'delete':
+          this.skills.remove(cmd.scope, cmd.name)
+          this.emit({ type: 'notice', text: `skill 已删除：${cmd.name}（${cmd.scope}）` })
+          break
+        case 'get':
+          this.emit({ type: 'skill_content', scope: cmd.scope, name: cmd.name, content: this.skills.read(cmd.scope, cmd.name) })
+          return // get 的响应是 skill_content，不需要重播清单
+      }
+      this.emitSkillsList()
+    } catch (e) {
+      this.emit({ type: 'notice', text: (e as Error).message, channel: 'skills' })
+    }
+  }
+
   // 向 UI 提出权限请求，返回一个在收到 permission_decision 时才决议的 Promise。
   // 【SDK 接缝】无头使用时可注入程序化 permissionHandler 替代此 Port 往返。
   private requestPermission(tool: string, input: unknown): Promise<PermissionResolution> {
@@ -206,9 +323,11 @@ export class Agent {
   private onConfigChanged(config: Config): void {
     this.ctx.config = config
     const saved = this.ctx.permission.snapshotPermissions()
-    this.ctx.permission = new PermissionManager(config.permission)
+    this.ctx.permission = new PermissionManager(config.permission, [this.skills.userDirPath()])
     this.ctx.permission.restore(saved)
-    this.ctx.assembler = new ContextAssembler(config.systemPrompt, this.registry)
+    this.ctx.assembler = new ContextAssembler(config.systemPrompt, this.registry, () => this.skills.promptSection())
+    // mcpServers 可能随配置变化——diff 重建（无变化时幂等空转，不广播）。
+    void this.rebuildMcp().catch(() => {})
   }
 
   // 命令分发：动工作集类在 running 时发 notice 不静默丢弃；纯查询类始终放行。
@@ -265,9 +384,36 @@ export class Agent {
         this.pending.resolve(cmd.id, cmd.decision)
         break
 
+      // ── skills（查询放行；管理是文件写操作运行中阻塞；调用走轮次）──
+      case 'skills_request':
+        this.emitSkillsList()
+        break
+      case 'skills_manage':
+        if (this.ctx.gate.busy) { this.emit({ type: 'notice', text: '运行中，请稍候' }); break }
+        this.handleSkillsManage(cmd)
+        break
+      case 'invoke_skill':
+        if (!isConfigured(this.ctx.config)) { this.emit({ type: 'notice', text: '尚未配置 provider，请先 /config 添加并保存后重试' }); break }
+        try {
+          const skillText = this.skills.forInvocation(cmd.name, cmd.args)
+          await this.turnRunner.submit(skillText, this.resolveTurnParams())
+        } catch (e) {
+          this.emit({ type: 'notice', text: (e as Error).message })
+        }
+        break
+
+      // ── MCP（查询放行；管理写配置/文件，运行中阻塞）──
+      case 'mcp_request':
+        this.emitMcpList()
+        break
+      case 'mcp_manage':
+        if (this.ctx.gate.busy) { this.emit({ type: 'notice', text: '运行中，请稍候' }); break }
+        this.handleMcpManage(cmd)
+        break
+
       // ── 纯查询（任意时刻放行）──
       case 'tools_request':
-        this.emit({ type: 'tools_list', tools: this.registry.all().map((t) => ({ name: t.name, description: t.description })) })
+        this.emitToolsList()
         break
       case 'context_request': {
         if (!isConfigured(this.ctx.config)) { this.emit({ type: 'notice', text: '尚未配置 provider，请先 /config' }); break }
@@ -339,6 +485,10 @@ export class Agent {
             break
           }
           this.conversation.setCwd(resolved)
+          // 项目级 skills 目录随 cwd 变化——重扫并广播（清单段下一轮请求自动生效）。
+          this.skills.setProjectDir(resolved)
+          this.emitSkillsList()
+          void this.rebuildMcp().catch(() => {})
           this.emit({ type: 'notice', text: `工作目录已切换到 ${resolved}` })
           // 立即落盘 + 重推会话列表：会话文件携带 cwd，WebUI 侧栏按 cwd 分组项目树——
           // 不即时保存的话，新项目要等下一轮对话落盘后才出现。

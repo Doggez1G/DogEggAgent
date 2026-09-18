@@ -19,6 +19,30 @@ export const providerSchema = z.object({
   models: z.array(modelSchema).default([]),
 })
 
+// MCP server 配置（M4.2）：全局放 config.json 的 mcpServers 字段，项目级放 .dogegg/.mcp.json
+// （同名 server 项目覆盖全局）。transport 判别联合——stdio（本地进程）与 http（远程 Streamable HTTP）。
+// enabled=false 只停用不删除（调试时保留配置）。
+export const mcpTransportSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('stdio'),
+    command: z.string(),
+    args: z.array(z.string()).default([]),
+    env: z.record(z.string(), z.string()).optional(),
+  }),
+  z.object({
+    type: z.literal('http'),
+    url: z.string(),
+    headers: z.record(z.string(), z.string()).optional(),
+  }),
+])
+export const mcpServerSchema = z.object({
+  name: z.string().min(1),
+  enabled: z.boolean().default(true),
+  transport: mcpTransportSchema,
+})
+export type McpServerConfig = z.infer<typeof mcpServerSchema>
+export type McpTransport = z.infer<typeof mcpTransportSchema>
+
 // 参数化权限规则：{ tool: 精确名或通配 } + 任意个限定键（值 = 参数模式，键名镜像工具自己的 zod schema
 // 字段，如 read_file 的 path、shell 的 command）。全部限定键命中才算规则命中（见 contract/permission.ts）。
 // 限定键经 catchall 强制为字符串——规则对象里塞非字符串值属配置错误，load 期即拒绝。
@@ -138,6 +162,8 @@ export const configSchema = z.object({
     reject: {},
     ask: { write_file: [], edit_file: [], shell: [] },
   }),
+  // MCP server 列表（/mcp 面板与 .dogegg/.mcp.json 共用同一 schema；变更即重启对应 server）。
+  mcpServers: z.array(mcpServerSchema).default([]),
   providers: z.array(providerSchema).default([]),
 })
 
