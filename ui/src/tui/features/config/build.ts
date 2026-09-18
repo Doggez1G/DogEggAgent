@@ -96,11 +96,25 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx, too
       if (!p) return []
       return [
         { label: 'name', kind: 'scalar', value: p.name, save: (v) => ctx.set(`providers.${path.index}.name`, v) },
+        { label: 'protocol', kind: 'goto', value: `${p.protocol}（当前仅支持 openai）`, subPath: { kind: 'selectProtocol', index: path.index } as ConfigPath },
         { label: 'baseURL', kind: 'scalar', value: p.baseURL, save: (v) => ctx.set(`providers.${path.index}.baseURL`, v) },
         { label: 'apiKey', kind: 'scalar', value: p.apiKey, save: (v) => ctx.set(`providers.${path.index}.apiKey`, v) },
         { label: 'models', kind: 'goto', value: `${p.models.length} 个`, subPath: { kind: 'models', providerIndex: path.index } },
         { label: '删除此 provider', kind: 'action', value: '', run: () => ctx.remove('providers', path.index), del: () => ctx.remove('providers', path.index) },
       ]
+    }
+
+    case 'selectProtocol': {
+      // 协议选择：当前仅支持 OpenAI 兼容协议——选项列表即支持矩阵的 UI 面，
+      // 新增协议时在此扩展选项并注册对应 LLM client（schema enum 同步）。
+      const supported = ['openai']
+      const p = config.providers[path.index]
+      return supported.map((proto) => ({
+        label: proto,
+        kind: 'action' as const,
+        value: (p?.protocol ?? 'openai') === proto ? '✓' : '',
+        run: () => ctx.set(`providers.${path.index}.protocol`, proto),
+      }))
     }
 
     case 'models': {

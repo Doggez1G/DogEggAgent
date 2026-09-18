@@ -6,6 +6,7 @@ export type ConfigPath =
   | { kind: 'permissionTool'; bucket: 'allow' | 'reject' | 'ask'; tool: string }
   | { kind: 'providers' }
   | { kind: 'provider'; index: number }
+  | { kind: 'selectProtocol'; index: number }
   | { kind: 'models'; providerIndex: number }
   | { kind: 'model'; providerIndex: number; modelIndex: number }
   | { kind: 'selectProvider' }
@@ -24,6 +25,7 @@ export function parentPath(path: ConfigPath): ConfigPath | null {
     case 'providers': case 'selectProvider': case 'selectModel': case 'selectShell': case 'selectTheme': return { kind: 'root' }
     case 'selectTool': return { kind: 'permissionBucket', bucket: path.bucket }
     case 'provider': return { kind: 'providers' }
+    case 'selectProtocol': return { kind: 'provider', index: path.index }
     case 'models': return { kind: 'provider', index: path.providerIndex }
     case 'model': return { kind: 'models', providerIndex: path.providerIndex }
   }

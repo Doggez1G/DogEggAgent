@@ -146,6 +146,7 @@ function ProviderCard({ provider, pIdx, port }: { provider: Config['providers'][
       {expanded && (
         <div className={styles.providerBody}>
           <TextField label="Name" value={provider.name} mono clearable onChange={(v) => port.post({ type: 'config_set', path: `${base}.name`, value: v })} />
+          <SelectField label="Protocol" desc="API protocol (currently OpenAI-compatible only)" value={provider.protocol} options={[{ value: 'openai', label: 'openai (OpenAI-compatible)' }]} onChange={(v) => port.post({ type: 'config_set', path: `${base}.protocol`, value: v })} />
           <TextField label="Base URL" value={provider.baseURL} mono clearable onChange={(v) => port.post({ type: 'config_set', path: `${base}.baseURL`, value: v })} />
           <TextField label="API Key" value={provider.apiKey} mono password clearable onChange={(v) => port.post({ type: 'config_set', path: `${base}.apiKey`, value: v })} />
 

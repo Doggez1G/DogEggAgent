@@ -28,11 +28,11 @@ function asBucketMap(v: unknown): Record<string, string[]> {
 export type ConfigSetOp =
   | { kind: 'top'; field: 'defaultProvider' | 'defaultModel' | 'maxIterations' | 'maxRetries' | 'systemPrompt' | 'shellProgram'; value: string | number }
   | { kind: 'permission'; bucket: 'allow' | 'reject' | 'ask'; value: Record<string, string[]> }
-  | { kind: 'provider'; index: number; field: 'name' | 'baseURL' | 'apiKey'; value: string }
+  | { kind: 'provider'; index: number; field: 'name' | 'baseURL' | 'apiKey' | 'protocol'; value: string }
   | { kind: 'model'; providerIndex: number; modelIndex: number; field: 'name' | 'contextWindow' | 'maxOutput' | 'reasoning'; value: string | number | boolean }
 
 const TOP_FIELDS = ['defaultProvider', 'defaultModel', 'maxIterations', 'maxRetries', 'systemPrompt', 'shellProgram'] as const
-const PROVIDER_FIELDS = ['name', 'baseURL', 'apiKey'] as const
+const PROVIDER_FIELDS = ['name', 'baseURL', 'apiKey', 'protocol'] as const
 const MODEL_FIELDS = ['name', 'contextWindow', 'maxOutput', 'reasoning'] as const
 
 function isTopField(s: string): s is typeof TOP_FIELDS[number] {

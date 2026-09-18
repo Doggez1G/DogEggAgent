@@ -17,7 +17,7 @@ export function applySet(config: Config, op: ConfigSetOp): void {
     case 'provider': {
       const p = config.providers[op.index]
       if (!p) return
-      p[op.field] = op.value
+      ;(p as Record<string, unknown>)[op.field] = op.value // protocol 等枚举字段由 zod 校验兜底
       break
     }
     case 'model': {

@@ -19,7 +19,7 @@ describe('config-tree', () => {
 
   it('provider lists its fields plus a delete action', () => {
     const labels = buildEntries(cfg, { kind: 'provider', index: 0 }, ctx).map((e) => e.label)
-    expect(labels).toEqual(['name', 'baseURL', 'apiKey', 'models', '删除此 provider'])
+    expect(labels).toEqual(['name', 'protocol', 'baseURL', 'apiKey', 'models', '删除此 provider'])
   })
 
   it('model exposes boolean reasoning field', () => {
