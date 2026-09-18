@@ -363,15 +363,28 @@ export function App({ port }: { port: UiPort }) {
 
         {view.kind === 'none' && (
           <Box flexDirection="column">
-            {suggestMatches.length > 0 && (
-              <Box flexDirection="column">
-                {suggestMatches.map((m, i) => (
-                  <Text key={m.cmd} inverse={i === suggestCursor} color={i === suggestCursor ? undefined : palette.subtext}>
-                    {i === suggestCursor ? '> ' : '  '}{m.cmd} <Text dimColor>{m.desc}</Text>
-                  </Text>
-                ))}
-              </Box>
-            )}
+            {suggestMatches.length > 0 && (() => {
+              // 一行一条（长描述截断防换行）+ 滑动窗口（与 @path 联想同款，列表高度有上限）。
+              const win = PATH_SUGGEST_WINDOW
+              const total = suggestMatches.length
+              const cur = suggestCursor ?? 0
+              const start = Math.max(0, Math.min(cur - win + 1, total - win))
+              const windowed = suggestMatches.slice(start, start + win)
+              const trunc = (t: string): string => (t.length > 28 ? t.slice(0, 28) + '…' : t)
+              return (
+                <Box flexDirection="column">
+                  {windowed.map((m, i) => {
+                    const real = start + i
+                    return (
+                      <Text key={m.cmd} inverse={real === suggestCursor} color={real === suggestCursor ? undefined : palette.subtext}>
+                        {real === suggestCursor ? '> ' : '  '}{m.cmd} <Text dimColor>{trunc(m.desc)}</Text>
+                      </Text>
+                    )
+                  })}
+                  {total > win && <Text dimColor>　…共 {total} 项（↑↓ 滚动选择）</Text>}
+                </Box>
+              )
+            })()}
             {pathSuggest && (() => {
               // 候选全量返回，仅渲染光标附近的滑动窗口（↑↓ 时窗口跟随滚动）；超出窗口时提示总数。
               const total = pathSuggest.entries.length

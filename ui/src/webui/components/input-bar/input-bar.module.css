@@ -153,6 +153,23 @@
 }
 .suggestItem:hover { background: var(--color-surface); }
 .suggestActive { background: var(--color-surface); color: var(--color-accent); }
-.suggestCmd { font-family: var(--font-mono); font-weight: 500; color: var(--color-text); }
+/* 条目一行化：长描述（如 skill）省略号截断，容器内滚动（suggestions 已限高） */
+.suggestCmd {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
 .suggestActive .suggestCmd { color: var(--color-accent); }
-.suggestDesc { color: var(--color-subtext); font-size: var(--fs-xs); }
+.suggestDesc {
+  color: var(--color-subtext);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
