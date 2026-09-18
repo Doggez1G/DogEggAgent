@@ -18,11 +18,12 @@
 | [08](./08-config-permission.md) | config 与 permission | 宽容加载、快照回滚、两层权限、会话隔离 |
 | [09](./09-bridge-server-ui.md) | bridge、server 与前端 | 消息即 API、双通道实现、HTTP 安全四件套 |
 | [10](./10-conventions.md) | 规范与扩展 | 三层 taxonomy、依赖矩阵、扩展位模板、SDK 接缝、已接受债 |
+| [11](./11-skills-mcp.md) | Skills 与 MCP | 自有目录体系 + Agent Skills 格式、官方 SDK Client、双通道触发、CRUD 面板 |
 
 ## 快速开始读代码
 
 ```bash
-npm run test:run                                # 全量测试（354）
+npm run test:run                                # 全量测试（370）
 npx vitest run agent/test/agent.turn.test.ts    # 表征测试：agent 对外行为的活样本
 npm run build && node dist/dogegg.js            # 真机跑 TUI
 ```

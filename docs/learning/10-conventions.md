@@ -87,7 +87,7 @@ await agent.submit('...'); await agent.session.resume(id)
 
 ```bash
 npm run typecheck   # 五路 tsc
-npm run test:run    # 354 测试（含表征测试与架构测试）
+npm run test:run    # 370 测试（含表征测试与架构测试）
 npm run build       # esbuild → dist/dogegg.js
 npx vitest run agent/test/agent.turn.test.ts   # 单跑表征测试（行为基线）
 ```
@@ -117,3 +117,16 @@ npx vitest run agent/test/agent.turn.test.ts   # 单跑表征测试（行为基�
 - **工具清单播种**：挂载与 config_updated 后台播种 tools_list；工具面板只由显式 /tools 打开
   （独立 intent 标志——与 explicitInfoRef 分离，防播种响应误消费 /context 等的显式标志）；
 - **TUI 工具清单运行时化**：/config 选择器消费 tools_list（WebUI 已先行）——MCP 运行期注册的工具自动出现。
+
+## M4 扩展能力（2026-09-18）
+
+- **Skills（M4.1）**：自有目录体系（用户级 ~/.dogegg/skills、项目级 .dogegg/skills）+ Agent Skills
+  格式（SKILL.md frontmatter）；名字=目录名立法；渐进披露（系统提示只注入清单，模型 read_file 取全文）；
+  双通道触发（/命令 + 模型自取）；/skills 面板 CRUD（create 骨架 / $EDITOR / 删除确认）；
+  用户级目录 read_file 权限豁免（builtinReadDirs）；内置命令名保留字优先；
+- **MCP（M4.2）**：官方 @modelcontextprotocol/sdk；全局 config.json mcpServers + 项目 .dogegg/.mcp.json
+  （同名项目覆盖，scope 随合并条目下发）；工具 mcp__<server>__<tool> 动态注册（registry.unregister +
+  原生 JSON Schema 透传 + 宽松 zod）；默认 ask、桶通配 mcp__fs__*；/mcp 面板增删改启停（状态广播
+  mcp_list）；/config 树 skills/mcpServers 统一入口（TreeCtx.openSkills/openMcp）；
+- **架构矩阵**：skills（无内部依赖）、mcp（→tools）作为新能力域加入 ALLOWED；
+- 详见 learning 11 章与 spec 2026-09-18-skills-mcp-design。
