@@ -2,8 +2,9 @@ import { execFileSync } from 'node:child_process'
 
 // 系统 shell 候选——按常见顺序检测。
 const CANDIDATES = [
-  { cmd: 'powershell', value: 'powershell', label: 'PowerShell' },
-  { cmd: 'pwsh', value: 'pwsh', label: 'PowerShell 7' },
+  // powershell.exe 只对应 Windows PowerShell 5.1（6+ 已改名 pwsh.exe）——标签直接标注版本
+  { cmd: 'powershell', value: 'powershell', label: 'PowerShell 5.1（Windows 内置，不支持 &&）' },
+  { cmd: 'pwsh', value: 'pwsh', label: 'PowerShell 7+（pwsh）' },
   { cmd: 'cmd', value: 'cmd', label: 'Command Prompt (cmd)' },
   { cmd: 'bash', value: 'bash', label: 'Bash' },
   { cmd: 'zsh', value: 'zsh', label: 'Zsh' },
