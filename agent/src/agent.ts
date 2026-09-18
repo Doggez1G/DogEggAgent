@@ -330,6 +330,8 @@ export class Agent {
     this.ctx.assembler = new ContextAssembler(config.systemPrompt, this.registry, () => this.skills.promptSection())
     // mcpServers 可能随配置变化——diff 重建（无变化时幂等空转，不广播）。
     void this.rebuildMcp().catch(() => {})
+    // provider/model 变更即时推送到状态栏与右侧面板——否则要等下一轮问答的状态机变化才刷新。
+    if (isConfigured(this.ctx.config)) { this.emitStatusState() }
   }
 
   // 命令分发：动工作集类在 running 时发 notice 不静默丢弃；纯查询类始终放行。

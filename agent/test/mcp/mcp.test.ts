@@ -131,6 +131,8 @@ describe('MCP 端到端（假 stdio server）', () => {
     await waitFor(events, (e) => e.type === 'tools_list' && !(e as Extract<AgentToUiMessage, { type: 'tools_list' }>).tools.some((t) => t.name === 'mcp__fake__echo'), 'tools 摘除')
     const stopped = await waitFor(events, (e) => e.type === 'mcp_list', 'mcp_list 停用')
     expect(JSON.stringify(stopped)).toContain('"stopped"')
+    // 配置变更即时推送 status_state（状态栏/右侧面板不等下一轮问答才刷新）。
+    await waitFor(events, (e) => e.type === 'status_state', 'toggle 后的 status_state')
     // 全局写入只落测试配置文件（接缝生效）——用户真实配置永不被测试触碰。
     expect(readFileSync(configPath, 'utf8')).toContain('"enabled": false')
 
