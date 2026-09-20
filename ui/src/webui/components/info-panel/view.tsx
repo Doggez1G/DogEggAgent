@@ -263,14 +263,15 @@ export function InfoPanel(props: InfoPanelProps) {
           {props.systemState ? (
             <div className={styles.miniContent}>
               <span className={styles.miniPath}>{props.systemState.path}</span>
-              <pre className={styles.miniPre}>{props.systemState.content.slice(0, 200)}</pre>
+              {/* 全文呈现（.miniPre 内部滚动）——systemPrompt 含 skills/shell 指引动辄数千字，截断失去参考价值 */}
+              <pre className={styles.miniPre}>{props.systemState.content}</pre>
             </div>
           ) : <p className={styles.emptyText}>Loading...</p>}
         </InfoCard>
 
         <InfoCard title="Log Tail" icon={ScrollText} defaultOpen={false} highlight={props.highlightSection === 'log'}>
           {props.logState ? (
-            <pre className={styles.miniPre}>{props.logState.tail.slice(0, 500)}</pre>
+            <pre className={styles.miniPre}>{props.logState.tail}</pre>
           ) : <p className={styles.emptyText}>Loading...</p>}
         </InfoCard>
       </div>
