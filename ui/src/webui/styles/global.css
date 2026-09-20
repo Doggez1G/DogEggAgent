@@ -39,6 +39,11 @@ body {
   background: var(--color-subtext);
 }
 
+/* 按钮继承正文字体——UA 样式默认给表单控件自己的字体族，CJK 会落到衬线字体破坏设计。 */
+button {
+  font-family: inherit;
+}
+
 /* 可见焦点环——键盘可达性（input/select/textarea 自有 border 焦点样式，不叠加 outline）。 */
 *:focus-visible:not(input):not(textarea):not(select) {
   outline: 2px solid var(--color-accent);

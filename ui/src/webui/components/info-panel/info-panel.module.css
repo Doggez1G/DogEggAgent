@@ -357,6 +357,7 @@
   background: transparent;
   cursor: pointer;
   text-align: left;
+  font-family: inherit; /* button 不自动继承页面字体——缺省会落到 UA 字体（CJK 呈衬线），破坏设计 */
 }
 .toolGroupHeader:hover { background: var(--color-bg); }
 .toolGroupChevron { flex-shrink: 0; color: var(--color-subtext); transition: transform 0.12s ease; }
