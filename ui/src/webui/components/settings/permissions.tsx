@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ChevronDown, X } from 'lucide-react'
-import type { Config, ToolListItem, UiPort } from '@dogegg/bridge'
+import type { Config, PermissionRule, ToolListItem, UiPort } from '@dogegg/bridge'
 import styles from './settings.module.css'
 
 // 权限设置区（v2：桶 → 键 → 模式数组，空数组 = 整工具/整服务）——从 view.tsx 抽出的独立区块组件。
@@ -45,38 +45,30 @@ function PatternChip({ pattern, onRename, onDelete }: { pattern: string; onRenam
 }
 
 // 桶内一个键的规则组：组头（键名 + 摘要 + 移除）+ 整选开关 + 模式 chips + 添加输入框。
-// 整选开关（** 标记立法，与 TUI 同构）：'**' 在三类匹配语义里都命中一切，作为「整工具/整组」
-// 的显式标记与保留条目共存——切回整选保留全部规则，取消整选原样恢复（引擎 OR 语义，零改动）。
+// 整选开关（v3 立法，与 TUI 同构）：whole 是显式字段——空选（whole:false + 无模式）可表达，
+// 开关恒可用、状态恒与引擎一致；切回整选保留全部规则，取消整选原样恢复（引擎零特判）。
 // MCP 服务键额外渲染勾选 chips（serverTools = 该服务的运行时内部工具名清单）——
-// 勾选/取消 = 数组增删内部工具名；手动 chips 只剩通配与遗留条目（含 * 或不在当前清单）。
-// 刚加入的空数组（virgin 整选）不渲染开关：首次添加/勾选即切到按模式（唯一出口）。
-function ToolPermGroup({ tool, patterns, onSetPatterns, onRemove, serverTools }: {
+// 勾选/取消 = 增删内部工具名；手动 chips 只剩通配与遗留条目（含 * 或不在当前清单）。
+function ToolPermGroup({ tool, rule, onSetRule, onRemove, serverTools }: {
   tool: string
-  patterns: string[]
-  onSetPatterns: (next: string[]) => void
+  rule: PermissionRule
+  onSetRule: (next: PermissionRule) => void
   onRemove: () => void
   serverTools?: string[]
 }) {
   const [draft, setDraft] = useState('')
   const [invalid, setInvalid] = useState(false)
+  const patterns = rule.patterns
   const isServer = serverTools !== undefined
-  const isMarker = (p: string): boolean => (isServer ? p === '*' || p === '**' : p === '**')
-  const whole = patterns.length === 0 || patterns.some(isMarker)
-  const wholeLocked = whole && patterns.length > 0 // 整选（带标记）：规则保留展示但不可更改
-  const toggleWhole = (): void => {
-    if (whole) onSetPatterns(patterns.filter((p) => !isMarker(p)))
-    else onSetPatterns(['**', ...patterns])
-  }
+  const toggleWhole = (): void => onSetRule({ ...rule, whole: !rule.whole })
   const toggleTool = (name: string): void => {
-    if (wholeLocked) return
-    if (patterns.includes(name)) onSetPatterns(patterns.filter((x) => x !== name))
-    else onSetPatterns([...patterns, name])
+    if (patterns.includes(name)) onSetRule({ ...rule, patterns: patterns.filter((x) => x !== name) })
+    else onSetRule({ ...rule, patterns: [...patterns, name] })
   }
   const add = (): void => {
-    if (wholeLocked) return
     const t = draft.trim()
     if (!t || patterns.includes(t)) { setInvalid(true); return }
-    onSetPatterns([...patterns, t])
+    onSetRule({ ...rule, patterns: [...patterns, t] })
     setDraft('')
     setInvalid(false)
   }
@@ -87,29 +79,27 @@ function ToolPermGroup({ tool, patterns, onSetPatterns, onRemove, serverTools }:
       <div className={styles.permToolHeader}>
         <span className={styles.permToolName}>{tool}</span>
         <span className={styles.permToolSummary}>
-          {whole
+          {rule.whole
             ? (isServer ? 'whole server' : 'whole tool')
-            : (isServer ? `${patterns.length} tool rule(s)` : `${patterns.length} pattern(s)`)}
+            : (patterns.length === 0 ? 'no rules selected' : (isServer ? `${patterns.length} tool rule(s)` : `${patterns.length} pattern(s)`))}
         </span>
         <button className={styles.permToolRemove} onClick={onRemove} aria-label={`Remove ${tool}`}>
           <X size={11} strokeWidth={2} />
         </button>
       </div>
-      {patterns.length > 0 && (
-        <div className={styles.permChips}>
-          <span className={styles.permChip} style={{ cursor: 'pointer' }} onClick={toggleWhole}
-            title={whole ? 'Click to uncheck — restores kept rules' : 'Click to check — keeps current rules'}>
-            <code className={styles.permChipEdit}>{whole ? '✓ ' : '· '}{isServer ? 'Whole server' : 'Whole tool'}</code>
-          </span>
-        </div>
-      )}
+      <div className={styles.permChips}>
+        <span className={styles.permChip} style={{ cursor: 'pointer' }} onClick={toggleWhole}
+          title={rule.whole ? 'Click to uncheck — edit rules below' : 'Click to check — current rules are kept'}>
+          <code className={styles.permChipEdit}>{rule.whole ? '✓ ' : '· '}{isServer ? 'Whole server' : 'Whole tool'}</code>
+        </span>
+      </div>
       {isServer && (serverTools ?? []).length > 0 && (
         <div className={styles.permChips}>
           {(serverTools ?? []).map((name) => {
             const checked = patterns.includes(name)
             return (
-              <span key={name} className={styles.permChip} style={{ cursor: wholeLocked ? 'default' : 'pointer', opacity: wholeLocked ? 0.5 : checked ? 1 : 0.55 }}
-                onClick={() => toggleTool(name)} title={wholeLocked ? 'Whole server is checked — uncheck it to edit' : checked ? 'Click to exclude' : 'Click to include'}>
+              <span key={name} className={styles.permChip} style={{ cursor: rule.whole ? 'default' : 'pointer', opacity: rule.whole ? 0.5 : checked ? 1 : 0.55 }}
+                onClick={() => { if (!rule.whole) toggleTool(name) }} title={rule.whole ? 'Whole server is checked — uncheck it to edit' : checked ? 'Click to exclude' : 'Click to include'}>
                 <code className={styles.permChipEdit}>{checked ? '✓ ' : '· '}{name}</code>
               </span>
             )
@@ -117,25 +107,25 @@ function ToolPermGroup({ tool, patterns, onSetPatterns, onRemove, serverTools }:
         </div>
       )}
       {manual.length > 0 && (
-        <div className={styles.permChips} style={{ opacity: wholeLocked ? 0.5 : 1 }}>
+        <div className={styles.permChips} style={{ opacity: rule.whole ? 0.5 : 1 }}>
           {manual.map((p) => (
             <PatternChip
               key={p}
               pattern={p}
               // patterns 全链路去重（添加/勾选均查重）——按值改名/删除即精确操作，无需索引映射。
-              onRename={(v) => { if (!wholeLocked) onSetPatterns(patterns.map((x) => (x === p ? v : x))) }}
-              onDelete={() => { if (!wholeLocked) onSetPatterns(patterns.filter((x) => x !== p)) }}
+              onRename={(v) => { if (!rule.whole) onSetRule({ ...rule, patterns: patterns.map((x) => (x === p ? v : x)) }) }}
+              onDelete={() => { if (!rule.whole) onSetRule({ ...rule, patterns: patterns.filter((x) => x !== p) }) }}
             />
           ))}
         </div>
       )}
-      {!wholeLocked && (
+      {!rule.whole && (
         <div className={styles.permAddWrap}>
           <input
             className={`${styles.permPatternInput} ${invalid ? styles.permPatternInputError : ''}`}
             placeholder={isServer
-              ? (patterns.length === 0 ? '+ Add rule (switches to selected tools only)' : '+ Add tool name or wildcard, press Enter')
-              : (patterns.length === 0 ? '+ Add pattern (switches to pattern-limited)' : '+ Add pattern, press Enter')}
+              ? '+ Add tool name or wildcard, press Enter'
+              : '+ Add pattern, press Enter'}
             value={draft}
             onChange={(e) => { setDraft(e.target.value); setInvalid(false) }}
             onKeyDown={(e) => { if (e.key === 'Enter') add() }}
@@ -152,8 +142,8 @@ function ToolPermGroup({ tool, patterns, onSetPatterns, onRemove, serverTools }:
 // 添加下拉分两组：MCP 服务（服务 = 一个权限单元，整组生效）+ 内建工具逐个。
 function BucketCard({ bucket, bucketMap, setBucket, toolsList, mcpServers }: {
   bucket: 'allow' | 'reject' | 'ask'
-  bucketMap: Record<string, string[]>
-  setBucket: (next: Record<string, string[]>) => void
+  bucketMap: Record<string, PermissionRule>
+  setBucket: (next: Record<string, PermissionRule>) => void
   toolsList: ToolListItem[]
   mcpServers: { name: string }[]
 }) {
@@ -183,13 +173,13 @@ function BucketCard({ bucket, bucketMap, setBucket, toolsList, mcpServers }: {
       </button>
       {open && (
         <div className={styles.permCardBody}>
-          {Object.entries(bucketMap).map(([tool, patterns]) => (
+          {Object.entries(bucketMap).map(([tool, rule]) => (
             <ToolPermGroup
               key={tool}
               tool={tool}
-              patterns={patterns}
+              rule={rule}
               serverTools={serverToolNames(tool)}
-              onSetPatterns={(next) => setBucket({ ...bucketMap, [tool]: next })}
+              onSetRule={(next) => setBucket({ ...bucketMap, [tool]: next })}
               onRemove={() => {
                 const next = { ...bucketMap }
                 delete next[tool]
@@ -205,7 +195,7 @@ function BucketCard({ bucket, bucketMap, setBucket, toolsList, mcpServers }: {
               value=""
               onChange={(e) => {
                 const v = e.target.value
-                if (v) setBucket({ ...bucketMap, [v]: [] })
+                if (v) setBucket({ ...bucketMap, [v]: { whole: true, patterns: [] } })
               }}
             >
               <option value="">+ Add tool...</option>
@@ -238,7 +228,7 @@ export function PermissionsSection({ config, port }: { config: Config; port: UiP
     return off
   }, [port])
 
-  const setBucket = (bucket: 'allow' | 'reject' | 'ask', next: Record<string, string[]>): void => {
+  const setBucket = (bucket: 'allow' | 'reject' | 'ask', next: Record<string, PermissionRule>): void => {
     // post 返回 void | Promise<void>（SSE 通道为 async）——发后即忘，块体丢弃返回值。
     void port.post({ type: 'config_set', path: `permission.${bucket}`, value: next })
   }
@@ -246,8 +236,9 @@ export function PermissionsSection({ config, port }: { config: Config; port: UiP
     <>
       <div className={styles.sectionTitle}>Permissions</div>
       <div className={styles.sectionDesc}>
-        Unlisted tools always ask (fixed safe default). Empty pattern list = whole tool;
-        patterns limit the scope (e.g. "git *" for shell commands, "./docs/**" for file paths).
+        Unlisted tools always ask (fixed safe default). "Whole tool/server" matches everything;
+        unchecking it limits the rule to selected tools / patterns (e.g. "git *" for shell,
+        "./docs/**" for file paths, "browser_*" for MCP internal tool names).
       </div>
       <div className={styles.permList}>
         {buckets.map((bucket) => (

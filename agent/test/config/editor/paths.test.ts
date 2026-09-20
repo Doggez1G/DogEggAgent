@@ -9,10 +9,12 @@ describe('parseConfigSet', () => {
   it('顶层标量：number 字段', () => {
     expect(parseConfigSet('maxIterations', 99)).toEqual({ kind: 'top', field: 'maxIterations', value: 99 })
   })
-  it('permission.<bucket>（v2 桶对象）', () => {
-    expect(parseConfigSet('permission.allow', { shell: ['git *'], read_file: [] })).toEqual({ kind: 'permission', bucket: 'allow', value: { shell: ['git *'], read_file: [] } })
-    // legacy 条目数组容错：归一为 grouped
-    expect(parseConfigSet('permission.allow', ['read_file', { tool: 'shell', command: 'git *' }])).toEqual({ kind: 'permission', bucket: 'allow', value: { read_file: [], shell: ['git *'] } })
+  it('permission.<bucket>（v3 规则对象；非法形状键防御性丢弃）', () => {
+    expect(parseConfigSet('permission.allow', { shell: { whole: false, patterns: ['git *'] }, read_file: { whole: true, patterns: [] } }))
+      .toEqual({ kind: 'permission', bucket: 'allow', value: { shell: { whole: false, patterns: ['git *'] }, read_file: { whole: true, patterns: [] } } })
+    // 形状非法（字符串数组/非对象）的键直接丢弃——编辑器只产合法形状，此处仅防御手写消息。
+    expect(parseConfigSet('permission.allow', { shell: ['git *'], bad: 'x', read_file: { whole: true, patterns: [] } }))
+      .toEqual({ kind: 'permission', bucket: 'allow', value: { read_file: { whole: true, patterns: [] } } })
   })
   it('permission 非法 bucket 返回 null', () => {
     expect(parseConfigSet('permission.nope', [])).toBeNull()

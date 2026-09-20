@@ -43,116 +43,78 @@ export const mcpServerSchema = z.object({
 export type McpServerConfig = z.infer<typeof mcpServerSchema>
 export type McpTransport = z.infer<typeof mcpTransportSchema>
 
-// 参数化权限规则：{ tool: 精确名或通配 } + 任意个限定键（值 = 参数模式，键名镜像工具自己的 zod schema
-// 字段，如 read_file 的 path、shell 的 command）。全部限定键命中才算规则命中（见 contract/permission.ts）。
-// 限定键经 catchall 强制为字符串——规则对象里塞非字符串值属配置错误，load 期即拒绝。
-// { tool } 单键合法（退化为整工具规则）——宽松于报错：配置里手写一半的规则仍能按预期兜底。
-export const toolRuleSchema = z.object({ tool: z.string() }).catchall(z.string())
+// ── 权限配置 v3：桶 → 键 → { whole, patterns } 结构化规则 ──
+// 设计：ADR-0012/0013。三层分离：
+// config.json（v3 结构化书写格式——唯一合法格式，配置演进不兼容原则见 ADR-0013）
+//   → 内存 Config.permission（v3 形态，编辑器直接读写）
+//   → 匹配引擎（contract/permission.ts 按 whole/patterns 求值）。
+// 键 = 内建工具名或 MCP 服务裸名（服务键按注册期身份匹配，见 contract/permission.ts）。
+// - whole: true → 整键命中（整工具/整组）；patterns 不参与匹配、仅作取消整选时的恢复内容；
+// - whole: false → patterns 生效（OR 匹配）：内建键为主参数模式（path/command），
+//   服务键为内部工具名/通配（工具启用匹配，永不涉参数）；
+// - whole: false + 空数组 → 键存在但不命中任何规则（编辑中空选态）。
+// 旧格式（M1 条目数组 / v2 字符串数组 / ** 标记）不受兼容——加载即报错并指引文档（bin/dogegg.ts）。
 
-// 三桶条目 union：裸字符串（整工具，兼容旧配置）或参数化规则对象。
-export const permissionEntrySchema = z.union([z.string(), toolRuleSchema])
+// 桶内单键规则。
+const bucketRuleSchema = z.object({
+  whole: z.boolean().default(false),
+  patterns: z.array(z.string()).default([]),
+})
 
-export type ToolRule = z.infer<typeof toolRuleSchema>
-export type PermissionEntry = z.infer<typeof permissionEntrySchema>
-
-// ── 权限配置 v2：桶 → 工具 → 模式数组（空数组 = 整工具）──
-// 设计：2026-09-09-permission-config-design.md。三层分离：
-// config.json（v2 grouped 书写格式；legacy 扁平条目数组加载兼容、保存统一写 v2）
-//   → 内存 Config.permission（v2 grouped，编辑器直接读写）
-//   → 匹配引擎（contract/permission.ts 按 grouped 逐桶求值，与 M1 判定语义完全一致）。
-// 模式字符串对应工具的主参数（primarySpecifier，见 permission.ts）：shell → command，其余 → path。
-
-// v2 桶形态：工具名 → 模式数组。空数组 = 整工具生效（引擎按零限定键规则处理）。
-const bucketMapSchema = z.record(z.string(), z.array(z.string()))
-
-// 主参数表（立法）：v2 形态里模式字符串对应工具的哪个参数。shell 的参数是 command，其余文件类
-// 工具（read/write/edit/ls/glob/grep）的文件参数都叫 path。grouped 形态的固有简化——
+// 主参数表（立法）：whole=false 时模式字符串对应工具的哪个参数。shell 的参数是 command，
+// 其余文件类工具（read/write/edit/ls/glob/grep）的文件参数都叫 path。grouped 形态的固有简化——
 // 未来新增主参数不是 path 的工具时需在此登记；表住 bridge 与归一化转换同居，三端共享同一解释。
 export const PRIMARY_SPECIFIER: Record<string, 'path' | 'command'> = { shell: 'command' }
 
-// 内建 path 主参数工具清单（立法）：作用域前缀校验只对这些键生效——只有它们的数组条目才是
-// 路径模式（锚点语义才有意义）。其余键的条目是工具名选择器，不是路径：MCP 服务键（服务下
-// 全部工具的启用匹配）、遗留 mcp__x__* 通配键、未来扩展工具——一律跳过校验。校验写于 MCP
-// 出现之前，当时所有键都是内建工具；键的语义随身份分化后，校验范围必须同步收窄。
+// 内建 path 主参数工具清单（立法）：作用域前缀校验只对这些键的 patterns 生效——只有它们的
+// 条目才是路径模式（锚点语义才有意义）。MCP 服务键等其余键的 patterns 是工具名选择器
+// （如 browser_close），不存在路径锚点语义，跳过校验。
 export const BUILTIN_PATH_TOOLS = ['read_file', 'write_file', 'edit_file', 'ls', 'glob', 'grep'] as const
 
 export function primarySpecifier(tool: string): 'path' | 'command' {
   return PRIMARY_SPECIFIER[tool] ?? 'path'
 }
 
-const permissionV2Schema = z.object({
-  allow: bucketMapSchema.default({}),
-  reject: bucketMapSchema.default({}),
-  ask: bucketMapSchema.default({}),
+// 单键规则的内存/契约形态（UI 读写、引擎匹配共用）。
+export type PermissionRule = z.infer<typeof bucketRuleSchema>
+
+const permissionV3Schema = z.object({
+  allow: z.record(z.string(), bucketRuleSchema).default({}),
+  reject: z.record(z.string(), bucketRuleSchema).default({}),
+  ask: z.record(z.string(), bucketRuleSchema).default({}),
 })
 
-// legacy（M1）：三桶条目数组（裸工具名字符串或 { tool, ...参数模式 } 规则对象）。仅加载兼容用。
-const permissionLegacySchema = z.object({
-  allow: z.array(permissionEntrySchema).default([]),
-  reject: z.array(permissionEntrySchema).default([]),
-  ask: z.array(permissionEntrySchema).default([]),
-})
-
-// legacy 条目数组 → v2 桶映射：字符串 → 空数组（整工具）；规则对象 → 主参数模式值（无主参数键 → 空数组）。
-// 同工具多条规则合并（patterns 拼接），不做覆盖——legacy 里同一工具可以出现多条。
-export function entriesToBucket(entries: PermissionEntry[]): Record<string, string[]> {
-  const out: Record<string, string[]> = {}
-  for (const e of entries) {
-    if (typeof e === 'string') {
-      if (!(e in out)) out[e] = []
-      continue
-    }
-    const primary = primarySpecifier(e.tool)
-    const v = e[primary]
-    out[e.tool] = [...(out[e.tool] ?? []), ...(typeof v === 'string' ? [v] : [])]
-  }
-  return out
-}
-
-// v2 权限配置的内存形态（Config.permission 的类型）：三桶 → 工具 → 模式数组。
+// v2 权限配置的内存形态（Config.permission 的类型）：三桶 → 键 → 规则。
 export type PermissionConfigV2 = {
-  allow: Record<string, string[]>
-  reject: Record<string, string[]>
-  ask: Record<string, string[]>
+  allow: Record<string, PermissionRule>
+  reject: Record<string, PermissionRule>
+  ask: Record<string, PermissionRule>
 }
 
-// union + 显式返回类型标注：legacy 输入在加载期归一为 v2；v2 输入原样通过。
-// Array.isArray 判别书写形态（legacy 的桶是条目数组，v2 的桶是对象映射）。
-export const permissionSchema = z.union([permissionV2Schema, permissionLegacySchema])
-  .transform((p): PermissionConfigV2 => {
-    if (Array.isArray((p as { allow: unknown }).allow)) {
-      const legacy = p as z.infer<typeof permissionLegacySchema>
-      return {
-        allow: entriesToBucket(legacy.allow),
-        reject: entriesToBucket(legacy.reject),
-        ask: entriesToBucket(legacy.ask),
-      }
-    }
-    return p as PermissionConfigV2
-  })
-  .superRefine((p, ctx) => {
-    // 作用域前缀校验（立法）：路径模式必须显式声明作用域——锚点（./、../、~/）、盘符（绝对），
-    // 或以 * 开头（无锚点，glob 从文件系统根匹配：**/x 全盘任意深度、*/x 仅盘根一层）。
-    // 字面量打头的裸模式（docs/**、test）从根匹配只能命中盘根条目，必然是忘了写锚点 → 拒绝加载。
-    // 只对内建 path 工具生效（见 BUILTIN_PATH_TOOLS）——MCP 服务键等其余键的条目是工具名
-    // 选择器（如 browser_close），不存在路径锚点语义。shell 的 command 模式无作用域概念，不校验。
-    // 错误在 /config 编辑时也会经 validate/回滚浮出。
-    for (const bucket of [p.allow, p.reject, p.ask]) {
-      for (const [tool, patterns] of Object.entries(bucket)) {
-        if (!(BUILTIN_PATH_TOOLS as readonly string[]).includes(tool)) continue
-        for (const pat of patterns) {
-          const unified = pat.replace(/\\/g, '/')
-          const ok = /^(\.\.\/|\.\/|~\/|\*)/.test(unified) || /^[a-zA-Z]:\//.test(unified) || unified.startsWith('/')
-          if (!ok) {
-            ctx.addIssue({
-              code: 'custom',
-              message: `权限模式 "${pat}"（${tool}）缺少作用域前缀——以 ./ 或 ../（cwd）、~/（主目录）、*（任意位置，如 **/x）或盘符（绝对路径）开头`,
-            })
-          }
+export const permissionSchema = permissionV3Schema.superRefine((p, ctx) => {
+  // 作用域前缀校验（立法）：路径模式必须显式声明作用域——锚点（./、../、~/）、盘符（绝对），
+  // 或以 * 开头（无锚点，glob 从文件系统根匹配：**/x 全盘任意深度、*/x 仅盘根一层）。
+  // 字面量打头的裸模式（docs/**、test）从根匹配只能命中盘根条目，必然是忘了写锚点 → 拒绝加载。
+  // 只对内建 path 工具生效（见 BUILTIN_PATH_TOOLS）——MCP 服务键等其余键的 patterns 是工具名
+  // 选择器（如 browser_close），不存在路径锚点语义。shell 的 command 模式无作用域概念，不校验。
+  // patterns 无论 whole 与否都校验——它们是规则的待命态（取消整选后生效），编写期就该正确。
+  // 错误在 /config 编辑时也会经 validate/回滚浮出。
+  for (const bucket of [p.allow, p.reject, p.ask]) {
+    for (const [tool, rule] of Object.entries(bucket)) {
+      if (!(BUILTIN_PATH_TOOLS as readonly string[]).includes(tool)) continue
+      for (const pat of rule.patterns) {
+        const unified = pat.replace(/\\/g, '/')
+        const ok = /^(\.\.\/|\.\/|~\/|\*)/.test(unified) || /^[a-zA-Z]:\//.test(unified) || unified.startsWith('/')
+        if (!ok) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `权限模式 "${pat}"（${tool}）缺少作用域前缀——以 ./ 或 ../（cwd）、~/（主目录）、*（任意位置，如 **/x）或盘符（绝对路径）开头`,
+          })
         }
       }
     }
-  })
+  }
+})
 
 export const configSchema = z.object({
   systemPrompt: z.string().optional(),
@@ -164,11 +126,20 @@ export const configSchema = z.object({
   shellProgram: z.string().optional(),
   // 出厂默认权限（设计 §4.1）：读类工具放行（只读安全、探索顺畅的前提），写类/命令默认 ask。
   // 仅对「配置文件未写 permission 字段」的加载生效；用户显式配置的三桶不受影响。
-  // v2 形态：空数组 = 整工具。
+  // v3 形态：whole = 整键生效。
   permission: permissionSchema.default({
-    allow: { read_file: [], ls: [], glob: [], grep: [] },
+    allow: {
+      read_file: { whole: true, patterns: [] },
+      ls: { whole: true, patterns: [] },
+      glob: { whole: true, patterns: [] },
+      grep: { whole: true, patterns: [] },
+    },
     reject: {},
-    ask: { write_file: [], edit_file: [], shell: [] },
+    ask: {
+      write_file: { whole: true, patterns: [] },
+      edit_file: { whole: true, patterns: [] },
+      shell: { whole: true, patterns: [] },
+    },
   }),
   // MCP server 列表（/mcp 面板与 .dogegg/.mcp.json 共用同一 schema；变更即重启对应 server）。
   mcpServers: z.array(mcpServerSchema).default([]),

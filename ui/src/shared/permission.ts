@@ -1,18 +1,19 @@
-import { classifyPermission, type Config, type PermissionConfig } from '@dogegg/bridge'
+import { classifyPermission, type Config, type PermissionConfig, type PermissionRule } from '@dogegg/bridge'
 
 // 工具权限标签（display-only）：null 配置视为 ask。
 // 三桶判定逻辑归 bridge 的 classifyPermission——契约 schema 的唯一解释者，UI 不再自行实现。
 // display 不传 args：参数化模式（如「允许读 docs/**」）在无参数可比时按 fail-closed 不命中，
-// 标签回落到整工具规则/默认 ask——展示层宁可保守，不替参数化规则宣称放行。
+// 标签回落到整键规则/默认 ask——展示层宁可保守，不替参数化规则宣称放行。
 export function getToolPermission(toolName: string, config: Config | null): string {
   if (!config) return 'ask'
   return classifyPermission(config.permission, toolName)
 }
 
-// 桶内工具的摘要文案（TUI 配置树用；WebUI 设置面板为全英文文案，就地内联同义表述）：
-// 空数组 = 整工具，否则 N 条模式。
-export function describeBucketTool(patterns: string[]): string {
-  return patterns.length === 0 ? '整工具' : `${patterns.length} 条模式`
+// 桶内内建工具键的摘要文案（TUI 配置树用；WebUI 设置面板为全英文文案，就地内联同义表述）。
+// v3 三态：整选（whole，含保留模式）/ 按模式 / 空选（whole:false + 无模式 = 不命中任何规则）。
+export function describeBucketTool(rule: PermissionRule): string {
+  if (rule.whole) return rule.patterns.length > 0 ? `整工具（保留 ${rule.patterns.length} 条模式）` : '整工具'
+  return rule.patterns.length === 0 ? '未选择（不命中）' : `${rule.patterns.length} 条模式`
 }
 
 // 生效权限的展示值：区分「配置永久 allow」与「会话内提升」（整工具或范围模式）。

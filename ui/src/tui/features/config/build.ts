@@ -1,4 +1,4 @@
-import type { Config, ToolListItem } from '@dogegg/bridge'
+import type { Config, PermissionRule, ToolListItem } from '@dogegg/bridge'
 import type { ConfigPath } from './navigation'
 import type { Entry, TreeCtx } from './entries'
 import { nan } from './label'
@@ -38,15 +38,15 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx, too
       ]
 
     case 'permissionBucket': {
-      // 桶内按键分组（v2：键 → 模式数组，空数组 = 整工具/整服务）。MCP 服务键带来源标注。
+      // 桶内按键分组（v3：键 → { whole, patterns } 规则）。MCP 服务键带来源标注。
       const bucketName = path.bucket
       const bucket = config.permission[bucketName]
-      const entries: Entry[] = Object.entries(bucket).map(([tool, patterns]) => {
+      const entries: Entry[] = Object.entries(bucket).map(([tool, rule]) => {
         const isServer = isMcpServerKey(tool, config, tools)
         return {
           label: isServer ? `${tool}（MCP 服务）` : tool,
           kind: 'goto' as const,
-          value: describeBucketEntry(patterns, isServer) + crossBucketHint(config, bucketName, tool),
+          value: describeBucketEntry(rule, isServer) + crossBucketHint(config, bucketName, tool),
           subPath: { kind: 'permissionTool', bucket: bucketName, tool } as ConfigPath,
           del: () => ctx.set(`permission.${bucketName}`, omitKey(bucket, tool)),
         }
@@ -57,23 +57,20 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx, too
 
     case 'permissionTool': {
       const bucket = config.permission[path.bucket]
-      const patterns = bucket[path.tool] ?? []
-      const setPatterns = (next: string[]): void =>
+      const rule = bucket[path.tool] ?? { whole: true, patterns: [] } // 桶列表钻入必有规则；兜底防御
+      const setRule = (next: PermissionRule): void =>
         ctx.set(`permission.${path.bucket}`, { ...bucket, [path.tool]: next })
+      const patterns = rule.patterns
 
-      // 整键开关（** 标记立法）：'**' 在三类匹配语义里都命中一切——path glob 的 ** 锚定为任意
-      // 路径、command/工具名平文本通配里 ** ≡ *——因此作为「整工具/整组」的显式标记，与保留的
-      // 模式/勾选共存于同一数组（引擎按条目 OR 求值，** 天然压过一切，引擎零改动）。
-      // - 按模式 → 整选：数组头部插入 **（现有条目全部保留）；
-      // - 整选 → 按模式：移除全部标记（内建 **；MCP 的 * 与 ** 等价，一并移除），原勾选/模式恢复；
-      // - 空数组（virgin 整选）不渲染开关：没有可恢复的内容，首次添加/勾选即切到按模式（唯一出口）。
+      // 整键开关（v3 立法）：whole 是显式字段，空选（whole:false + 空 patterns）可表达——
+      // 开关恒可用、状态恒与引擎一致，无任何virgin特例。
       const isServer = isMcpServerKey(path.tool, config, tools)
-      const isMarker = (p: string): boolean => (isServer ? p === '*' || p === '**' : p === '**')
-      const kept = patterns.filter((p) => !isMarker(p))
-      const whole = patterns.length === 0 || kept.length < patterns.length
       const entries: Entry[] = []
+      const toggleRow: Entry = rule.whole
+        ? { label: `✓ ${isServer ? '整组' : '整工具'}生效（回车取消——改为按${isServer ? '勾选/规则' : '模式'}限定）`, kind: 'action', value: '', run: () => setRule({ ...rule, whole: false }) }
+        : { label: `· ${isServer ? '整组' : '整工具'}生效（回车切回；当前${isServer ? '勾选/规则' : '模式'}将保留）`, kind: 'action', value: '', run: () => setRule({ ...rule, whole: true }) }
 
-      // ── MCP 服务键：勾选式细化——运行时身份枚举该服务的工具清单，回车勾选/取消（= 数组增删
+      // ── MCP 服务键：勾选式细化——运行时身份枚举该服务的工具清单，回车勾选/取消（= 增删
       // 内部工具名）。参数模式对服务键不适用（MCP 无主参数概念——立法见 bridge/permission.ts）。──
       if (isServer) {
         const runtimeTools = (tools ?? []).flatMap((t) =>
@@ -81,30 +78,25 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx, too
         if (runtimeTools.length === 0) {
           entries.push({ label: '（服务未运行或无工具清单——已保存规则按保存内容生效）', kind: 'action', value: '', run: () => {} })
         }
-        if (patterns.length === 0) {
-          entries.push({ label: '（当前整组生效——勾选任一工具将改为仅勾选项生效）', kind: 'action', value: '', run: () => {} })
-        } else {
-          entries.push(whole
-            ? { label: '✓ 整组生效（回车取消——恢复按勾选/规则）', kind: 'action', value: '', run: () => setPatterns(kept) }
-            : { label: '· 整组生效（回车切回；当前勾选/规则将保留）', kind: 'action', value: '', run: () => setPatterns(['**', ...patterns]) })
-        }
-        if (whole && patterns.length > 0) {
-          // 整选（带标记）：勾选/规则保留展示但不可更改——取消整选后恢复操作。
-          entries.push({ label: '（以下勾选/规则保留中，取消整选后可更改）', kind: 'action', value: '', run: () => {} })
+        entries.push(toggleRow)
+        if (rule.whole) {
+          // 整选：勾选/规则保留展示但不可更改——取消整选后恢复操作。
+          if (patterns.length > 0) entries.push({ label: '（以下勾选/规则保留中，取消整选后可更改）', kind: 'action', value: '', run: () => {} })
           for (const name of runtimeTools) {
             entries.push({ label: `${patterns.includes(name) ? '✓' : '·'} ${name}`, kind: 'action', value: '', run: () => {} })
           }
-          for (const w of kept.filter((p) => p.includes('*') || !runtimeTools.includes(p))) {
+          for (const w of patterns.filter((p) => p.includes('*') || !runtimeTools.includes(p))) {
             entries.push({ label: `　 ＊ ${w}`, kind: 'action', value: '', run: () => {} })
           }
         } else {
+          if (patterns.length === 0) entries.push({ label: '（未选择任何工具——本键当前不命中任何规则）', kind: 'action', value: '', run: () => {} })
           for (const name of runtimeTools) {
             const checked = patterns.includes(name)
             entries.push({
               label: `${checked ? '✓' : '·'} ${name}`,
               kind: 'action',
               value: '',
-              run: () => setPatterns(checked ? patterns.filter((x) => x !== name) : [...patterns, name]),
+              run: () => setRule({ ...rule, patterns: checked ? patterns.filter((x) => x !== name) : [...patterns, name] }),
             })
           }
           for (const w of patterns.filter((p) => p.includes('*') || !runtimeTools.includes(p))) {
@@ -115,32 +107,29 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx, too
               save: (v) => {
                 const t = v.trim()
                 if (!t || t === w || patterns.includes(t)) return // 非空 + 去重（fail-closed 的编辑器补偿）
-                setPatterns(patterns.map((x) => (x === w ? t : x)))
+                setRule({ ...rule, patterns: patterns.map((x) => (x === w ? t : x)) })
               },
-              del: () => setPatterns(patterns.filter((x) => x !== w)),
+              del: () => setRule({ ...rule, patterns: patterns.filter((x) => x !== w) }),
             })
           }
           entries.push({ label: '＋ 添加通配（匹配该服务的内部工具名，如 browser_*）', kind: 'prompt', title: '输入精确工具名或通配（对内部工具名匹配，不涉参数）', save: (v) => {
             const t = v.trim()
-            if (t && !patterns.includes(t)) setPatterns([...patterns, t])
+            if (t && !patterns.includes(t)) setRule({ ...rule, patterns: [...patterns, t] })
           } })
         }
         return entries
       }
 
       // ── 内建工具键：整选开关 + 模式列表（就地编辑/删除）──
-      if (patterns.length === 0) {
-        entries.push({ label: '（整工具生效——添加模式后将改为按模式限定）', kind: 'action', value: '', run: () => {} })
+      entries.push(toggleRow)
+      if (rule.whole) {
+        if (patterns.length > 0) {
+          // 整选：模式保留展示但不可编辑——取消整选后恢复操作。
+          entries.push({ label: '（以下模式保留中，取消整选后可编辑）', kind: 'action', value: '', run: () => {} })
+          for (const p of patterns) entries.push({ label: `　 ${p}`, kind: 'action', value: '', run: () => {} })
+        }
       } else {
-        entries.push(whole
-          ? { label: '✓ 整工具生效（回车取消——恢复按模式限定）', kind: 'action', value: '', run: () => setPatterns(kept) }
-          : { label: `· 整工具生效（回车切回；当前 ${patterns.length} 条模式将保留）`, kind: 'action', value: '', run: () => setPatterns(['**', ...patterns]) })
-      }
-      if (whole && patterns.length > 0) {
-        // 整选（带标记）：模式保留展示但不可编辑——取消整选后恢复操作。
-        entries.push({ label: '（以下模式保留中，取消整选后可编辑）', kind: 'action', value: '', run: () => {} })
-        for (const p of kept) entries.push({ label: `　 ${p}`, kind: 'action', value: '', run: () => {} })
-      } else {
+        if (patterns.length === 0) entries.push({ label: '（未选择任何模式——本键当前不命中任何规则）', kind: 'action', value: '', run: () => {} })
         for (const [i, p] of patterns.entries()) {
           entries.push({
             label: p,
@@ -149,14 +138,14 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx, too
             save: (v) => {
               const t = v.trim()
               if (!t || t === p || patterns.includes(t)) return // 非空 + 去重（fail-closed 的编辑器补偿）
-              setPatterns(patterns.map((x, j) => (j === i ? t : x)))
+              setRule({ ...rule, patterns: patterns.map((x, j) => (j === i ? t : x)) })
             },
-            del: () => setPatterns(patterns.filter((_, j) => j !== i)), // 删光即回整工具
+            del: () => setRule({ ...rule, patterns: patterns.filter((_, j) => j !== i) }),
           })
         }
         entries.push({ label: '＋ 添加模式', kind: 'prompt', title: `输入模式（${path.tool} 主参数，支持 * ? **）`, save: (v) => {
           const t = v.trim()
-          if (t && !patterns.includes(t)) setPatterns([...patterns, t])
+          if (t && !patterns.includes(t)) setRule({ ...rule, patterns: [...patterns, t] })
         } })
       }
       return entries
@@ -293,7 +282,7 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx, too
           label: `${name}（MCP 服务 · ${n === undefined ? '未运行' : `${n} 个工具`}）`,
           kind: 'action',
           value: '',
-          run: () => ctx.set(`permission.${path.bucket}`, { ...bucket, [name]: [] }),
+          run: () => ctx.set(`permission.${path.bucket}`, { ...bucket, [name]: { whole: true, patterns: [] } }),
           afterRunPath: { kind: 'permissionTool', bucket: path.bucket, tool: name }, // 选择即钻入细化层
         })
       }
@@ -307,7 +296,7 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx, too
           label: name,
           kind: 'action',
           value: '',
-          run: () => ctx.set(`permission.${path.bucket}`, { ...bucket, [name]: [] }),
+          run: () => ctx.set(`permission.${path.bucket}`, { ...bucket, [name]: { whole: true, patterns: [] } }),
           afterRunPath: { kind: 'permissionTool', bucket: path.bucket, tool: name }, // 选择即钻入细化层
         })
       }
@@ -325,15 +314,14 @@ function isMcpServerKey(key: string, config: Config, tools?: ToolListItem[]): bo
     (tools ?? []).some((t) => t.identity.kind === 'mcp' && t.identity.server === key)
 }
 
-// 桶内键的摘要文案：区分整选标记态（** 与保留条目共存）——内建 = 整工具/N 条模式；MCP 服务键 = 整组/N 个工具规则。
-function describeBucketEntry(patterns: string[], isServer: boolean): string {
-  const isMarker = (p: string): boolean => (isServer ? p === '*' || p === '**' : p === '**')
-  if (patterns.length === 0) return isServer ? '整组（该服务所有工具）' : '整工具'
-  if (patterns.some(isMarker)) {
-    const kept = patterns.filter((p) => !isMarker(p)).length
-    return isServer ? `整组（保留 ${kept} 条勾选/规则）` : `整工具（保留 ${kept} 条模式）`
+// 桶内键的摘要文案：v3 三态——整选（whole，含保留内容）/ 按模式/按勾选 / 空选（不命中）。
+// 内建 = 整工具·N 条模式措辞；MCP 服务键 = 整组·N 个工具规则措辞。
+function describeBucketEntry(rule: PermissionRule, isServer: boolean): string {
+  if (isServer) {
+    if (rule.whole) return rule.patterns.length > 0 ? `整组（保留 ${rule.patterns.length} 条勾选/规则）` : '整组（该服务所有工具）'
+    return rule.patterns.length === 0 ? '未选择（不命中）' : `${rule.patterns.length} 个工具规则`
   }
-  return isServer ? `${patterns.length} 个工具规则` : describeBucketTool(patterns)
+  return describeBucketTool(rule)
 }
 
 // 跨桶提示：同一工具在其它桶也有规则时提醒（防「已放行为什么还问我」的困惑——
@@ -344,8 +332,8 @@ function crossBucketHint(config: Config, from: 'allow' | 'reject' | 'ask', tool:
 }
 
 // 删除对象的一个键（不改变其余键）——桶内移除工具用。
-function omitKey(bucket: Record<string, string[]>, key: string): Record<string, string[]> {
-  const out: Record<string, string[]> = {}
+function omitKey(bucket: Record<string, PermissionRule>, key: string): Record<string, PermissionRule> {
+  const out: Record<string, PermissionRule> = {}
   for (const [k, v] of Object.entries(bucket)) if (k !== key) out[k] = v
   return out
 }

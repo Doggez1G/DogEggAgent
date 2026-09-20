@@ -98,7 +98,7 @@ describe('handleConfigKeys', () => {
   const cfg: Config = {
     defaultProvider: 'o', defaultModel: 'm', maxIterations: 50, maxRetries: 3,
     systemPrompt: undefined, shellProgram: undefined,
-    permission: { allow: [], reject: [], ask: [] },
+    permission: { allow: {}, reject: {}, ask: {} },
     providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x/v1', apiKey: 'k', models: [{ name: 'm' }] }],
   } as unknown as Config
   const configView = { kind: 'config' as const, path: { kind: 'root' as const }, cursor: 0, preview: null }

@@ -32,28 +32,30 @@ describe('ConfigStore.load', () => {
     expect(cfg.defaultModel).toBe('m')
   })
 
-  it('parses permission buckets (legacy 扁平条目 → v2 grouped 归一化)', () => {
+  it('parses v3 structured permission（键 → { whole, patterns }，唯一合法格式）', () => {
     const cfg = store.load({
       providers: [
         { name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] },
       ],
-      permission: { allow: ['read_file', { tool: 'shell', command: 'git *' }], reject: ['shell'] },
+      permission: {
+        allow: { shell: { whole: false, patterns: ['git *', 'npm run *'] }, read_file: { whole: true, patterns: [] } },
+        reject: {},
+        ask: { shell: { whole: false, patterns: ['rm *'] } },
+      },
     })
-    // legacy 兼容：裸名 → 空数组（整工具）；规则对象 → 主参数模式数组。
-    expect(cfg.permission.allow).toEqual({ read_file: [], shell: ['git *'] })
-    expect(cfg.permission.reject).toEqual({ shell: [] })
-    expect(cfg.permission.ask).toEqual({})
+    expect(cfg.permission.allow).toEqual({
+      shell: { whole: false, patterns: ['git *', 'npm run *'] },
+      read_file: { whole: true, patterns: [] },
+    })
+    expect(cfg.permission.ask).toEqual({ shell: { whole: false, patterns: ['rm *'] } })
   })
 
-  it('parses v2 grouped permission (桶 → 工具 → 模式数组，空 = 整工具)', () => {
-    const cfg = store.load({
-      providers: [
-        { name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] },
-      ],
-      permission: { allow: { shell: ['git *', 'npm run *'], read_file: [] }, reject: {}, ask: { shell: ['rm *'] } },
-    })
-    expect(cfg.permission.allow).toEqual({ shell: ['git *', 'npm run *'], read_file: [] })
-    expect(cfg.permission.ask).toEqual({ shell: ['rm *'] })
+  it('旧格式不受兼容：v2 字符串数组 / M1 条目数组 → 报错拒绝加载（配置演进不兼容原则）', () => {
+    const base = { providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] }] }
+    // v2：桶值为字符串数组
+    expect(() => store.load({ ...base, permission: { allow: { read_file: [] }, reject: {}, ask: {} } })).toThrow()
+    // M1：桶值为条目数组
+    expect(() => store.load({ ...base, permission: { allow: ['read_file'], reject: [], ask: [] } })).toThrow()
   })
 
   it('factory default: read-class allow / write-class ask when permission omitted (设计 §4.1)', () => {
@@ -62,15 +64,24 @@ describe('ConfigStore.load', () => {
         { name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] },
       ],
     })
-    expect(cfg.permission.allow).toEqual({ read_file: [], ls: [], glob: [], grep: [] })
-    expect(cfg.permission.ask).toEqual({ write_file: [], edit_file: [], shell: [] })
+    expect(cfg.permission.allow).toEqual({
+      read_file: { whole: true, patterns: [] },
+      ls: { whole: true, patterns: [] },
+      glob: { whole: true, patterns: [] },
+      grep: { whole: true, patterns: [] },
+    })
+    expect(cfg.permission.ask).toEqual({
+      write_file: { whole: true, patterns: [] },
+      edit_file: { whole: true, patterns: [] },
+      shell: { whole: true, patterns: [] },
+    })
     expect(cfg.permission.reject).toEqual({})
   })
 
   it('bare pattern（缺作用域前缀）拒绝加载', () => {
     expect(() => store.load({
       providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] }],
-      permission: { allow: { read_file: ['docs/**'] } },
+      permission: { allow: { read_file: { whole: false, patterns: ['docs/**'] } } },
     })).toThrow(/作用域前缀/)
   })
 

@@ -93,13 +93,15 @@ export class PermissionManager {
     return { ...args, path: realTargetPath(args.path, cwd) }
   }
 
-  // 规则侧归一化：主参数为 path 的工具，其模式按锚点声明归一（见 normalizePattern）；
-  // command 主参数（shell）不动——命令不是路径，无「相对 cwd」概念。
+  // 规则侧归一化：主参数为 path 的工具，其 patterns 按锚点声明归一（见 normalizePattern）；
+  // command 主参数（shell）与 MCP 服务键的 patterns（工具名选择器）不动——均无「相对 cwd」概念。
   private normalizeRules(cwd: string): PermissionConfig {
-    const mapBucket = (bucket: Record<string, string[]>): Record<string, string[]> =>
-      Object.fromEntries(Object.entries(bucket).map(([tool, patterns]) => [
+    const mapBucket = (bucket: PermissionConfig['allow']): PermissionConfig['allow'] =>
+      Object.fromEntries(Object.entries(bucket).map(([tool, rule]) => [
         tool,
-        primarySpecifier(tool) === 'path' ? patterns.map((p) => normalizePattern(p, cwd)) : patterns,
+        primarySpecifier(tool) === 'path'
+          ? { ...rule, patterns: rule.patterns.map((p) => normalizePattern(p, cwd)) }
+          : rule,
       ]))
     return {
       allow: mapBucket(this.cfg.allow),

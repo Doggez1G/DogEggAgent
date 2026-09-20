@@ -1,20 +1,22 @@
-import type { ProviderConfig, ModelConfig } from '@dogegg/bridge'
-import { entriesToBucket } from '@dogegg/bridge'
+import type { PermissionRule, ProviderConfig, ModelConfig } from '@dogegg/bridge'
 
 // 运行时类型检查辅助——替代 as 断言，避免错误类型的值静默通过（zod 校验在 afterEdit 兜底，但提前检查更健壮）。
 function asString(v: unknown): string { return typeof v === 'string' ? v : String(v) }
 function asNumber(v: unknown): number { return typeof v === 'number' && Number.isFinite(v) ? v : Number(v) || 0 }
 function asBoolean(v: unknown): boolean { return typeof v === 'boolean' ? v : Boolean(v) }
 
-// 桶值容错归一：v2 形态（工具 → 模式数组）逐键过滤非字符串模式；
-// 兼容 legacy 条目数组（旧编辑器/手写消息）经 entriesToBucket 转换——防御而非主路径。
-function asBucketMap(v: unknown): Record<string, string[]> {
-  if (Array.isArray(v)) return entriesToBucket(v as Parameters<typeof entriesToBucket>[0])
+// 桶值容错归一：v3 结构化规则（{ whole, patterns }）逐键过滤非字符串模式；
+// 形状非法的键直接丢弃（fail-closed——编辑器只产合法形状，此处仅防御手写消息）。
+function asBucketRules(v: unknown): Record<string, PermissionRule> {
   if (!v || typeof v !== 'object') return {}
-  const out: Record<string, string[]> = {}
+  const out: Record<string, PermissionRule> = {}
   for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-    if (Array.isArray(val)) out[k] = val.filter((x): x is string => typeof x === 'string')
-    else if (typeof val === 'string') out[k] = [val]
+    if (!val || typeof val !== 'object' || Array.isArray(val)) continue
+    const r = val as Record<string, unknown>
+    out[k] = {
+      whole: r.whole === true,
+      patterns: Array.isArray(r.patterns) ? r.patterns.filter((x): x is string => typeof x === 'string') : [],
+    }
   }
   return out
 }
@@ -27,7 +29,7 @@ function asBucketMap(v: unknown): Record<string, string[]> {
 // 用 discriminated union 把路径解析成强类型操作，取代旧代码 applyConfigSet 里的手写 split 梯子。
 export type ConfigSetOp =
   | { kind: 'top'; field: 'defaultProvider' | 'defaultModel' | 'maxIterations' | 'maxRetries' | 'systemPrompt' | 'shellProgram'; value: string | number }
-  | { kind: 'permission'; bucket: 'allow' | 'reject' | 'ask'; value: Record<string, string[]> }
+  | { kind: 'permission'; bucket: 'allow' | 'reject' | 'ask'; value: Record<string, PermissionRule> }
   | { kind: 'provider'; index: number; field: 'name' | 'baseURL' | 'apiKey' | 'protocol'; value: string }
   | { kind: 'model'; providerIndex: number; modelIndex: number; field: 'name' | 'contextWindow' | 'maxOutput' | 'reasoning'; value: string | number | boolean }
 
@@ -54,10 +56,10 @@ export function parseConfigSet(path: string, value: unknown): ConfigSetOp | null
     if (path === 'maxIterations' || path === 'maxRetries') return { kind: 'top', field: path, value: asNumber(value) }
     return { kind: 'top', field: path, value: asString(value) }
   }
-  // permission.<bucket>：桶值 = 工具 → 模式数组（v2 grouped；整桶对象整体替换，编辑两端统一走此原语）。
+  // permission.<bucket>：桶值 = 键 → { whole, patterns }（v3 结构化；整桶对象整体替换，编辑两端统一走此原语）。
   if (seg.length === 2 && seg[0] === 'permission') {
     const bucket = seg[1]!
-    if (bucket === 'allow' || bucket === 'reject' || bucket === 'ask') return { kind: 'permission', bucket, value: asBucketMap(value) }
+    if (bucket === 'allow' || bucket === 'reject' || bucket === 'ask') return { kind: 'permission', bucket, value: asBucketRules(value) }
     return null
   }
   // providers.<i>.<field>

@@ -13,10 +13,10 @@
 | `maxIterations` | number | `-1`（无限） | 单次提交最大轮次；`-1` 无限，正整数为上限（无人值守批处理用） |
 | `maxRetries` | number | `3` | LLM 请求失败重试次数 |
 | `shellProgram` | string（可选） | 按平台 | shell 解释器（Windows `cmd`，其他 `bash`） |
-| `permission` | object | 见下 | 工具权限三桶（0.2.x：桶 → 工具 → 模式数组） |
+| `permission` | object | 见下 | 工具权限三桶（0.2.x：桶 → 键 → `{ whole, patterns }` 规则） |
 | `providers` | array | `[]` | provider 列表（见下） |
 
-## permission（权限三桶：桶 → 工具 → 模式数组）
+## permission（权限三桶：桶 → 键 → { whole, patterns }）
 
 完整示例——一份「读类顺畅、shell 按需审批、危险命令拒绝」的实用配置：
 
@@ -24,17 +24,17 @@
 {
   "permission": {
     "allow": {
-      "read_file": ["./**"],
-      "ls":        ["./**"],
-      "glob":      ["./**"],
-      "shell":     ["git *", "npm run *"]
+      "read_file": { "whole": true,  "patterns": [] },
+      "ls":        { "whole": true,  "patterns": [] },
+      "glob":      { "whole": true,  "patterns": [] },
+      "shell":     { "whole": false, "patterns": ["git *", "npm run *"] }
     },
     "ask": {
-      "edit_file": ["./src/**"],
-      "shell":     ["rm *"]
+      "edit_file": { "whole": false, "patterns": ["./src/**"] },
+      "shell":     { "whole": false, "patterns": ["rm *"] }
     },
     "reject": {
-      "shell": ["rm -rf *"]
+      "shell": { "whole": false, "patterns": ["rm -rf *"] }
     }
   }
 }
@@ -42,22 +42,26 @@
 
 **出厂默认**（配置文件**完全不写 `permission` 字段**时生效）：`read_file` / `ls` / `glob` / `grep` 四个读类整工具放行，`write_file` / `edit_file` / `shell` 整工具按 ask 审批。注意**显式配置会整体覆盖出厂默认**（不是合并）——自己写 `permission` 时想让读类免审批，就要像上面示例一样显式列出。
 
-### 桶内条目的两种写法
+> **格式演进不兼容**：配置格式只支持当前版本。旧格式（模式数组、条目数组）加载会报错并提示本文档——按报错改写或删除 `permission` 字段回退出厂默认后经 /config 重配即可。
 
-三桶顶层结构一致，桶内是「键 → 模式数组」的映射，键有两类——内建工具名与 MCP 服务名：
+### 桶内规则的两种状态（whole 字段）
 
-- **模式数组为空 `[]`** → 整键生效：`"read_file": []` 表示该工具的所有调用都按本桶处理，
-  `"playwright": []` 表示该服务下所有工具都按本桶处理（见下节）；
-- **模式数组非空** → 只有**命中模式的调用**按本桶处理，未命中的调用按「未列出工具」走默认 ask。
+三桶顶层结构一致，桶内是「键 → 规则」的映射，键有两类——内建工具名与 MCP 服务名：
+
+- **`whole: true`** → 整键生效：`"read_file": { "whole": true, "patterns": [] }` 表示该工具的
+  所有调用都按本桶处理；`"playwright": { "whole": true, "patterns": [] }` 表示该服务下所有
+  工具都按本桶处理（见下节）。此时 patterns 不参与匹配，仅作取消整选后的恢复内容；
+- **`whole: false`** → 只有**命中 patterns 的调用**按本桶处理，未命中的调用按「未列出工具」
+  走默认 ask。patterns 为空数组表示键存在但当前不命中任何规则（编辑中的空选态）。
 
 ### MCP 服务键（以服务为权限单元）
 
 桶键除内建工具名外，还可以是 **MCP 服务的裸名**（即 `mcpServers` 里的 `name`，如 `playwright`）。
 服务是一个权限单元——匹配按工具注册期记录的服务归属进行，**与工具的内部名字无关**：
 
-- **模式数组为空 `[]`** → 整组生效：该服务下的所有工具都按本桶处理（服务升级新增工具自动覆盖）；
-- **模式数组非空** → 数组条目匹配的是**服务内部工具名**（服务 `tools/list` 声明的名字，如
-  `browser_close`、`browser_*`），精确名或 `*` 通配皆可。注意这是**工具启用匹配**，
+- **`whole: true`** → 整组生效：该服务下的所有工具都按本桶处理（服务升级新增工具自动覆盖）；
+- **`whole: false`** → patterns 条目匹配的是**服务内部工具名**（服务 `tools/list` 声明的名字，
+  如 `browser_close`、`browser_*`），精确名或 `*` 通配皆可。注意这是**工具启用匹配**，
   永不涉及工具执行参数——参数模式（路径/命令）只属于内建工具。
 
 例——整组放行、仅该服务的单个工具每次询问：
@@ -65,8 +69,8 @@
 ```json
 {
   "permission": {
-    "allow": { "playwright": [] },
-    "ask":   { "playwright": ["browser_evaluate"] }
+    "allow": { "playwright": { "whole": true,  "patterns": [] } },
+    "ask":   { "playwright": { "whole": false, "patterns": ["browser_evaluate"] } }
   }
 }
 ```

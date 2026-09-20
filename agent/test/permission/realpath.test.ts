@@ -13,7 +13,7 @@ function setup(): { proj: string; cfg: PermissionConfig } {
   proj = mkdtempSync(join(tmpdir(), 'dogegg-proj-'))
   outside = mkdtempSync(join(tmpdir(), 'dogegg-out-'))
   writeFileSync(join(proj, 'normal.txt'), 'x')
-  return { proj, cfg: { allow: { read_file: ['./**'] }, reject: {}, ask: {} } }
+  return { proj, cfg: { allow: { read_file: { whole: false, patterns: ['./**'] } }, reject: {}, ask: {} } }
 }
 
 afterEach(() => {
@@ -44,7 +44,7 @@ describe('PermissionManager realpath（符号链接逃逸防护）', () => {
   it('新建文件的写入场景：父目录 realpath + 文件名回退', () => {
     const { proj, cfg } = setup()
     mkdirSync(join(proj!, 'docs'))
-    const pm = new PermissionManager({ allow: { read_file: ['./docs/**'] }, reject: {}, ask: {} })
+    const pm = new PermissionManager({ allow: { read_file: { whole: false, patterns: ['./docs/**'] } }, reject: {}, ask: {} })
     // docs/new.txt 不存在——父目录 docs 是真实目录，realpath(dirname) 命中
     expect(pm.classify('read_file', { path: 'docs/new.txt' }, proj)).toBe('allow')
   })

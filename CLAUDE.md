@@ -41,7 +41,7 @@ DogEggAgent/
 - M2.5 打磨（已实施）：`docs/superpowers/specs/2026-09-10-m25-polish-design.md`（realpath 边界、.gitignore、会话标题、@path 逐层联想、运行时工具清单、配置文档）
 - UI 重构（已实施）：`docs/superpowers/specs/2026-09-07-ui-restructure-design.md`（features/ 纵切、ThemeRegistry、架构边界立法）
 - 扩展能力（已实施）：`docs/superpowers/specs/2026-09-18-skills-mcp-design.md`（Skills 自有目录体系与 CRUD 面板、MCP client 官方 SDK 接入、/skills /mcp /config 统一入口）
-- 语义决策记录：`docs/adr/`（0001–0012——关键语义决策存档，如 0010 权限匹配语义、0011 压缩 = 全量交接总结、0012 MCP 权限服务键按身份匹配 + 注册表合规关口）
+- 语义决策记录：`docs/adr/`（0001–0013——关键语义决策存档，如 0010 权限匹配语义、0011 压缩 = 全量交接总结、0012 MCP 权限服务键按身份匹配 + 注册表合规关口、0013 权限桶值结构化 v3 + 配置演进不兼容原则）
 - 实现详解系列：`docs/learning/`（01-10 章，与当前代码同步的逐模块讲解）
 - 实施计划：`docs/plans/`（按日期排列的各批次实施计划）
 

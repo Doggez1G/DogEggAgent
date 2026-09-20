@@ -78,7 +78,7 @@ describe('AgentLoop', () => {
     }))
     const result: LoopResult = await loop.run(baseTurn({
       client,
-      permission: new PermissionManager({ allow: { read_file: [] }, reject: {}, ask: {} }),
+      permission: new PermissionManager({ allow: { read_file: { whole: true, patterns: [] } }, reject: {}, ask: {} }),
     }))
 
     expect(events.some((e) => (e as { type: string }).type === 'tool_start')).toBe(true)
@@ -106,7 +106,7 @@ describe('AgentLoop', () => {
     }))
     const result = await loop.run(baseTurn({
       client,
-      permission: new PermissionManager({ allow: { read_file: [] }, reject: {}, ask: {} }),
+      permission: new PermissionManager({ allow: { read_file: { whole: true, patterns: [] } }, reject: {}, ask: {} }),
       maxIterations: -1,
     }))
     expect(result.error).toBeUndefined()
@@ -124,7 +124,7 @@ describe('AgentLoop', () => {
     }))
     const result = await loop.run(baseTurn({
       client,
-      permission: new PermissionManager({ allow: { read_file: [] }, reject: {}, ask: {} }),
+      permission: new PermissionManager({ allow: { read_file: { whole: true, patterns: [] } }, reject: {}, ask: {} }),
       maxIterations: 2,
     }))
     expect(result.error).toContain('maxIterations')

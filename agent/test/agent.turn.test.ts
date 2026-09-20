@@ -13,7 +13,7 @@ import type { LlmStreamEvent, LlmClient } from '../src/llm'
 // 重构（OOP 类化、Agent 拆分）期间本文件必须原样通过——过了即行为未变。
 // ─────────────────────────────────────────────────────────────────────────────
 
-function makeConfig(permission = { allow: [] as string[], reject: [] as string[], ask: [] as string[] }) {
+function makeConfig(permission: Record<string, Record<string, { whole: boolean; patterns: string[] }>> = { allow: {}, reject: {}, ask: {} }) {
   return new ConfigStore().load({
     providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x/v1', apiKey: 'k', models: [{ name: 'm' }] }],
     permission,
@@ -51,7 +51,7 @@ function hangingAdapter(): LlmClient {
 // 黑盒 harness：Agent 只经 port 收发；events 收集全部下行消息。
 function makeAgent(opts: {
   client?: LlmClient
-  permission?: { allow: string[]; reject: string[]; ask: string[] }
+  permission?: Record<string, Record<string, { whole: boolean; patterns: string[] }>>
   cwd?: string
   sessionsDir?: string
 } = {}) {
@@ -99,7 +99,7 @@ describe('Agent 轮次表征（重构行为基线）', () => {
     writeFileSync(join(cwd, 'a.txt'), 'hi')
     const { events, post } = makeAgent({
       client: fakeAdapter(readToolScript('读完了')),
-      permission: { allow: ['read_file'], reject: [], ask: [] },
+      permission: { allow: { read_file: { whole: true, patterns: [] } }, reject: {}, ask: {} },
       cwd,
     })
 
@@ -193,7 +193,7 @@ describe('Agent 轮次表征（重构行为基线）', () => {
     const { events, post } = makeAgent({
       client: fakeAdapter(script),
       cwd,
-      permission: { allow: ['grep'], reject: [], ask: [] },
+      permission: { allow: { grep: { whole: true, patterns: [] } }, reject: {}, ask: {} },
     })
 
     post({ type: 'submit', text: '搜 needle' })

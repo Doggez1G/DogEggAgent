@@ -2,11 +2,18 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { describe, it, expect } from 'vitest'
 import { PermissionManager } from '../../src/permission'
-import type { PermissionConfig } from '@dogegg/bridge'
+import type { PermissionConfig, PermissionRule } from '@dogegg/bridge'
 
-// v2 形态：桶 → 工具 → 模式数组（空数组 = 整工具）。构造辅助让用例保持一行可读。
-const cfg = (allow: Record<string, string[]> = {}, reject: Record<string, string[]> = {}, ask: Record<string, string[]> = {}): PermissionConfig =>
-  ({ allow, reject, ask })
+// v3 测试辅助：数组简写减少用例噪音（[] = 整键 whole:true，非空 = 按模式 whole:false）；
+// 需要精确控制（如空选态）时直接传 PermissionRule 对象。
+type RuleInput = string[] | PermissionRule
+const rules = (m: Record<string, RuleInput>): Record<string, PermissionRule> =>
+  Object.fromEntries(Object.entries(m).map(([k, v]) => [
+    k,
+    Array.isArray(v) ? (v.length === 0 ? { whole: true, patterns: [] } : { whole: false, patterns: v }) : v,
+  ]))
+const cfg = (allow: Record<string, RuleInput> = {}, reject: Record<string, RuleInput> = {}, ask: Record<string, RuleInput> = {}): PermissionConfig =>
+  ({ allow: rules(allow), reject: rules(reject), ask: rules(ask) })
 
 describe('PermissionManager', () => {
   it('classifies by bucket with safe default', () => {
@@ -17,9 +24,12 @@ describe('PermissionManager', () => {
     expect(pm.classify('edit_file')).toBe('ask') // 未列出 → 默认 ask
   })
 
-  it('空数组 = 整工具（与模式数组同为唯一形态，无布尔简写）', () => {
+  it('whole = 整工具（patterns 不参与）；whole:false + 空选 = 键存在但不命中（v3 立法）', () => {
     const pm = new PermissionManager(cfg({ grep: [] }))
     expect(pm.classify('grep', { pattern: 'anything' }, 'D:\\proj')).toBe('allow')
+    // 显式空选：规则存在但不命中任何东西 → 落默认 ask
+    const pm2 = new PermissionManager({ allow: { grep: { whole: false, patterns: [] } }, reject: {}, ask: {} })
+    expect(pm2.classify('grep', { pattern: 'anything' }, 'D:\\proj')).toBe('ask')
   })
 
   it('allow_always promotes tool for the session', () => {
@@ -71,7 +81,7 @@ describe('PermissionManager 参数化模式', () => {
     expect(pm2.classify('shell')).toBe('reject')
   })
 
-  it('ask 桶为空时与旧顺序行为一致（向后兼容）', () => {
+  it('未命中的键回落默认 ask（ask 桶为空时判定顺序不变）', () => {
     const pm = new PermissionManager(cfg({ read_file: [] }, { shell: [] }))
     expect(pm.classify('read_file')).toBe('allow')
     expect(pm.classify('shell')).toBe('reject')

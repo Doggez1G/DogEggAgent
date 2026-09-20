@@ -67,10 +67,17 @@ describe('config-tree', () => {
     expect(calls).toContainEqual(['providers.0.models.1.name', 'gpt-4o-mini'])
   })
 })
-describe('config-tree permission 编辑（v2：桶 → 工具 → 模式数组）', () => {
+describe('config-tree permission 编辑（v3：桶 → 键 → { whole, patterns }）', () => {
   const permCfg = configSchema.parse({
     providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] }],
-    permission: { allow: { read_file: [], shell: ['git *', 'npm run *'] }, ask: { shell: ['rm *'] }, reject: {} },
+    permission: {
+      allow: {
+        read_file: { whole: true, patterns: [] },
+        shell: { whole: false, patterns: ['git *', 'npm run *'] },
+      },
+      ask: { shell: { whole: false, patterns: ['rm *'] } },
+      reject: {},
+    },
   })
 
   it('permission 层列出三桶（计数）+ 固定默认说明行', () => {
@@ -89,60 +96,66 @@ describe('config-tree permission 编辑（v2：桶 → 工具 → 模式数组�
     expect(shell.value).toContain('另在 ask 桶有规则')
   })
 
-  it('工具层：整工具态显示转换提示；添加模式经 prompt 落整桶 set', () => {
+  it('工具层：整选态显示开关行（回车取消进入按模式编辑）', () => {
     const calls: [string, unknown][] = []
     const tracking = { set: (p: string, v: unknown) => calls.push([p, v]), add: () => {}, remove: () => {} }
-    const empty = buildEntries(permCfg, { kind: 'permissionTool', bucket: 'allow', tool: 'read_file' }, tracking)
-    expect(empty[0]!.label).toContain('整工具生效')
-    expect(empty[1]!.kind).toBe('prompt')
-    ;(empty[1] as { save: (v: string) => void }).save('docs/**')
-    expect(calls).toContainEqual(['permission.allow', { read_file: ['docs/**'], shell: ['git *', 'npm run *'] }])
+    const whole = buildEntries(permCfg, { kind: 'permissionTool', bucket: 'allow', tool: 'read_file' }, tracking)
+    expect(whole.map((e) => e.label)).toEqual(['✓ 整工具生效（回车取消——改为按模式限定）'])
+    ;(whole[0] as { run: () => void }).run() // 取消整选 → whole:false + 空 patterns（空选可表达）
+    expect(calls[0]![1]).toMatchObject({ read_file: { whole: false, patterns: [] } })
   })
 
-  it('工具层：模式行 scalar 就地编辑（非空 + 去重）与 d 删除', () => {
+  it('工具层：空选态提示不命中；模式行 scalar 就地编辑（非空 + 去重）与 d 删除', () => {
     const calls: [string, unknown][] = []
     const tracking = { set: (p: string, v: unknown) => calls.push([p, v]), add: () => {}, remove: () => {} }
+    const empty = buildEntries(
+      { ...permCfg, permission: { ...permCfg.permission, allow: { read_file: { whole: false, patterns: [] } } } },
+      { kind: 'permissionTool', bucket: 'allow', tool: 'read_file' }, tracking,
+    )
+    expect(empty.map((e) => e.label)).toEqual([
+      '· 整工具生效（回车切回；当前模式将保留）', '（未选择任何模式——本键当前不命中任何规则）', '＋ 添加模式',
+    ])
     const entries = buildEntries(permCfg, { kind: 'permissionTool', bucket: 'allow', tool: 'shell' }, tracking)
     expect(entries.map((e) => e.label)).toEqual([
-      '· 整工具生效（回车切回；当前 2 条模式将保留）', 'git *', 'npm run *', '＋ 添加模式',
+      '· 整工具生效（回车切回；当前模式将保留）', 'git *', 'npm run *', '＋ 添加模式',
     ])
     const first = entries[1]!
     expect(first.kind).toBe('scalar')
     ;(first as { save: (v: string) => void }).save('git push *') // 改名
-    expect(calls).toContainEqual(['permission.allow', { read_file: [], shell: ['git push *', 'npm run *'] }])
+    expect(calls).toContainEqual(['permission.allow', { read_file: { whole: true, patterns: [] }, shell: { whole: false, patterns: ['git push *', 'npm run *'] } }])
     ;(first as { save: (v: string) => void }).save('npm run *') // 重复 → 不发
     ;(first as { save: (v: string) => void }).save('  ') // 空白 → 不发
     expect(calls).toHaveLength(1)
     ;(first as { del: () => void }).del!()
-    expect(calls).toContainEqual(['permission.allow', { read_file: [], shell: ['npm run *'] }])
+    expect(calls).toContainEqual(['permission.allow', { read_file: { whole: true, patterns: [] }, shell: { whole: false, patterns: ['npm run *'] } }])
   })
 
-  it('整选开关循环：切回整选保留全部模式，取消整选原样恢复（** 标记）', () => {
+  it('整选开关循环：切回整选保留全部模式，取消整选原样恢复（whole 字段）', () => {
     const calls: [string, unknown][] = []
     const tracking = { set: (p: string, v: unknown) => calls.push([p, v]), add: () => {}, remove: () => {} }
     const entries = buildEntries(permCfg, { kind: 'permissionTool', bucket: 'allow', tool: 'shell' }, tracking)
-    ;(entries[0] as { run: () => void }).run() // 按模式 → 整选：头部插入 **，模式保留
-    expect(calls[0]![1]).toMatchObject({ shell: ['**', 'git *', 'npm run *'] })
+    ;(entries[0] as { run: () => void }).run() // 按模式 → 整选：whole 置 true，模式保留
+    expect(calls[0]![1]).toMatchObject({ shell: { whole: true, patterns: ['git *', 'npm run *'] } })
     // 整选态：开关显示 ✓，模式行灰显（不可编辑的 action 行），无添加入口
     const wholeEntries = buildEntries(
-      { ...permCfg, permission: { ...permCfg.permission, allow: { ...permCfg.permission.allow, shell: ['**', 'git *'] } } },
+      { ...permCfg, permission: { ...permCfg.permission, allow: { ...permCfg.permission.allow, shell: { whole: true, patterns: ['git *'] } } } },
       { kind: 'permissionTool', bucket: 'allow', tool: 'shell' }, tracking,
     )
     expect(wholeEntries.map((e) => e.label)).toEqual([
-      '✓ 整工具生效（回车取消——恢复按模式限定）', '（以下模式保留中，取消整选后可编辑）', '　 git *',
+      '✓ 整工具生效（回车取消——改为按模式限定）', '（以下模式保留中，取消整选后可编辑）', '　 git *',
     ])
-    ;(wholeEntries[0] as { run: () => void }).run() // 整选 → 按模式：移除标记，模式恢复
-    expect(calls[1]![1]).toMatchObject({ shell: ['git *'] })
+    ;(wholeEntries[0] as { run: () => void }).run() // 整选 → 按模式：whole 置 false，模式恢复
+    expect(calls[1]![1]).toMatchObject({ shell: { whole: false, patterns: ['git *'] } })
   })
 
-  it('selectTool 只列本桶没有的工具，加入即空数组（整工具）', () => {
+  it('selectTool 只列本桶没有的工具，加入即 whole 整键规则', () => {
     const calls: [string, unknown][] = []
     const tracking = { set: (p: string, v: unknown) => calls.push([p, v]), add: () => {}, remove: () => {} }
     const entries = buildEntries(permCfg, { kind: 'selectTool', bucket: 'allow' }, tracking)
     expect(entries.map((e) => e.label)).toEqual(['write_file', 'edit_file', 'ls', 'glob', 'grep']) // KNOWN_TOOLS 顺序过滤掉本桶已有的 read_file/shell
     ;(entries[0] as { run: () => void }).run()
     expect(calls[0]![0]).toBe('permission.allow')
-    expect(calls[0]![1]).toMatchObject({ write_file: [] })
+    expect(calls[0]![1]).toMatchObject({ write_file: { whole: true, patterns: [] } })
   })
 
   it('selectTool：MCP 服务聚合为一个条目（整组生效），内建工具逐个', () => {
@@ -161,7 +174,7 @@ describe('config-tree permission 编辑（v2：桶 → 工具 → 模式数组�
       'read_file', 'write_file', 'edit_file', 'ls', 'glob', 'grep',
     ])
     ;(entries[0] as { run: () => void }).run()
-    expect(calls[0]![1]).toMatchObject({ playwright: [] })
+    expect(calls[0]![1]).toMatchObject({ playwright: { whole: true, patterns: [] } })
     // 选择即钻入：选中后直接落到该键的 permissionTool 细化层（免 esc 退回再钻入的往返）。
     expect(entries[0]).toMatchObject({ afterRunPath: { kind: 'permissionTool', bucket: 'ask', tool: 'playwright' } })
   })
@@ -184,7 +197,7 @@ describe('config-tree permission 编辑（v2：桶 → 工具 → 模式数组�
     const srvCfg = configSchema.parse({
       providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] }],
       mcpServers: [{ name: 'playwright', transport: { type: 'stdio', command: 'npx' } }],
-      permission: { allow: { playwright: [] }, reject: {}, ask: {} },
+      permission: { allow: { playwright: { whole: true, patterns: [] } }, reject: {}, ask: {} },
     })
     const entries = buildEntries(srvCfg, { kind: 'permissionBucket', bucket: 'allow' }, ctx, [])
     expect(entries.map((e) => e.label)).toEqual(['playwright（MCP 服务）', '＋ 添加工具'])
@@ -203,7 +216,7 @@ describe('config-tree permission 编辑（v2：桶 → 工具 → 模式数组�
     const srvCfg = configSchema.parse({
       providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] }],
       mcpServers: [{ name: 'playwright', transport: { type: 'stdio', command: 'npx' } }],
-      permission: { allow: {}, reject: {}, ask: { playwright: ['browser_close', 'browser_*'] } },
+      permission: { allow: {}, reject: {}, ask: { playwright: { whole: false, patterns: ['browser_close', 'browser_*'] } } },
     })
     const entries = buildEntries(srvCfg, { kind: 'permissionTool', bucket: 'ask', tool: 'playwright' }, tracking, tools)
     expect(entries.map((e) => e.label)).toEqual([
@@ -211,9 +224,9 @@ describe('config-tree permission 编辑（v2：桶 → 工具 → 模式数组�
       '✓ browser_close', '· browser_navigate', '＊ browser_*', '＋ 添加通配（匹配该服务的内部工具名，如 browser_*）',
     ])
     ;(entries[2] as { run: () => void }).run() // 勾选 browser_navigate
-    expect(calls[0]![1]).toMatchObject({ playwright: ['browser_close', 'browser_*', 'browser_navigate'] })
+    expect(calls[0]![1]).toMatchObject({ playwright: { whole: false, patterns: ['browser_close', 'browser_*', 'browser_navigate'] } })
     ;(entries[1] as { run: () => void }).run() // 取消勾选 browser_close
-    expect(calls[1]![1]).toMatchObject({ playwright: ['browser_*'] })
+    expect(calls[1]![1]).toMatchObject({ playwright: { whole: false, patterns: ['browser_*'] } })
   })
 
   it('服务键整选：切回整组保留勾选，取消整选恢复；整选态下勾选行锁定', () => {
@@ -226,16 +239,16 @@ describe('config-tree permission 编辑（v2：桶 → 工具 → 模式数组�
     const wholeCfg = configSchema.parse({
       providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] }],
       mcpServers: [{ name: 'playwright', transport: { type: 'stdio', command: 'npx' } }],
-      permission: { allow: {}, reject: {}, ask: { playwright: ['**', 'browser_close'] } },
+      permission: { allow: {}, reject: {}, ask: { playwright: { whole: true, patterns: ['browser_close'] } } },
     })
     const entries = buildEntries(wholeCfg, { kind: 'permissionTool', bucket: 'ask', tool: 'playwright' }, tracking, tools)
     expect(entries.map((e) => e.label)).toEqual([
-      '✓ 整组生效（回车取消——恢复按勾选/规则）',
+      '✓ 整组生效（回车取消——改为按勾选/规则限定）',
       '（以下勾选/规则保留中，取消整选后可更改）',
       '✓ browser_close', '· browser_navigate',
     ])
     ;(entries[0] as { run: () => void }).run() // 取消整选 → 恢复勾选
-    expect(calls[0]![1]).toMatchObject({ playwright: ['browser_close'] })
+    expect(calls[0]![1]).toMatchObject({ playwright: { whole: false, patterns: ['browser_close'] } })
     ;(entries[3] as { run: () => void }).run() // 整选态下点勾选行 → 无操作（锁定）
     expect(calls).toHaveLength(1)
   })
@@ -245,6 +258,6 @@ describe('config-tree permission 编辑（v2：桶 → 工具 → 模式数组�
     const tracking = { set: (p: string, v: unknown) => calls.push([p, v]), add: () => {}, remove: () => {} }
     const entries = buildEntries(permCfg, { kind: 'permissionBucket', bucket: 'allow' }, tracking)
     ;(entries[0] as { del: () => void }).del!()
-    expect(calls).toContainEqual(['permission.allow', { shell: ['git *', 'npm run *'] }])
+    expect(calls).toContainEqual(['permission.allow', { shell: { whole: false, patterns: ['git *', 'npm run *'] } }])
   })
 })
