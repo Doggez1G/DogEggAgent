@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Box, Static, Text } from 'ink'
-import type { Config, UiPort } from '@dogegg/bridge'
+import type { Config, ToolListItem, UiPort } from '@dogegg/bridge'
 import { TopBar, MessageBlock, StatusBar, MultilineInput, StreamingBlock, PendingTool } from '../components'
 import { palette, themeRegistry } from '../theme'
 import { renderMarkdown } from '../markdown'
@@ -8,7 +8,7 @@ import { clearScreen } from './entry'
 import { spawnSync } from 'node:child_process'
 import { reducer, type ChatState, type Block, parseCommand, matchCommands } from '../../shared'
 import { matchPathToken, applyPathCompletion, PATH_SUGGEST_WINDOW } from '../features/input'
-import { buildEntries, type TreeCtx } from '../features/config'
+import { buildEntries, type Entry, type TreeCtx } from '../features/config'
 import { useKeyRouting } from './use-key-routing'
 import { useChat } from './use-chat'
 import { useAgentEvents, type StatusBarData } from './use-agent-events'
@@ -41,7 +41,7 @@ export function App({ port }: { port: UiPort }) {
   const setSuggestCursor = useCallback((c: number | null) => { suggestCursorRef.current = c; setSuggestCursorState(c) }, [])
   const [infoScroll, setInfoScroll] = useState(0) // info overlay 独立翻页
   const [statusBarData, setStatusBarData] = useState<StatusBarData>({})
-  const [toolsList, setToolsList] = useState<{ name: string; description: string }[]>([]) // 运行时工具清单（/config 选择器 + /tools 面板）
+  const [toolsList, setToolsList] = useState<ToolListItem[]>([]) // 运行时工具清单（/config 选择器 + /tools 面板，身份随行）
   const [skillsList, setSkillsList] = useState<SkillEntry[]>([]) // skills 清单镜像（/skills 面板 + 斜杠命令联想 + invoke 路由）
   const [mcpList, setMcpList] = useState<McpServerEntry[]>([]) // MCP server 状态镜像（/mcp 面板）
   const currentCwdRef = useRef<string>('')
@@ -66,6 +66,8 @@ export function App({ port }: { port: UiPort }) {
   // view/config 用 ref 镜像，避免 Ink useInput 回调闭包过期（useState 在回调里拿到的是旧值）。
   const viewRef = useRef<View>(view)
   const configRef = useRef<Config | null>(null)
+  // 配置树 entries 的 ref 镜像——按键层复用渲染层算好的同一份（useInput 回调读 state 拿旧值，走 ref）。
+  const configEntriesRef = useRef<Entry[]>([])
   const configIntent = useRef<'model' | 'config' | null>(null)
   const statusRef = useRef(chat.status) // 镜像 chat.status 供 useInput 读取（闭包防过期）
   const cwdRef = useRef<string | undefined>(undefined) // 镜像 cwd 供 useInput/handleSubmit 读取（@path 联想）
@@ -152,6 +154,7 @@ export function App({ port }: { port: UiPort }) {
     statusRef,
     configRef,
     treeCtx,
+    configEntries: () => configEntriesRef.current,
     input,
     setInput,
     cwd: cwdRef.current,
@@ -302,6 +305,7 @@ export function App({ port }: { port: UiPort }) {
   // ── 渲染 ──
   // 工具清单：运行时镜像为空时传 undefined——buildEntries 回退静态 KNOWN_TOOLS（空数组不是「无工具」而是「未播种」）。
   const configEntries = view.kind === 'config' && configSnapshot ? buildEntries(configSnapshot, view.path, treeCtx, toolsList.length > 0 ? toolsList : undefined) : []
+  configEntriesRef.current = configEntries
   const skillCommands = skillsList.map((s) => ({ cmd: '/' + s.name, desc: `skill: ${s.description}` }))
   const suggestMatches = view.kind === 'none' ? matchCommands(input, skillCommands) : []
   const pathSuggest = view.kind === 'none' && suggestMatches.length === 0 && !pathDismissed ? matchPathToken(input, cwdRef.current) : null

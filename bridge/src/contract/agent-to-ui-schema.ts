@@ -25,7 +25,17 @@ export const agentToUiMessageSchema: z.ZodType<AgentToUiMessage> = z.discriminat
   z.object({ type: z.literal('session_deleted'), id: z.string() }),
   z.object({ type: z.literal('config_state'), config: z.any() }),
   z.object({ type: z.literal('config_updated'), config: z.any() }),
-  z.object({ type: z.literal('tools_list'), tools: z.array(z.object({ name: z.string(), description: z.string() })) }),
+  z.object({
+    type: z.literal('tools_list'),
+    tools: z.array(z.object({
+      name: z.string(),
+      description: z.string(),
+      identity: z.discriminatedUnion('kind', [
+        z.object({ kind: z.literal('builtin') }),
+        z.object({ kind: z.literal('mcp'), server: z.string(), name: z.string() }),
+      ]),
+    })),
+  }),
   z.object({
     type: z.literal('context_state'),
     estimatedTokens: z.number(),

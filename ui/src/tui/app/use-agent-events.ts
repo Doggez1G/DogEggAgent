@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { AgentToUiMessage, Config, UiPort } from '@dogegg/bridge'
+import type { AgentToUiMessage, Config, ToolListItem, UiPort } from '@dogegg/bridge'
 import type { McpServerEntry } from '../view-state'
 import type { View } from '../view-state'
 
@@ -31,7 +31,7 @@ export interface AgentEventsDeps {
   openModelPicker(c: Config): void
   openConfigTree(c: Config): void
   setStatusBarData(updater: StatusBarData | ((d: StatusBarData) => StatusBarData)): void
-  setToolsList(tools: { name: string; description: string }[]): void
+  setToolsList(tools: ToolListItem[]): void
   setSkillsList(skills: { name: string; description: string; scope: 'project' | 'user'; path: string }[]): void
   setMcpList(servers: McpServerEntry[]): void
   clearScreenRemount(): void
@@ -101,7 +101,11 @@ export function useAgentEvents(deps: AgentEventsDeps): void {
         d.setToolsList(msg.tools)
         if (d.toolsIntentRef.current) {
           d.toolsIntentRef.current = false
-          d.setInfoScroll(0); d.setView({ kind: 'info', title: '工具', lines: msg.tools.map((t) => `${t.name} — ${t.description}`) })
+          d.setInfoScroll(0); d.setView({ kind: 'info', title: '工具', lines: msg.tools.map((t) => {
+            // 来源标注：MCP 工具附服务名（哈希标签场景下这是唯一能看出归属的地方）。
+            const origin = t.identity.kind === 'mcp' ? `（MCP · ${t.identity.server}）` : ''
+            return `${t.name}${origin} — ${t.description}`
+          }) })
         }
       } else if (msg.type === 'skills_list') {
         // 清单镜像（命令联想/路由）——/skills 面板开着时同步刷新其列表。

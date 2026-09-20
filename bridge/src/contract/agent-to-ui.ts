@@ -1,5 +1,6 @@
 import type { State, Message, ToolPermission, ContextBreakdown } from './shared'
 import type { Config, McpTransport } from './config'
+import type { ToolListItem } from './tools'
 
 // 后端 → 前端的消息契约。仅类型；方向单一，保证后端/前端解耦且互不 import 业务实现。
 // 将来接 SSE 时，序列化/反序列化的正是这一套类型，故 error 用可序列化形状而非 Error。
@@ -17,7 +18,7 @@ export type AgentToUiMessage =
   | { type: 'session_deleted'; id: string } // 会话已删除——UI 据此刷新侧栏列表
   | { type: 'config_state'; config: Config }
   | { type: 'config_updated'; config: Config }
-  | { type: 'tools_list'; tools: { name: string; description: string }[] }
+  | { type: 'tools_list'; tools: ToolListItem[] } // identity 随行——UI 按来源分组/标注（内建 / MCP · 服务名）
   | {
       type: 'context_state'
       estimatedTokens: number

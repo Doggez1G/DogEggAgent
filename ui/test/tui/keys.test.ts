@@ -102,20 +102,23 @@ describe('handleConfigKeys', () => {
     providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x/v1', apiKey: 'k', models: [{ name: 'm' }] }],
   } as unknown as Config
   const configView = { kind: 'config' as const, path: { kind: 'root' as const }, cursor: 0, preview: null }
-  const api = { setView, getConfig: () => cfg, treeCtx: { set: vi.fn(), add: vi.fn(), remove: vi.fn() } }
+  const treeCtx = { set: vi.fn(), add: vi.fn(), remove: vi.fn() }
+  // 按键层复用渲染层 entries（app.tsx 同款接线）——测试里用 buildEntries 现算充当渲染结果。
+  const entries = (): ReturnType<typeof buildEntries> => buildEntries(cfg, configView.path, treeCtx)
+  const api = { setView, getConfig: () => cfg, treeCtx, entries }
 
   it('esc 在根层直接关闭编辑器', () => {
     handleConfigKeys(configView, key({ escape: true }), '', api)
     expect(setView).toHaveBeenCalledWith({ kind: 'none' })
   })
   it('↑↓ 在 entries 内循环', () => {
-    const entries = buildEntries(cfg, configView.path, api.treeCtx)
+    const es = entries()
     handleConfigKeys(configView, key({ downArrow: true }), '', api)
-    expect(setView).toHaveBeenCalledWith(expect.objectContaining({ cursor: 1 % Math.max(1, entries.length) }))
-    expect(entries.length).toBeGreaterThanOrEqual(2) // 根层至少有 permission/providers 两个入口
+    expect(setView).toHaveBeenCalledWith(expect.objectContaining({ cursor: 1 % Math.max(1, es.length) }))
+    expect(es.length).toBeGreaterThanOrEqual(2) // 根层至少有 permission/providers 两个入口
   })
   it('配置非法时按键不崩（entries 为空）', () => {
-    handleConfigKeys(configView, key({ upArrow: true }), '', { setView, getConfig: () => null, treeCtx: api.treeCtx })
+    handleConfigKeys(configView, key({ upArrow: true }), '', { setView, getConfig: () => null, treeCtx, entries: () => [] })
     expect(setView).toHaveBeenCalledWith(expect.objectContaining({ cursor: 0 }))
   })
 })

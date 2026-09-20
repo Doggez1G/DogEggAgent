@@ -125,6 +125,74 @@ describe('config-tree permission 编辑（v2：桶 → 工具 → 模式数组�
     expect(calls[0]![1]).toMatchObject({ write_file: [] })
   })
 
+  it('selectTool：MCP 服务聚合为一个条目（整组生效），内建工具逐个', () => {
+    const calls: [string, unknown][] = []
+    const tracking = { set: (p: string, v: unknown) => calls.push([p, v]), add: () => {}, remove: () => {} }
+    // 运行时清单是完整快照（注册表 = 内建 + MCP），此处按真实形状构造全部内建 + playwright 两个工具。
+    const tools = [
+      ...['read_file', 'write_file', 'edit_file', 'shell', 'ls', 'glob', 'grep'].map((name) => ({ name, description: '', identity: { kind: 'builtin' as const } })),
+      { name: 'mcp__playwright__browser_close', description: '', identity: { kind: 'mcp' as const, server: 'playwright', name: 'browser_close' } },
+      { name: 'mcp__playwright__browser_navigate', description: '', identity: { kind: 'mcp' as const, server: 'playwright', name: 'browser_navigate' } },
+    ]
+    const entries = buildEntries(permCfg, { kind: 'selectTool', bucket: 'ask' }, tracking, tools)
+    // 服务条目在先（来源运行时身份——permCfg 未配 mcpServers）；内建排除 ask 桶已有的 shell。
+    expect(entries.map((e) => e.label)).toEqual([
+      'playwright（MCP 服务 · 2 个工具）',
+      'read_file', 'write_file', 'edit_file', 'ls', 'glob', 'grep',
+    ])
+    ;(entries[0] as { run: () => void }).run()
+    expect(calls[0]![1]).toMatchObject({ playwright: [] })
+  })
+
+  it('selectTool：离线服务标注未运行；配置 mcpServers 里的服务即使无运行时工具也出现', () => {
+    const srvCfg = configSchema.parse({
+      providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] }],
+      mcpServers: [{ name: 'fs', transport: { type: 'stdio', command: 'npx' } }],
+      permission: { allow: {}, reject: {}, ask: {} },
+    })
+    // 未传 tools（未播种）→ 内建回退静态 KNOWN_TOOLS；服务条目在先。
+    const entries = buildEntries(srvCfg, { kind: 'selectTool', bucket: 'allow' }, ctx)
+    expect(entries.map((e) => e.label)).toEqual([
+      'fs（MCP 服务 · 未运行）',
+      'read_file', 'write_file', 'edit_file', 'shell', 'ls', 'glob', 'grep',
+    ])
+  })
+
+  it('桶层：服务键标注（MCP 服务）+ 整组摘要', () => {
+    const srvCfg = configSchema.parse({
+      providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] }],
+      mcpServers: [{ name: 'playwright', transport: { type: 'stdio', command: 'npx' } }],
+      permission: { allow: { playwright: [] }, reject: {}, ask: {} },
+    })
+    const entries = buildEntries(srvCfg, { kind: 'permissionBucket', bucket: 'allow' }, ctx, [])
+    expect(entries.map((e) => e.label)).toEqual(['playwright（MCP 服务）', '＋ 添加工具'])
+    const first = entries[0]!
+    expect(first.kind).toBe('goto')
+    expect((first as { value: string }).value).toBe('整组（该服务所有工具）')
+  })
+
+  it('服务键钻入：运行时清单勾选式细化 + 通配行 + 添加通配', () => {
+    const calls: [string, unknown][] = []
+    const tracking = { set: (p: string, v: unknown) => calls.push([p, v]), add: () => {}, remove: () => {} }
+    const tools = [
+      { name: 'mcp__playwright__browser_close', description: '', identity: { kind: 'mcp' as const, server: 'playwright', name: 'browser_close' } },
+      { name: 'mcp__playwright__browser_navigate', description: '', identity: { kind: 'mcp' as const, server: 'playwright', name: 'browser_navigate' } },
+    ]
+    const srvCfg = configSchema.parse({
+      providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] }],
+      mcpServers: [{ name: 'playwright', transport: { type: 'stdio', command: 'npx' } }],
+      permission: { allow: {}, reject: {}, ask: { playwright: ['browser_close', 'browser_*'] } },
+    })
+    const entries = buildEntries(srvCfg, { kind: 'permissionTool', bucket: 'ask', tool: 'playwright' }, tracking, tools)
+    expect(entries.map((e) => e.label)).toEqual([
+      '✓ browser_close', '· browser_navigate', '＊ browser_*', '＋ 添加通配（匹配该服务的内部工具名，如 browser_*）',
+    ])
+    ;(entries[1] as { run: () => void }).run() // 勾选 browser_navigate
+    expect(calls[0]![1]).toMatchObject({ playwright: ['browser_close', 'browser_*', 'browser_navigate'] })
+    ;(entries[0] as { run: () => void }).run() // 取消勾选 browser_close
+    expect(calls[1]![1]).toMatchObject({ playwright: ['browser_*'] })
+  })
+
   it('d 从桶中移除整个工具键', () => {
     const calls: [string, unknown][] = []
     const tracking = { set: (p: string, v: unknown) => calls.push([p, v]), add: () => {}, remove: () => {} }

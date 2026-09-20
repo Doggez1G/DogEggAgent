@@ -11,7 +11,9 @@ import type { McpMergedEntry } from './project'
 // rebuild(desired) 做 diff 增删启停；每个 server 维护 状态 + 工具清单；工具适配进 ToolRegistry。
 //
 // 立法：
-// - 工具名 mcp__<server>__<tool>（命名空间防撞 + 权限桶可按 mcp__fs__* 通配）；
+// - 工具名 mcp__<server>__<tool>（LLM 可见的命名空间标签；不合规时由注册关口整体哈希，见 registry）；
+// - 注册必带身份 { kind: 'mcp', server, name }——权限服务键（服务裸名桶键）按身份匹配，
+//   与标签字面无关；按身份摘除，绝不按前缀扫描；
 // - 参数不本地强校验：zod 仅做「对象」级宽松校验，真实校验权在 server（原生 JSON Schema 透传给 LLM）；
 // - 第三方工具默认走权限 ask（三桶无规则时的固定安全默认，无需额外处理）；
 // - 生命周期全部异步：rebuild 由门面 fire-and-forget 调用，状态经 mcp_list 广播（不阻塞消息循环）。
@@ -119,18 +121,30 @@ export class McpManager {
   }
 
   // 把运行中 server 的工具注册进注册表（先摘后挂——server 工具清单可能变化）。
+  // 注册携带身份（kind: 'mcp' + 服务名 + 内部工具名）——权限服务键匹配与 UI 分组的唯一事实源。
+  // 单服务注册失败（合规关口的命名冲突等）按服务隔离：该服务落 error 可见，其余服务照常挂载。
   private syncRegistry(): void {
-    for (const [name, rt] of this.servers) this.unregisterServerTools(name)
+    for (const name of this.servers.keys()) this.unregisterServerTools(name)
     for (const [serverName, rt] of this.servers) {
       if (rt.status !== 'running') continue
-      for (const t of rt.tools) this.deps.registry.register(this.makeAdapter(serverName, rt, t))
+      try {
+        for (const t of rt.tools) {
+          this.deps.registry.register(this.makeAdapter(serverName, rt, t), { kind: 'mcp', server: serverName, name: t.name })
+        }
+      } catch (e) {
+        rt.status = 'error'
+        rt.error = (e as Error).message
+        rt.tools = []
+        this.unregisterServerTools(serverName) // 清掉半挂状态：冲突前已注册的本服务工具一并摘除
+      }
     }
   }
 
+  // 按身份摘除（替代旧的前缀字符串扫描）：从注册表身份里找本服务的全部标签，逐个摘除。
+  // 哈希标签不带 mcp__ 前缀，前缀扫描会漏删——身份是唯一可靠的归属事实源。
   private unregisterServerTools(serverName: string): void {
-    const prefix = `mcp__${serverName}__`
-    for (const name of this.deps.registry.all().map((t) => t.name)) {
-      if (name.startsWith(prefix)) this.deps.registry.unregister(name)
+    for (const label of this.deps.registry.labelsWhere((id) => id.kind === 'mcp' && id.server === serverName)) {
+      this.deps.registry.unregister(label)
     }
   }
 
@@ -176,7 +190,7 @@ export class McpManager {
   private broadcast(): void {
     this.syncRegistry()
     this.deps.emit({ type: 'mcp_list', servers: this.listStatus() })
-    this.deps.emit({ type: 'tools_list', tools: this.deps.registry.all().map((t) => ({ name: t.name, description: t.description })) })
+    this.deps.emit({ type: 'tools_list', tools: this.deps.registry.listTools() })
   }
 }
 

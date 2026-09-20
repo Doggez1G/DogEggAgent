@@ -71,7 +71,7 @@ export class Agent {
     this.skills.setProjectDir(cwd)
     this.ctx = {
       config,
-      permission: new PermissionManager(config.permission, [this.skills.userDirPath()]),
+      permission: new PermissionManager(config.permission, [this.skills.userDirPath()], () => this.registry.identities()),
       assembler: new ContextAssembler(config.systemPrompt, this.registry, () => this.skills.promptSection() + shellGuidance(resolveShell(config.shellProgram))),
       machine: new StateMachine('idle'),
       gate: new BusyGate(),
@@ -187,9 +187,9 @@ export class Agent {
     this.emit({ type: 'skills_list', skills: this.skills.list() })
   }
 
-  // MCP 工具清单广播（tools_request 与 MCP 生命周期变化共用同一形状）。
+  // MCP 工具清单广播（tools_request 与 MCP 生命周期变化共用同一形状；身份随行供 UI 分组）。
   private emitToolsList(): void {
-    this.emit({ type: 'tools_list', tools: this.registry.all().map((t) => ({ name: t.name, description: t.description })) })
+    this.emit({ type: 'tools_list', tools: this.registry.listTools() })
   }
 
   // 生效的 MCP server 列表 = 全局 config.mcpServers ⊕ 项目 .dogegg/.mcp.json（同名项目覆盖，scope 随条目下发）。
@@ -325,7 +325,7 @@ export class Agent {
   private onConfigChanged(config: Config): void {
     this.ctx.config = config
     const saved = this.ctx.permission.snapshotPermissions()
-    this.ctx.permission = new PermissionManager(config.permission, [this.skills.userDirPath()])
+    this.ctx.permission = new PermissionManager(config.permission, [this.skills.userDirPath()], () => this.registry.identities())
     this.ctx.permission.restore(saved)
     this.ctx.assembler = new ContextAssembler(config.systemPrompt, this.registry, () => this.skills.promptSection() + shellGuidance(resolveShell(config.shellProgram)))
     // mcpServers 可能随配置变化——diff 重建（无变化时幂等空转，不广播）。

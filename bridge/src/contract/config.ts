@@ -70,6 +70,12 @@ const bucketMapSchema = z.record(z.string(), z.array(z.string()))
 // 未来新增主参数不是 path 的工具时需在此登记；表住 bridge 与归一化转换同居，三端共享同一解释。
 export const PRIMARY_SPECIFIER: Record<string, 'path' | 'command'> = { shell: 'command' }
 
+// 内建 path 主参数工具清单（立法）：作用域前缀校验只对这些键生效——只有它们的数组条目才是
+// 路径模式（锚点语义才有意义）。其余键的条目是工具名选择器，不是路径：MCP 服务键（服务下
+// 全部工具的启用匹配）、遗留 mcp__x__* 通配键、未来扩展工具——一律跳过校验。校验写于 MCP
+// 出现之前，当时所有键都是内建工具；键的语义随身份分化后，校验范围必须同步收窄。
+export const BUILTIN_PATH_TOOLS = ['read_file', 'write_file', 'edit_file', 'ls', 'glob', 'grep'] as const
+
 export function primarySpecifier(tool: string): 'path' | 'command' {
   return PRIMARY_SPECIFIER[tool] ?? 'path'
 }
@@ -128,10 +134,12 @@ export const permissionSchema = z.union([permissionV2Schema, permissionLegacySch
     // 作用域前缀校验（立法）：路径模式必须显式声明作用域——锚点（./、../、~/）、盘符（绝对），
     // 或以 * 开头（无锚点，glob 从文件系统根匹配：**/x 全盘任意深度、*/x 仅盘根一层）。
     // 字面量打头的裸模式（docs/**、test）从根匹配只能命中盘根条目，必然是忘了写锚点 → 拒绝加载。
-    // shell 的 command 模式无作用域概念，不校验。错误在 /config 编辑时也会经 validate/回滚浮出。
+    // 只对内建 path 工具生效（见 BUILTIN_PATH_TOOLS）——MCP 服务键等其余键的条目是工具名
+    // 选择器（如 browser_close），不存在路径锚点语义。shell 的 command 模式无作用域概念，不校验。
+    // 错误在 /config 编辑时也会经 validate/回滚浮出。
     for (const bucket of [p.allow, p.reject, p.ask]) {
       for (const [tool, patterns] of Object.entries(bucket)) {
-        if (primarySpecifier(tool) !== 'path') continue
+        if (!(BUILTIN_PATH_TOOLS as readonly string[]).includes(tool)) continue
         for (const pat of patterns) {
           const unified = pat.replace(/\\/g, '/')
           const ok = /^(\.\.\/|\.\/|~\/|\*)/.test(unified) || /^[a-zA-Z]:\//.test(unified) || unified.startsWith('/')

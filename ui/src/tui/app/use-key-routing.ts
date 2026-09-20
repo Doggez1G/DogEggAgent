@@ -2,7 +2,7 @@ import { useCallback, useRef } from 'react'
 import { useInput } from 'ink'
 import type { Config, UiPort } from '@dogegg/bridge'
 import type { Block, ChatState } from '../../shared'
-import type { TreeCtx } from '../features/config'
+import type { TreeCtx, Entry } from '../features/config'
 import { handlePermissionKeys } from '../features/permission/keys'
 import { handleMenuKeys } from '../features/menu/keys'
 import { handlePromptKeys } from '../features/prompt/keys'
@@ -25,6 +25,8 @@ export interface KeyRoutingDeps {
   statusRef: { current: ChatState['status'] }
   configRef: { current: Config | null }
   treeCtx: TreeCtx
+  /** 配置树当前层的 entries（渲染层已算好的同一份）——按键层复用，杜绝两处 buildEntries 漂移。 */
+  configEntries: () => Entry[]
   input: string
   setInput(value: string): void
   /** 会话 cwd——@path 联想的候选来源（仅 cwd 内提供补全）。 */
@@ -91,7 +93,7 @@ export function useKeyRouting(deps: KeyRoutingDeps): { suppressEnter(): void } {
       case 'sessionPicker':
         return handleSessionPickerKeys(v, key, inputChar, { setView: deps.setView, post: (m) => deps.port.post(m), suppressEnter })
       case 'config':
-        return handleConfigKeys(v, key, inputChar, { setView: deps.setView, getConfig: () => deps.configRef.current, treeCtx: deps.treeCtx })
+        return handleConfigKeys(v, key, inputChar, { setView: deps.setView, getConfig: () => deps.configRef.current, treeCtx: deps.treeCtx, entries: deps.configEntries })
       case 'skills':
         return handleSkillsKeys(v, key, inputChar, {
           setView: deps.setView,

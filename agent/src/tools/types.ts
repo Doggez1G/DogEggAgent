@@ -1,4 +1,7 @@
 import type { z } from 'zod'
+import type { ToolIdentity } from '@dogegg/bridge'
+
+export type { ToolIdentity }
 
 export interface ToolContext {
   cwd: string

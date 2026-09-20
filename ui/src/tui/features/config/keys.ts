@@ -1,21 +1,22 @@
 import type { Key } from 'ink'
 import type { Config, UiToAgentMessage } from '@dogegg/bridge'
 import type { View } from '../../view-state'
-import { buildEntries } from './build'
 import { parentPath } from './navigation'
-import type { TreeCtx } from './entries'
+import type { Entry, TreeCtx } from './entries'
 
 export interface ConfigKeysApi {
   setView(view: View): void
   getConfig(): Config | null
   treeCtx: TreeCtx
+  // 当前层的 entries——直接复用渲染层 buildEntries 的同一份结果。按键层不再自行重建：
+  // 重建少传 tools 参数会得到与屏幕不一致的列表（曾致 MCP 工具「显示得到选不中」）。
+  entries: () => Entry[]
 }
 
 // 配置编辑器按键：↑↓ 选 entry，←→ 切布尔/返回上级，回车按 entry 类型分派，
 // esc 逐级返回（根层关闭），d 删除（del 后留在同页并 clamp cursor 防越界）。
 export function handleConfigKeys(v: Extract<View, { kind: 'config' }>, key: Key, inputChar: string, api: ConfigKeysApi): void {
-  const cfg = api.getConfig()
-  const entries = cfg ? buildEntries(cfg, v.path, api.treeCtx) : []
+  const entries = api.entries()
   const entry = entries[v.cursor]
   const len = Math.max(1, entries.length)
   if (key.upArrow) api.setView({ ...v, cursor: (v.cursor - 1 + len) % len, preview: null })

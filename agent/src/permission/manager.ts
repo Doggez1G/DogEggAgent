@@ -1,7 +1,7 @@
 import { basename, dirname, resolve } from 'node:path'
 import { realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
-import type { PermissionDecision, PermissionConfig, ToolPermission, ToolArgs } from '@dogegg/bridge'
+import type { PermissionDecision, PermissionConfig, ToolIdentity, ToolPermission, ToolArgs } from '@dogegg/bridge'
 import { classifyPermission as classify, primarySpecifier } from '@dogegg/bridge'
 
 // 两层权限的运行时层：配置三桶静态分类（含参数化规则，匹配引擎在 bridge）+ 运行时会话内提升。
@@ -13,9 +13,16 @@ export class PermissionManager {
   // 内置读豁免目录（posix 归一）：read_file 落 ask 且目标在其中时自动 allow。
   // 用途：用户级 skills 目录是 agent 管理的资产——系统提示引导模型读 SKILL.md，不应反复弹审批。
   private readonly builtinReadDirs: string[]
+  // 配置三桶（onConfigChanged 重建 manager 时整体替换）。
+  private cfg: PermissionConfig
+  // 工具身份快照提供者（注册表 identities()）——MCP 服务键匹配按身份进行，不解析 LLM 可见名。
+  // 提供者而非快照：注册表随 MCP 启停变化，classify 时现取永远新鲜（缺省 = 无身份，仅走名字分支）。
+  private readonly identities?: () => ReadonlyMap<string, ToolIdentity>
 
-  constructor(private cfg: PermissionConfig, builtinReadDirs: string[] = []) {
+  constructor(cfg: PermissionConfig, builtinReadDirs: string[] = [], identities?: () => ReadonlyMap<string, ToolIdentity>) {
+    this.cfg = cfg
     this.builtinReadDirs = builtinReadDirs.map((d) => d.replace(/\\/g, '/').replace(/\/+$/, ''))
+    this.identities = identities
   }
 
   // classify 的本域职责：把「路径类匹配」归一化到统一坐标系（绝对 posix 路径）后再交给 bridge 引擎。
@@ -23,9 +30,10 @@ export class PermissionManager {
   // cwd 缺省（UI display-only 调用）时跳过归一化：display 不传 args，参数化规则本就不参与展示判定。
   classify(tool: string, args?: ToolArgs, cwd?: string): 'allow' | 'reject' | 'ask' {
     const normalizedArgs = cwd ? this.normalizeArgs(args, cwd) : args
+    const identities = this.identities?.()
     const decision = cwd
-      ? classify(this.normalizeRules(cwd), tool, normalizedArgs, this.sessionRules)
-      : classify(this.cfg, tool, normalizedArgs, this.sessionRules)
+      ? classify(this.normalizeRules(cwd), tool, normalizedArgs, this.sessionRules, identities)
+      : classify(this.cfg, tool, normalizedArgs, this.sessionRules, identities)
     // 内置读豁免：仅 read_file、仅配置桶落 ask（reject / 会话提升等更早判定不受影响）。
     if (decision === 'ask' && tool === 'read_file' && this.builtinReadDirs.length > 0) {
       const p = typeof normalizedArgs?.path === 'string' ? normalizedArgs.path : undefined
