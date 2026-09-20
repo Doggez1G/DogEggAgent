@@ -25,10 +25,20 @@ export interface McpServerEntry {
 export type View =
   | { kind: 'none' }
   | { kind: 'permission'; id: string; tool: string; input: unknown; alwaysScope?: { pattern: string }; cursor: number }
-  | { kind: 'menu'; title: string; items: { label: string; onSelect: () => void }[]; cursor: number }
+  | { kind: 'menu'; title: string; items: { label: string; onSelect: () => void }[]; cursor: number; /** esc 返回来源视图（缺省关面板）——面板内确认菜单不再「一键退出设置」。 */ returnView?: View }
   | { kind: 'sessionPicker'; sessions: { id: string; preview: string; title?: string; updatedAt: string }[]; cursor: number; query: string }
   | { kind: 'prompt'; title: string; value: string; onSubmit: (v: string) => void; returnPath?: ConfigPath; returnCursor?: number; returnView?: View }
   | { kind: 'skills'; cursor: number; skills: SkillEntry[] }
   | { kind: 'mcp'; cursor: number; servers: McpServerEntry[] }
   | { kind: 'config'; path: ConfigPath; cursor: number; preview: boolean | null }
-  | { kind: 'info'; title: string; lines: string[] } // /context /tools /status /system /log /help 的只读面板
+  | { kind: 'info'; title: string; lines: string[]; /** esc 返回来源视图（缺省关面板）——面板内钻入的详情不再「一键退出设置」。 */ returnView?: View } // /context /tools /status /system /log /help 的只读面板
+  | { kind: 'form'; title: string; fields: FormField[]; cursor: number; returnView: View; submitLabel: string; onSubmit: (values: string[]) => void } // 多字段表单（/mcp、/skills 的新建/编辑）：一行一字段，Enter 编辑/切换
+
+// 表单字段：options 存在 = 固定选项字段（Enter 循环切换，显示 label 提交 value）；
+// 否则文本字段（Enter 弹 prompt 编辑，prefill 当前值）。readonly = 身份锁定行（编辑态名称/落点）。
+export interface FormField {
+  label: string
+  value: string
+  options?: { label: string; value: string }[]
+  readonly?: boolean
+}

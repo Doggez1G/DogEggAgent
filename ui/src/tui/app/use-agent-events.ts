@@ -116,8 +116,11 @@ export function useAgentEvents(deps: AgentEventsDeps): void {
         d.setMcpList(msg.servers)
         if (d.viewRef.current.kind === 'mcp') d.setView({ ...d.viewRef.current, servers: msg.servers, cursor: Math.min(d.viewRef.current.cursor, Math.max(0, msg.servers.length - 1)) })
       } else if (msg.type === 'skill_content') {
-        // 详情查看（skills 面板 Enter）——全文进 info 面板（可翻页）。
-        d.setInfoScroll(0); d.setView({ kind: 'info', title: `skill ${msg.name}（${msg.scope}）`, lines: msg.content.split('\n') })
+        // 详情查看（skills 面板 Enter）——全文进 info 面板（可翻页）；esc 回 skills 面板而非关设置。
+        d.setInfoScroll(0)
+        const from = d.viewRef.current
+        const back = from.kind === 'skills' ? { returnView: from } : {}
+        d.setView({ kind: 'info', title: `skill ${msg.name}（${msg.scope}）`, lines: msg.content.split('\n'), ...back })
       } else if (msg.type === 'status_state') {
         sessionIdRef.current = msg.sessionId
         d.currentCwdRef.current = msg.cwd

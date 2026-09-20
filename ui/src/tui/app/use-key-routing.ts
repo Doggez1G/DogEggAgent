@@ -12,6 +12,7 @@ import { handleSuggestionKeys, handleHistoryKeys, handlePathSuggestKeys } from '
 import { matchPathToken, applyPathCompletion } from '../features/input'
 import { handleSkillsKeys } from '../features/skills/keys'
 import { handleMcpKeys } from '../features/mcp/keys'
+import { handleFormKeys } from '../features/form/keys'
 import { handleBrowseKeys } from '../features/browse/keys'
 import { handleInfoKeys } from '../features/info/keys'
 import { resetSigintTimer } from './entry'
@@ -94,21 +95,36 @@ export function useKeyRouting(deps: KeyRoutingDeps): { suppressEnter(): void } {
         return handleSessionPickerKeys(v, key, inputChar, { setView: deps.setView, post: (m) => deps.port.post(m), suppressEnter })
       case 'config':
         return handleConfigKeys(v, key, inputChar, { setView: deps.setView, getConfig: () => deps.configRef.current, treeCtx: deps.treeCtx, entries: deps.configEntries })
+      case 'form':
+        return handleFormKeys(v, key, inputChar, { setView: deps.setView })
       case 'skills':
         return handleSkillsKeys(v, key, inputChar, {
           setView: deps.setView,
           post: (m) => deps.port.post(m),
-          openMenu: (title, items) => deps.setView({ kind: 'menu', title, items, cursor: 0 }),
+          openMenu: (title, items, returnView) => deps.setView({ kind: 'menu', title, items, cursor: 0, returnView }),
           suppressEnter,
           openEditor: deps.openEditor,
+          // 校验失败等提示：info 带 returnView 回当前视图——表单校验失败时已填字段不丢。
+          notice: (text) => {
+            deps.infoScroll(() => 0)
+            const cur = deps.viewRef.current
+            const back = cur.kind !== 'none' && cur.kind !== 'info' ? { returnView: cur } : {}
+            deps.setView({ kind: 'info', title: '提示', lines: [text], ...back })
+          },
         })
       case 'mcp':
         return handleMcpKeys(v, key, inputChar, {
           setView: deps.setView,
           post: (m) => deps.port.post(m),
-          openMenu: (title, items) => deps.setView({ kind: 'menu', title, items, cursor: 0 }),
+          openMenu: (title, items, returnView) => deps.setView({ kind: 'menu', title, items, cursor: 0, returnView }),
           suppressEnter,
-          notice: (text) => { deps.infoScroll(() => 0); deps.setView({ kind: 'info', title: '提示', lines: [text] }) },
+          // 校验失败等提示：info 带 returnView 回当前视图——表单校验失败时已填字段不丢。
+          notice: (text) => {
+            deps.infoScroll(() => 0)
+            const cur = deps.viewRef.current
+            const back = cur.kind !== 'none' && cur.kind !== 'info' ? { returnView: cur } : {}
+            deps.setView({ kind: 'info', title: '提示', lines: [text], ...back })
+          },
         })
       case 'info':
         return handleInfoKeys(v, key, { setView: deps.setView, setInfoScroll: deps.infoScroll })

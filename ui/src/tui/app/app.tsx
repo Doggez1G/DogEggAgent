@@ -14,6 +14,7 @@ import { useChat } from './use-chat'
 import { useAgentEvents, type StatusBarData } from './use-agent-events'
 import type { McpServerEntry, SkillEntry } from '../view-state'
 import { McpPanel } from '../features/mcp'
+import { FormPanel } from '../features/form'
 import { PermissionOverlay } from '../features/permission/view'
 import { MenuOverlay } from '../features/menu/view'
 import { SessionPickerOverlay } from '../features/sessions/view'
@@ -450,6 +451,7 @@ export function App({ port }: { port: UiPort }) {
         {view.kind === 'menu' && <MenuOverlay view={view} />}
         {view.kind === 'skills' && <SkillsPanel view={view} />}
         {view.kind === 'mcp' && <McpPanel view={view} />}
+        {view.kind === 'form' && <FormPanel view={view} />}
         {view.kind === 'sessionPicker' && <SessionPickerOverlay view={view} cwd={currentCwdRef.current} />}
         {view.kind === 'config' && <ConfigOverlay view={view} entries={configEntries} />}
         {view.kind === 'info' && <InfoOverlay view={view} scroll={infoScroll} />}
