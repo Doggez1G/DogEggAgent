@@ -307,7 +307,7 @@ export function App({ port }: { port: UiPort }) {
   // 工具清单：运行时镜像为空时传 undefined——buildEntries 回退静态 KNOWN_TOOLS（空数组不是「无工具」而是「未播种」）。
   const configEntries = view.kind === 'config' && configSnapshot ? buildEntries(configSnapshot, view.path, treeCtx, toolsList.length > 0 ? toolsList : undefined) : []
   configEntriesRef.current = configEntries
-  const skillCommands = skillsList.map((s) => ({ cmd: '/' + s.name, desc: `skill: ${s.description}` }))
+  const skillCommands = skillsList.filter((s) => s.enabled && !s.missing).map((s) => ({ cmd: '/' + s.name, desc: `skill: ${s.description}` }))
   const suggestMatches = view.kind === 'none' ? matchCommands(input, skillCommands) : []
   const pathSuggest = view.kind === 'none' && suggestMatches.length === 0 && !pathDismissed ? matchPathToken(input, cwdRef.current) : null
 

@@ -22,7 +22,7 @@ export type UiToAgentMessage =
   | { type: 'permission_revoke'; tool: string; pattern?: string } // 撤销会话提升：带 pattern 撤单条模式（撤光即移除整条提升），不带撤整工具
   | { type: 'rename_session'; title: string } // 重命名当前会话（/rename <名称>；手动命名优先于自动标题）
   | { type: 'skills_request' } // 拉取当前可用 skills 清单（挂载播种 + 管理操作后刷新）
-  | { type: 'skills_manage'; action: 'create' | 'update' | 'delete' | 'get'; scope: 'project' | 'user'; name: string; description?: string; content?: string } // skills 面板 CRUD：create 用 name+description 生成骨架；update 写全文；get 回 skill_content
+  | { type: 'skills_manage'; action: 'create' | 'update' | 'delete' | 'get' | 'toggle'; scope: 'project' | 'user'; name: string; description?: string; content?: string; enabled?: boolean } // skills 面板 CRUD：create 用 name+description 生成骨架；update 写全文；get 回 skill_content；toggle 改启用（enabled 缺省 false）
   | { type: 'invoke_skill'; name: string; args: string } // 调用 skill：正文 $ARGUMENTS 替换后作为用户消息进轮次
   | { type: 'mcp_request' } // 拉取 MCP server 配置 + 运行时状态
   | { type: 'mcp_manage'; action: 'save' | 'delete' | 'toggle'; scope: 'global' | 'project'; server?: McpServerConfig; name?: string; enabled?: boolean } // /mcp 面板 CRUD：save 写入/更新条目（保存即重启），toggle 只改 enabled

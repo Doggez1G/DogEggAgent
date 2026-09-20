@@ -66,7 +66,14 @@ export const agentToUiMessageSchema: z.ZodType<AgentToUiMessage> = z.discriminat
   z.object({ type: z.literal('compaction'), before_tokens: z.number(), after_tokens: z.number(), source: z.enum(['manual', 'auto']) }),
   z.object({
     type: z.literal('skills_list'),
-    skills: z.array(z.object({ name: z.string(), description: z.string(), scope: z.enum(['project', 'user']), path: z.string() })),
+    skills: z.array(z.object({
+      name: z.string(),
+      description: z.string(),
+      scope: z.enum(['project', 'user']),
+      path: z.string(),
+      enabled: z.boolean(),
+      missing: z.boolean(),
+    })),
   }),
   z.object({ type: z.literal('skill_content'), scope: z.enum(['project', 'user']), name: z.string(), content: z.string() }),
   z.object({

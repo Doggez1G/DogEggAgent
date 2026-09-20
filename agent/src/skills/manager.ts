@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { parseSkillMd, skeletonSkillMd } from './parser'
 
 // Skills 管理（M4.1）：自有目录体系 + Agent Skills 规范格式的扫描 / CRUD / 调用渲染。
@@ -9,13 +9,22 @@ import { parseSkillMd, skeletonSkillMd } from './parser'
 // - skill 名 = 目录名（唯一事实源），目录名必须匹配 NAME_RE（防路径穿越 + 命令名合法性）；
 // - 同名冲突：项目级覆盖用户级（调用/命令联想取项目级），list() 两条都返回（面板两组都可见）；
 // - description 来自 frontmatter（渐进披露——系统提示与面板只展示它，正文按需读取）；
-// - CRUD 全部限定在两个根目录内（name 校验 + join 后仍在根下，双保险）。
+// - CRUD 全部限定在两个根目录内（name 校验 + join 后仍在根下，双保险）；
+// - 启停状态（M4.3）：旁挂状态文件与目录同层（用户级 ~/.dogegg/.skills.json、项目级
+//   <repo>/.dogegg/.skills.json，与 .mcp.json 同构）——只记停用名单（缺省即启用），
+//   不碰主流 SKILL.md 格式；项目级停用随 .dogegg/ 进 git 与仓库共享。
+// - 条目三态：启用（在目录且未停用）/ 停用（在目录且在名单）/ 文件缺失（在名单但目录已消失
+//   ——外部删除产生，可见供清理，永不进系统提示与调用）。
 
 export interface SkillInfo {
   name: string
   description: string
   scope: 'project' | 'user'
   path: string
+  /** false = 停用名单在案（系统提示/联想/调用全部不可见）。 */
+  enabled: boolean
+  /** true = 状态名单在案但文件系统已消失（孤儿）——仅供展示与清理。 */
+  missing: boolean
 }
 
 // 目录名 / 命令名立法：小写字母数字连字符，字母开头。
@@ -57,28 +66,74 @@ export class SkillsManager {
     for (const scope of ['project', 'user'] as const) {
       const dir = this.dirFor(scope)
       if (!dir || !existsSync(dir)) continue
+      const disabled = new Set(this.readDisabled(scope))
       let entries: string[]
       try {
         entries = readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && SKILL_NAME_RE.test(e.name)).map((e) => e.name)
       } catch {
         continue // 目录不可读（权限等）：该级跳过，不拖垮整体
       }
+      const found = new Set<string>()
       for (const name of entries) {
         const path = join(dir, name, 'SKILL.md')
         if (!existsSync(path)) continue
         try {
           const { description } = parseSkillMd(readFileSync(path, 'utf8'))
-          out.push({ name, description, scope, path })
+          found.add(name)
+          out.push({ name, description, scope, path, enabled: !disabled.has(name), missing: false })
         } catch {
           continue // 单个 skill 解析失败不拖垮整体
         }
+      }
+      // 名单孤儿：停用名单在案、文件系统已消失（外部删除等）——可见供清理，永不进提示/调用。
+      for (const name of disabled) {
+        if (found.has(name) || !SKILL_NAME_RE.test(name)) continue
+        out.push({ name, description: '（目录已不存在）', scope, path: join(dir, name, 'SKILL.md'), enabled: false, missing: true })
       }
     }
     this.cache = out
     return out
   }
 
+  // ── 启停状态（M4.3）：旁挂名单文件 ──
+
+  // 状态文件与 skills 目录同层（dirname）——用户级 ~/.dogegg/.skills.json、项目级 <repo>/.dogegg/.skills.json。
+  private statePathFor(scope: 'project' | 'user'): string {
+    const dir = this.dirFor(scope)
+    if (!dir) throw new Error('项目级 skills 目录不可用（当前无工作目录）')
+    return join(dirname(dir), '.skills.json')
+  }
+
+  // 读停用名单：文件缺失/损坏/形状不符一律视为空名单（不拖垮 skills 功能——外部手改损坏可删文件自愈）。
+  private readDisabled(scope: 'project' | 'user'): string[] {
+    const file = this.statePathFor(scope)
+    if (!existsSync(file)) return []
+    try {
+      const raw = JSON.parse(readFileSync(file, 'utf8')) as { disabled?: unknown }
+      if (!Array.isArray(raw.disabled)) return []
+      return raw.disabled.filter((x): x is string => typeof x === 'string')
+    } catch {
+      return []
+    }
+  }
+
+  private writeDisabled(scope: 'project' | 'user', names: string[]): void {
+    const file = this.statePathFor(scope)
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, JSON.stringify({ disabled: names }, null, 2), 'utf8')
+  }
+
+  // 启停：更新旁挂名单并失效缓存。启用一个 missing 条目 = 清理孤儿记录。
+  setEnabled(scope: 'project' | 'user', name: string, enabled: boolean): void {
+    this.assertInside(scope, name)
+    const names = this.readDisabled(scope)
+    const next = enabled ? names.filter((n) => n !== name) : (names.includes(name) ? names : [...names, name])
+    this.writeDisabled(scope, next)
+    this.invalidate()
+  }
+
   // 增：生成骨架 SKILL.md。name 非法 / 目标已存在 → 抛错（门面转 notice）。
+  // 同名重建（此前停用后被删）视为全新开始——从停用名单移除，新 skill 默认启用。
   create(scope: 'project' | 'user', name: string, description: string): void {
     if (!SKILL_NAME_RE.test(name)) throw new Error(`skill 名称只能用小写字母、数字、连字符（且字母开头）：${name}`)
     const dir = this.dirFor(scope)
@@ -87,6 +142,7 @@ export class SkillsManager {
     if (existsSync(skillDir)) throw new Error(`skill 已存在：${name}（${scope}）`)
     mkdirSync(skillDir, { recursive: true })
     writeFileSync(join(skillDir, 'SKILL.md'), skeletonSkillMd(name, description), 'utf8')
+    this.writeDisabled(scope, this.readDisabled(scope).filter((n) => n !== name))
     this.invalidate()
   }
 
@@ -99,10 +155,12 @@ export class SkillsManager {
     this.invalidate()
   }
 
-  // 删：整个 skill 目录（含资源文件）。幂等——不存在时静默成功（与 session delete 同语义）。
+  // 删：整个 skill 目录（含资源文件）。幂等——不存在时静默成功（与 session delete 同语义，
+  // 也是缺失态条目「删除即清理」的落点）；名单同步清理，不留孤儿记录（外部删除才产生孤儿）。
   remove(scope: 'project' | 'user', name: string): void {
     this.assertInside(scope, name)
     rmSync(join(this.dirFor(scope)!, name), { recursive: true, force: true })
+    this.writeDisabled(scope, this.readDisabled(scope).filter((n) => n !== name))
     this.invalidate()
   }
 
@@ -114,11 +172,12 @@ export class SkillsManager {
     return readFileSync(path, 'utf8')
   }
 
-  // 调用渲染：项目级优先命中 → 正文 $ARGUMENTS 替换（无占位且带参时追加说明段）。
-  // 未命中 / 正文为空 → 抛错（门面转 notice）。
+  // 调用渲染：可用（enabled 且非缺失）条目内项目级优先命中 → 正文 $ARGUMENTS 替换（无占位且带参时追加说明段）。
+  // 停用/缺失 = 退出竞争（项目级停用时同名用户级照常生效）；全部未命中 → 抛错（门面转 notice）。
   forInvocation(name: string, args: string): string {
-    const found = this.list().filter((s) => s.name === name).find((s) => s.scope === 'project') ?? this.list().find((s) => s.name === name)
-    if (!found) throw new Error(`未找到 skill：${name}`)
+    const available = this.list().filter((s) => s.enabled && !s.missing)
+    const found = available.filter((s) => s.name === name).find((s) => s.scope === 'project') ?? available.find((s) => s.name === name)
+    if (!found) throw new Error(`未找到 skill：${name}（可能已停用或目录缺失）`)
     const { body } = parseSkillMd(readFileSync(found.path, 'utf8'))
     if (!body) throw new Error(`skill ${name} 的 SKILL.md 正文为空`)
     const trimmedArgs = args.trim()
@@ -126,9 +185,9 @@ export class SkillsManager {
     return trimmedArgs ? `${body}\n\n用户参数：${trimmedArgs}` : body
   }
 
-  // 系统提示注入段（渐进披露）：无 skill 返回空串（不注入，省上下文）。
+  // 系统提示注入段（渐进披露）：只列可用条目（停用/缺失不广告）；无 skill 返回空串（不注入，省上下文）。
   promptSection(): string {
-    const skills = this.list()
+    const skills = this.list().filter((s) => s.enabled && !s.missing)
     if (skills.length === 0) return ''
     const lines = skills.map((s) => `- ${s.name}：${s.description || '（无描述）'}（${s.path}）`).join('\n')
     return [

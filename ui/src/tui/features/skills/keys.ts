@@ -34,6 +34,9 @@ export function handleSkillsKeys(v: Extract<View, { kind: 'skills' }>, key: Key,
     createForm(api, v)
   } else if (inputChar === 'e' && current) {
     api.openEditor(current.path)
+  } else if (inputChar === 't' && current) {
+    // 启停：停用 = 退出系统提示/联想/调用（保留文件）；缺失态按 t = 清理孤儿记录（等价启用）。
+    api.post({ type: 'skills_manage', action: 'toggle', scope: current.scope, name: current.name, enabled: !current.enabled })
   } else if (inputChar === 'd' && current) {
     api.suppressEnter()
     api.openMenu(`删除 skill ${current.name}（${current.scope}）？目录将整体删除，不可恢复。`, [

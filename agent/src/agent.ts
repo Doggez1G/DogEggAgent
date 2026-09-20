@@ -271,6 +271,10 @@ export class Agent {
         case 'update':
           this.skills.update(cmd.scope, cmd.name, cmd.content ?? '')
           break
+        case 'toggle':
+          this.skills.setEnabled(cmd.scope, cmd.name, cmd.enabled === true)
+          this.emit({ type: 'notice', text: `skill 已${cmd.enabled ? '启用' : '停用'}：${cmd.name}（${cmd.scope}）` })
+          break
         case 'delete':
           this.skills.remove(cmd.scope, cmd.name)
           this.emit({ type: 'notice', text: `skill 已删除：${cmd.name}（${cmd.scope}）` })

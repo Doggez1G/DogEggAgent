@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { AgentToUiMessage, Config, ToolListItem, UiPort } from '@dogegg/bridge'
-import type { McpServerEntry } from '../view-state'
+import type { McpServerEntry, SkillEntry } from '../view-state'
 import type { View } from '../view-state'
 
 export interface StatusBarData {
@@ -32,7 +32,7 @@ export interface AgentEventsDeps {
   openConfigTree(c: Config): void
   setStatusBarData(updater: StatusBarData | ((d: StatusBarData) => StatusBarData)): void
   setToolsList(tools: ToolListItem[]): void
-  setSkillsList(skills: { name: string; description: string; scope: 'project' | 'user'; path: string }[]): void
+  setSkillsList(skills: SkillEntry[]): void
   setMcpList(servers: McpServerEntry[]): void
   clearScreenRemount(): void
   /** 会话切换/清空后的 UI 复位（联想、浏览焦点、展开集合）。 */

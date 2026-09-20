@@ -38,7 +38,7 @@ export type AgentToUiMessage =
   | { type: 'history_cleared' }
   | { type: 'notice'; text: string; channel?: 'skills' | 'mcp' } // channel：管理面板内联错误定位（skills/mcp 的 CRUD 失败），普通提示不带
   | { type: 'permissions_list'; permissions: ToolPermission[] } // /permissions 命令响应：当前会话的 allow_always 授权工具列表
-  | { type: 'skills_list'; skills: { name: string; description: string; scope: 'project' | 'user'; path: string }[] } // 当前可用 skills（项目级覆盖同名用户级时不省略——面板两组都可见）
+  | { type: 'skills_list'; skills: { name: string; description: string; scope: 'project' | 'user'; path: string; enabled: boolean; missing: boolean }[] } // 当前 skills（项目级覆盖同名用户级时不省略；missing = 停用名单在案但目录已消失的孤儿条目）
   | { type: 'skill_content'; scope: 'project' | 'user'; name: string; content: string } // skills_manage get 的响应：SKILL.md 全文
   | { type: 'mcp_list'; servers: { name: string; enabled: boolean; scope: 'global' | 'project'; transport: McpTransport; status: 'running' | 'starting' | 'error' | 'stopped'; error?: string; tools: { name: string; description: string }[] }[] } // MCP server 配置（含 transport 明细——编辑预填）+ 运行时状态快照
   | { type: 'compaction'; before_tokens: number; after_tokens: number; source: 'manual' | 'auto' } // source 区分手动/自动，UI 据此决定弹 overlay 还是插提示块

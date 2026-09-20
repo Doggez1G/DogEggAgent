@@ -4,11 +4,14 @@ import type { ConfigPath } from './features/config'
 // UI 自己的视图态（叠加在后端状态机之上，二者正交）。
 // 决定当前显示哪个 overlay：无 / 权限弹层 / 菜单选择器 / 会话选择器 / 标量输入 / 配置编辑器 / 只读信息面板。
 // skills 面板条目（skills_list 消息的条目形态；scope 决定分组与覆盖关系）。
+// missing = 停用名单在案但目录已消失（孤儿条目）——仅供展示与清理。
 export interface SkillEntry {
   name: string
   description: string
   scope: 'project' | 'user'
   path: string
+  enabled: boolean
+  missing: boolean
 }
 
 // MCP server 条目（mcp_list 消息的条目形态：配置（含 transport 明细——编辑预填）+ 运行时状态）。

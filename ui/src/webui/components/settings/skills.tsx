@@ -3,15 +3,19 @@ import { Plus, Trash2, Pencil } from 'lucide-react'
 import type { UiPort } from '@dogegg/bridge'
 import styles from './settings.module.css'
 
-// Skills 管理区（M4.1）：项目级/用户级两组列表 + 创建表单 + 全文编辑 + 删除确认。
+// Skills 管理区（M4.1/M4.3）：项目级/用户级两组列表 + 创建表单 + 全文编辑 + 启停 + 删除确认。
 // 数据流：skills_request 拉取 → skills_list 广播刷新；CRUD 走 skills_manage（编辑先经 get 取全文）。
 // 与 TUI /skills 面板共用同一套 agent 消息——两端对称，无各自的后端。
+// 启停（M4.3）：toggle 走旁挂停用名单（agent 侧管理，主流 SKILL.md 零污染）；
+// missing 条目（名单在案但目录已消失）灰显展示，「清理」= 启用即移除孤儿记录。
 
 interface SkillItem {
   name: string
   description: string
   scope: 'project' | 'user'
   path: string
+  enabled: boolean
+  missing: boolean
 }
 
 export function SkillsSection({ port }: { port: UiPort }) {
@@ -93,14 +97,23 @@ export function SkillsSection({ port }: { port: UiPort }) {
             <div className={styles.sectionTitle} style={{ fontSize: 12, opacity: 0.7 }}>{g.label}</div>
             {items.length === 0 && <div style={{ opacity: 0.5, fontSize: 12 }}>（无）</div>}
             {items.map((s) => (
-              <div key={`${s.scope}/${s.name}`} className={styles.providerItem}>
+              <div key={`${s.scope}/${s.name}`} className={styles.providerItem} style={s.missing ? { opacity: 0.55 } : undefined}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 500 }}>/{s.name}</div>
+                  <div style={{ fontWeight: 500 }}>
+                    /{s.name}
+                    {s.missing && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--color-warning, #eab308)' }}>文件不存在</span>}
+                    {!s.enabled && !s.missing && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--color-subtext)' }}>已停用</span>}
+                  </div>
                   <div style={{ opacity: 0.6, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {s.description || '（无描述）'}
+                    {s.missing ? '（目录已不存在——清理后可重新创建同名 skill）' : (s.description || '（无描述）')}
                   </div>
                 </div>
-                <button className={styles.permChipX} title="编辑" onClick={() => requestEdit(s)}><Pencil size={12} /></button>
+                {s.missing ? (
+                  <button className={styles.navItem} title="移除这条孤儿记录" onClick={() => port.post({ type: 'skills_manage', action: 'toggle', scope: s.scope, name: s.name, enabled: true })}>清理</button>
+                ) : (
+                  <button className={styles.navItem} onClick={() => port.post({ type: 'skills_manage', action: 'toggle', scope: s.scope, name: s.name, enabled: !s.enabled })}>{s.enabled ? '停用' : '启用'}</button>
+                )}
+                {!s.missing && <button className={styles.permChipX} title="编辑" onClick={() => requestEdit(s)}><Pencil size={12} /></button>}
                 <button className={styles.permChipX} title="删除" onClick={() => setPendingDelete(s)}><Trash2 size={12} /></button>
               </div>
             ))}
@@ -110,7 +123,7 @@ export function SkillsSection({ port }: { port: UiPort }) {
 
       {pendingDelete && (
         <div className={styles.providerItem} style={{ borderColor: 'var(--color-danger)' }}>
-          <div style={{ flex: 1 }}>确认删除 skill「{pendingDelete.name}」（{pendingDelete.scope}）？目录整体删除，不可恢复。</div>
+          <div style={{ flex: 1 }}>{pendingDelete.missing ? `清理 skill「${pendingDelete.name}」（${pendingDelete.scope}）的残留记录？目录已不存在，仅移除停用名单。` : `确认删除 skill「${pendingDelete.name}」（${pendingDelete.scope}）？目录整体删除，不可恢复。`}</div>
           <button className={styles.navItem} onClick={() => { port.post({ type: 'skills_manage', action: 'delete', scope: pendingDelete.scope, name: pendingDelete.name }); setPendingDelete(null) }}>确认</button>
           <button className={styles.navItem} onClick={() => setPendingDelete(null)}>取消</button>
         </div>

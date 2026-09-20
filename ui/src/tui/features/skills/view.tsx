@@ -25,9 +25,10 @@ export function SkillsPanel({ view }: { view: Extract<import('../../view-state')
             {items.map((s) => {
               flat++
               const active = flat === cursor
+              const stateTag = s.missing ? '[文件缺失] ' : s.enabled ? '' : '[停用] '
               return (
                 <Text key={`${s.scope}/${s.name}`} inverse={active} color={active ? undefined : palette.subtext} wrap="truncate">
-                  {active ? '> ' : '  '}{s.name}{s.description ? ` — ${s.description}` : ''}
+                  {active ? '> ' : '  '}{stateTag}{s.name}{s.description ? ` — ${s.description}` : ''}
                 </Text>
               )
             })}
@@ -35,7 +36,7 @@ export function SkillsPanel({ view }: { view: Extract<import('../../view-state')
         )
       })}
       <Box marginTop={1}>
-        <Text dimColor>↑↓ 选择 · Enter 详情 · a 新建 · e 编辑 · d 删除 · esc 返回</Text>
+        <Text dimColor>↑↓ 选择 · Enter 详情 · a 新建 · e 编辑 · t 启停 · d 删除 · esc 返回</Text>
       </Box>
     </Box>
   )

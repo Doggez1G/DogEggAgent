@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, afterEach } from 'vitest'
@@ -99,5 +99,75 @@ describe('SkillsManager', () => {
     writeFileSync(join(proj2, '.dogegg', 'skills', 'moved', 'SKILL.md'), '---\ndescription: 搬家后\n---\nX')
     mgr.setProjectDir(proj2)
     expect(mgr.list().find((s) => s.name === 'moved')!.description).toBe('搬家后')
+  })
+})
+
+describe('SkillsManager 启停与缺失态（M4.3）', () => {
+  function makeSkill(dir: string, name: string, body: string): void {
+    mkdirSync(join(dir, name), { recursive: true })
+    writeFileSync(join(dir, name, 'SKILL.md'), `---
+name: ${name}
+description: ${name} 的描述
+---
+${body}`)
+  }
+
+  it('toggle 停用：list 标记 enabled=false；状态文件落盘；promptSection 不再广告；forInvocation 拒绝', () => {
+    const { user, mgr } = make()
+    makeSkill(user, 'alpha', 'ALPHA_BODY')
+    expect(mgr.list()[0]!.enabled).toBe(true)
+    mgr.setEnabled('user', 'alpha', false)
+    expect(mgr.list()[0]!.enabled).toBe(false)
+    expect(mgr.list()[0]!.missing).toBe(false)
+    expect(readFileSync(join(root!, '.skills.json'), 'utf8')).toContain('alpha')
+    expect(mgr.promptSection()).not.toContain('alpha')
+    expect(() => mgr.forInvocation('alpha', 'x')).toThrow(/停用或目录缺失/)
+  })
+
+  it('toggle 启用恢复：重新进入系统提示与调用', () => {
+    const { user, mgr } = make()
+    makeSkill(user, 'alpha', 'ALPHA_BODY')
+    mgr.setEnabled('user', 'alpha', false)
+    mgr.setEnabled('user', 'alpha', true)
+    expect(mgr.list()[0]!.enabled).toBe(true)
+    expect(mgr.promptSection()).toContain('alpha')
+    expect(mgr.forInvocation('alpha', 'x')).toBe(`ALPHA_BODY
+
+用户参数：x`)
+  })
+
+  it('缺失态：外部删除目录后 list 显示 missing 孤儿；启用即清理记录；promptSection 为空', () => {
+    const { user, mgr } = make()
+    makeSkill(user, 'gone', 'GONE_BODY')
+    mgr.setEnabled('user', 'gone', false)
+    rmSync(join(user, 'gone'), { recursive: true, force: true }) // 外部删除
+    const list = mgr.list()
+    expect(list).toHaveLength(1)
+    expect(list[0]).toMatchObject({ name: 'gone', enabled: false, missing: true })
+    expect(mgr.promptSection()).toBe('') // 孤儿不进系统提示
+    mgr.setEnabled('user', 'gone', true) // 启用 = 清理孤儿记录
+    expect(mgr.list()).toHaveLength(0)
+  })
+
+  it('同名覆盖：项目级停用时调用与广告回落用户级', () => {
+    const { user, project, mgr } = make()
+    makeSkill(user, 'dup', 'USER_BODY $ARGUMENTS')
+    makeSkill(project, 'dup', 'PROJECT_BODY $ARGUMENTS')
+    mgr.setEnabled('project', 'dup', false)
+    expect(mgr.forInvocation('dup', 'x')).toContain('USER_BODY')
+    const section = mgr.promptSection()
+    // 广告里只剩用户级路径——项目级停用即退出竞争
+    expect(section).toContain('user-skills')
+    expect(section).not.toContain('.dogegg')
+  })
+
+  it('remove 清理停用名单：删除后无孤儿残留；create 同名重建默认启用', () => {
+    const { user, mgr } = make()
+    makeSkill(user, 'alpha', 'ALPHA_BODY')
+    mgr.setEnabled('user', 'alpha', false)
+    mgr.remove('user', 'alpha')
+    expect(mgr.list()).toHaveLength(0)
+    mgr.create('user', 'alpha', '重建')
+    expect(mgr.list()).toEqual([{ name: 'alpha', description: '重建', scope: 'user', path: join(user, 'alpha', 'SKILL.md'), enabled: true, missing: false }])
   })
 })
