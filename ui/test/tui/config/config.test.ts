@@ -103,8 +103,10 @@ describe('config-tree permission 编辑（v2：桶 → 工具 → 模式数组�
     const calls: [string, unknown][] = []
     const tracking = { set: (p: string, v: unknown) => calls.push([p, v]), add: () => {}, remove: () => {} }
     const entries = buildEntries(permCfg, { kind: 'permissionTool', bucket: 'allow', tool: 'shell' }, tracking)
-    expect(entries.map((e) => e.label)).toEqual(['git *', 'npm run *', '＋ 添加模式'])
-    const first = entries[0]!
+    expect(entries.map((e) => e.label)).toEqual([
+      '· 整工具生效（回车切回；当前 2 条模式将保留）', 'git *', 'npm run *', '＋ 添加模式',
+    ])
+    const first = entries[1]!
     expect(first.kind).toBe('scalar')
     ;(first as { save: (v: string) => void }).save('git push *') // 改名
     expect(calls).toContainEqual(['permission.allow', { read_file: [], shell: ['git push *', 'npm run *'] }])
@@ -113,6 +115,24 @@ describe('config-tree permission 编辑（v2：桶 → 工具 → 模式数组�
     expect(calls).toHaveLength(1)
     ;(first as { del: () => void }).del!()
     expect(calls).toContainEqual(['permission.allow', { read_file: [], shell: ['npm run *'] }])
+  })
+
+  it('整选开关循环：切回整选保留全部模式，取消整选原样恢复（** 标记）', () => {
+    const calls: [string, unknown][] = []
+    const tracking = { set: (p: string, v: unknown) => calls.push([p, v]), add: () => {}, remove: () => {} }
+    const entries = buildEntries(permCfg, { kind: 'permissionTool', bucket: 'allow', tool: 'shell' }, tracking)
+    ;(entries[0] as { run: () => void }).run() // 按模式 → 整选：头部插入 **，模式保留
+    expect(calls[0]![1]).toMatchObject({ shell: ['**', 'git *', 'npm run *'] })
+    // 整选态：开关显示 ✓，模式行灰显（不可编辑的 action 行），无添加入口
+    const wholeEntries = buildEntries(
+      { ...permCfg, permission: { ...permCfg.permission, allow: { ...permCfg.permission.allow, shell: ['**', 'git *'] } } },
+      { kind: 'permissionTool', bucket: 'allow', tool: 'shell' }, tracking,
+    )
+    expect(wholeEntries.map((e) => e.label)).toEqual([
+      '✓ 整工具生效（回车取消——恢复按模式限定）', '（以下模式保留中，取消整选后可编辑）', '　 git *',
+    ])
+    ;(wholeEntries[0] as { run: () => void }).run() // 整选 → 按模式：移除标记，模式恢复
+    expect(calls[1]![1]).toMatchObject({ shell: ['git *'] })
   })
 
   it('selectTool 只列本桶没有的工具，加入即空数组（整工具）', () => {
@@ -187,12 +207,37 @@ describe('config-tree permission 编辑（v2：桶 → 工具 → 模式数组�
     })
     const entries = buildEntries(srvCfg, { kind: 'permissionTool', bucket: 'ask', tool: 'playwright' }, tracking, tools)
     expect(entries.map((e) => e.label)).toEqual([
+      '· 整组生效（回车切回；当前勾选/规则将保留）',
       '✓ browser_close', '· browser_navigate', '＊ browser_*', '＋ 添加通配（匹配该服务的内部工具名，如 browser_*）',
     ])
-    ;(entries[1] as { run: () => void }).run() // 勾选 browser_navigate
+    ;(entries[2] as { run: () => void }).run() // 勾选 browser_navigate
     expect(calls[0]![1]).toMatchObject({ playwright: ['browser_close', 'browser_*', 'browser_navigate'] })
-    ;(entries[0] as { run: () => void }).run() // 取消勾选 browser_close
+    ;(entries[1] as { run: () => void }).run() // 取消勾选 browser_close
     expect(calls[1]![1]).toMatchObject({ playwright: ['browser_*'] })
+  })
+
+  it('服务键整选：切回整组保留勾选，取消整选恢复；整选态下勾选行锁定', () => {
+    const calls: [string, unknown][] = []
+    const tracking = { set: (p: string, v: unknown) => calls.push([p, v]), add: () => {}, remove: () => {} }
+    const tools = [
+      { name: 'mcp__playwright__browser_close', description: '', identity: { kind: 'mcp' as const, server: 'playwright', name: 'browser_close' } },
+      { name: 'mcp__playwright__browser_navigate', description: '', identity: { kind: 'mcp' as const, server: 'playwright', name: 'browser_navigate' } },
+    ]
+    const wholeCfg = configSchema.parse({
+      providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] }],
+      mcpServers: [{ name: 'playwright', transport: { type: 'stdio', command: 'npx' } }],
+      permission: { allow: {}, reject: {}, ask: { playwright: ['**', 'browser_close'] } },
+    })
+    const entries = buildEntries(wholeCfg, { kind: 'permissionTool', bucket: 'ask', tool: 'playwright' }, tracking, tools)
+    expect(entries.map((e) => e.label)).toEqual([
+      '✓ 整组生效（回车取消——恢复按勾选/规则）',
+      '（以下勾选/规则保留中，取消整选后可更改）',
+      '✓ browser_close', '· browser_navigate',
+    ])
+    ;(entries[0] as { run: () => void }).run() // 取消整选 → 恢复勾选
+    expect(calls[0]![1]).toMatchObject({ playwright: ['browser_close'] })
+    ;(entries[3] as { run: () => void }).run() // 整选态下点勾选行 → 无操作（锁定）
+    expect(calls).toHaveLength(1)
   })
 
   it('d 从桶中移除整个工具键', () => {

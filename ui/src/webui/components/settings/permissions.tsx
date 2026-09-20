@@ -44,10 +44,12 @@ function PatternChip({ pattern, onRename, onDelete }: { pattern: string; onRenam
   )
 }
 
-// 桶内一个键的规则组：组头（键名 + 摘要 + 移除）+ 模式 chips + 添加输入框。
+// 桶内一个键的规则组：组头（键名 + 摘要 + 移除）+ 整选开关 + 模式 chips + 添加输入框。
+// 整选开关（** 标记立法，与 TUI 同构）：'**' 在三类匹配语义里都命中一切，作为「整工具/整组」
+// 的显式标记与保留条目共存——切回整选保留全部规则，取消整选原样恢复（引擎 OR 语义，零改动）。
 // MCP 服务键额外渲染勾选 chips（serverTools = 该服务的运行时内部工具名清单）——
 // 勾选/取消 = 数组增删内部工具名；手动 chips 只剩通配与遗留条目（含 * 或不在当前清单）。
-// 删光模式 = 回到整键生效（不自动移除键——用户可能就要整桶生效）；移除按钮才删整个键。
+// 刚加入的空数组（virgin 整选）不渲染开关：首次添加/勾选即切到按模式（唯一出口）。
 function ToolPermGroup({ tool, patterns, onSetPatterns, onRemove, serverTools }: {
   tool: string
   patterns: string[]
@@ -58,11 +60,20 @@ function ToolPermGroup({ tool, patterns, onSetPatterns, onRemove, serverTools }:
   const [draft, setDraft] = useState('')
   const [invalid, setInvalid] = useState(false)
   const isServer = serverTools !== undefined
+  const isMarker = (p: string): boolean => (isServer ? p === '*' || p === '**' : p === '**')
+  const whole = patterns.length === 0 || patterns.some(isMarker)
+  const wholeLocked = whole && patterns.length > 0 // 整选（带标记）：规则保留展示但不可更改
+  const toggleWhole = (): void => {
+    if (whole) onSetPatterns(patterns.filter((p) => !isMarker(p)))
+    else onSetPatterns(['**', ...patterns])
+  }
   const toggleTool = (name: string): void => {
+    if (wholeLocked) return
     if (patterns.includes(name)) onSetPatterns(patterns.filter((x) => x !== name))
     else onSetPatterns([...patterns, name])
   }
   const add = (): void => {
+    if (wholeLocked) return
     const t = draft.trim()
     if (!t || patterns.includes(t)) { setInvalid(true); return }
     onSetPatterns([...patterns, t])
@@ -76,19 +87,29 @@ function ToolPermGroup({ tool, patterns, onSetPatterns, onRemove, serverTools }:
       <div className={styles.permToolHeader}>
         <span className={styles.permToolName}>{tool}</span>
         <span className={styles.permToolSummary}>
-          {isServer ? (patterns.length === 0 ? 'whole server' : `${patterns.length} tool rule(s)`) : (patterns.length === 0 ? 'whole tool' : `${patterns.length} pattern(s)`)}
+          {whole
+            ? (isServer ? 'whole server' : 'whole tool')
+            : (isServer ? `${patterns.length} tool rule(s)` : `${patterns.length} pattern(s)`)}
         </span>
         <button className={styles.permToolRemove} onClick={onRemove} aria-label={`Remove ${tool}`}>
           <X size={11} strokeWidth={2} />
         </button>
       </div>
+      {patterns.length > 0 && (
+        <div className={styles.permChips}>
+          <span className={styles.permChip} style={{ cursor: 'pointer' }} onClick={toggleWhole}
+            title={whole ? 'Click to uncheck — restores kept rules' : 'Click to check — keeps current rules'}>
+            <code className={styles.permChipEdit}>{whole ? '✓ ' : '· '}{isServer ? 'Whole server' : 'Whole tool'}</code>
+          </span>
+        </div>
+      )}
       {isServer && (serverTools ?? []).length > 0 && (
         <div className={styles.permChips}>
           {(serverTools ?? []).map((name) => {
             const checked = patterns.includes(name)
             return (
-              <span key={name} className={styles.permChip} style={{ cursor: 'pointer', opacity: checked ? 1 : 0.55 }}
-                onClick={() => toggleTool(name)} title={checked ? 'Click to exclude' : 'Click to include'}>
+              <span key={name} className={styles.permChip} style={{ cursor: wholeLocked ? 'default' : 'pointer', opacity: wholeLocked ? 0.5 : checked ? 1 : 0.55 }}
+                onClick={() => toggleTool(name)} title={wholeLocked ? 'Whole server is checked — uncheck it to edit' : checked ? 'Click to exclude' : 'Click to include'}>
                 <code className={styles.permChipEdit}>{checked ? '✓ ' : '· '}{name}</code>
               </span>
             )
@@ -96,30 +117,32 @@ function ToolPermGroup({ tool, patterns, onSetPatterns, onRemove, serverTools }:
         </div>
       )}
       {manual.length > 0 && (
-        <div className={styles.permChips}>
+        <div className={styles.permChips} style={{ opacity: wholeLocked ? 0.5 : 1 }}>
           {manual.map((p) => (
             <PatternChip
               key={p}
               pattern={p}
               // patterns 全链路去重（添加/勾选均查重）——按值改名/删除即精确操作，无需索引映射。
-              onRename={(v) => onSetPatterns(patterns.map((x) => (x === p ? v : x)))}
-              onDelete={() => onSetPatterns(patterns.filter((x) => x !== p))}
+              onRename={(v) => { if (!wholeLocked) onSetPatterns(patterns.map((x) => (x === p ? v : x))) }}
+              onDelete={() => { if (!wholeLocked) onSetPatterns(patterns.filter((x) => x !== p)) }}
             />
           ))}
         </div>
       )}
-      <div className={styles.permAddWrap}>
-        <input
-          className={`${styles.permPatternInput} ${invalid ? styles.permPatternInputError : ''}`}
-          placeholder={isServer
-            ? (patterns.length === 0 ? '+ Add rule (switches to selected tools only)' : '+ Add tool name or wildcard, press Enter')
-            : (patterns.length === 0 ? '+ Add pattern (switches to pattern-limited)' : '+ Add pattern, press Enter')}
-          value={draft}
-          onChange={(e) => { setDraft(e.target.value); setInvalid(false) }}
-          onKeyDown={(e) => { if (e.key === 'Enter') add() }}
-          onBlur={() => setInvalid(false)}
-        />
-      </div>
+      {!wholeLocked && (
+        <div className={styles.permAddWrap}>
+          <input
+            className={`${styles.permPatternInput} ${invalid ? styles.permPatternInputError : ''}`}
+            placeholder={isServer
+              ? (patterns.length === 0 ? '+ Add rule (switches to selected tools only)' : '+ Add tool name or wildcard, press Enter')
+              : (patterns.length === 0 ? '+ Add pattern (switches to pattern-limited)' : '+ Add pattern, press Enter')}
+            value={draft}
+            onChange={(e) => { setDraft(e.target.value); setInvalid(false) }}
+            onKeyDown={(e) => { if (e.key === 'Enter') add() }}
+            onBlur={() => setInvalid(false)}
+          />
+        </div>
+      )}
     </div>
   )
 }
