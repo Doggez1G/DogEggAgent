@@ -24,6 +24,11 @@ export class ConfigStore {
   //（config_set / mcp_manage 全局写）必须注入临时路径，否则会用测试数据覆写用户真实配置。
   constructor(private readonly defaultPath?: string) {}
 
+  // 当前加载源路径（找不到文件时 null）——启动报错指明「该改哪个文件」用；测试注入 raw 不经文件。
+  sourcePath(): string | null {
+    return findConfig()
+  }
+
   // raw 用于测试注入；运行时传 undefined 从文件加载。
   // 找不到配置文件时返回空配置（providers 为空），让程序能启动、引导用户去 /config。
   load(raw?: unknown): Config {

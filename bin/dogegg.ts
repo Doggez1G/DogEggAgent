@@ -14,15 +14,23 @@ import { HttpServer, Router, SseChannel } from '@dogegg/server'
 const args = process.argv.slice(2)
 const isWeb = args.includes('-web') || args.includes('--web')
 
-// 加载配置（找不到文件返回空配置；存在但非法——如权限模式缺作用域前缀——则给出人话提示后退出，
-// 而不是裸抛 zod 堆栈）。
+// 加载配置（找不到文件返回空配置；存在但非法——如旧格式 permission——则给出人话提示后退出，
+// 而不是裸抛 zod 堆栈）。错误信息必须可执行：指明待修文件、逐字段原因（带配置内路径）、
+// 恢复方式、格式文档位置（本地实际存在的路径优先——在线文档可能尚未发布）。
 function loadConfigOrExit(): ReturnType<ConfigStore['load']> {
+  const store = new ConfigStore()
   try {
-    return new ConfigStore().load()
+    return store.load()
   } catch (err) {
-    const detail = err instanceof ZodError ? err.issues.map((i) => i.message).join('；') : String(err)
-    console.error(`配置加载失败：${detail}`)
-    console.error('配置怎么写：https://github.com/Doggez1G/DogEggAgent/blob/main/docs/config.md（与你的 dogegg-agent 版本对应）')
+    const source = store.sourcePath()
+    const issues = err instanceof ZodError
+      ? err.issues.map((i) => (i.path.length > 0 ? `${i.path.join('.')}：${i.message}` : i.message)).join('；')
+      : String(err)
+    console.error(`配置加载失败（文件：${source ?? '未找到'}）：${issues}`)
+    console.error('恢复方式：把上述字段改写为当前格式 { "whole": boolean, "patterns": string[] }；或整段删除 "permission" 字段回退出厂默认，再经 /config 重新配置。')
+    const doc = [join(import.meta.dirname, '../docs/config.md'), join(process.cwd(), 'docs/config.md')]
+      .find((p) => existsSync(p))
+    console.error(`配置格式说明：${doc ?? 'docs/config.md（DogEggAgent 仓库内；在线版尚未发布）'}`)
     process.exit(1)
   }
 }
