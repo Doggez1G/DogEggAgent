@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { Config, UiPort } from '@dogegg/bridge'
+import type { Config, ToolListItem, UiPort } from '@dogegg/bridge'
 
 // 右侧信息面板的数据域：配置、状态栏、六类面板数据 + 会话恢复后的刷新风暴。
 // 独立订阅 port——只关心 config_state/config_updated/status_state/session_ready/
@@ -9,7 +9,7 @@ export function usePanelData(port: UiPort): {
   statusBar: { provider?: string; model?: string; tokens?: number; windowTokens?: number }
   cwd: string
   sessionId: string
-  toolsList: { name: string; description: string }[]
+  toolsList: ToolListItem[]
   contextState: {
     estimatedTokens: number
     windowTokens: number
@@ -29,7 +29,7 @@ export function usePanelData(port: UiPort): {
   const [cwd, setCwd] = useState('')
   const [sessionId, setSessionId] = useState('')
   const [statusBar, setStatusBar] = useState<{ provider?: string; model?: string; tokens?: number; windowTokens?: number }>({})
-  const [toolsList, setToolsList] = useState<{ name: string; description: string }[]>([])
+  const [toolsList, setToolsList] = useState<ToolListItem[]>([])
   const [contextState, setContextState] = useState<{
     estimatedTokens: number
     windowTokens: number

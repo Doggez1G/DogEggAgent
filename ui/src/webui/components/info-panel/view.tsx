@@ -1,7 +1,7 @@
 import { STATUS_LABELS, getToolPermission, displayPerm } from '../../../shared'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Cpu, Gauge, Activity, Wrench, ChevronRight, ChevronLeft, ChevronDown, Terminal, ScrollText, FileEdit, FilePlus, ShieldCheck, X, Pencil } from 'lucide-react'
-import type { Config, UiPort } from '@dogegg/bridge'
+import type { Config, ToolListItem, UiPort } from '@dogegg/bridge'
 import { COMPACTION_THRESHOLD } from '@dogegg/bridge'
 import { Badge } from '../primitives'
 import styles from './info-panel.module.css'
@@ -20,7 +20,7 @@ interface InfoPanelProps {
   windowTokens: number | undefined
   toolCalls: { id: string; name: string; status: 'running' | 'done' | 'error' | 'rejected'; output?: string; decision?: 'allow_once' | 'allow_always' | 'allow_always_scoped' | 'reject'; perm: string; seq: number }[]
   pendingTool?: string | null
-  toolsList: { name: string; description: string }[]
+  toolsList: ToolListItem[]
   contextState: {
     estimatedTokens: number
     windowTokens: number
@@ -234,19 +234,7 @@ export function InfoPanel(props: InfoPanelProps) {
         <InfoCard title="Available Tools" icon={Wrench} highlight={props.highlightSection === 'tools'}>
           {props.toolsList.length === 0 ? (
             <p className={styles.emptyText}>Loading...</p>
-          ) : (
-            <div className={styles.miniList}>
-              {props.toolsList.map((t) => {
-                const perm = getToolPermission(t.name, cfg)
-                return (
-                  <div key={t.name} className={styles.miniItem}>
-                    <code className={styles.miniName}>{t.name}</code>
-                    <span className={styles.toolPerm} data-perm={perm}>{perm}</span>
-                  </div>
-                )
-              })}
-            </div>
-          )}
+          ) : <AvailableTools tools={props.toolsList} config={cfg} />}
         </InfoCard>
 
         {/* Session Permissions — allow_always 授权列表，可撤销 */}
@@ -305,6 +293,86 @@ function InfoCard({ title, icon: Icon, defaultOpen = true, highlight = false, ch
         <span className={styles.infoCardTitle}>{title}</span>
       </button>
       {open && <div className={styles.infoCardBody}>{children}</div>}
+    </div>
+  )
+}
+
+// ── Available Tools：按来源分组的可展开清单（系统工具 / 各 MCP 服务）──
+// MCP 服务是一个分组单元：组头显示服务名 + 工具数（默认收起），行内展示**内部工具短名**
+// （title 保留完整注册名）——长命名空间名不再撑爆窄面板；权限徽章按完整注册名求值，
+// 并把 tools_list 的身份镜像注入判定——MCP 服务键规则（整组/勾选）在徽章上正确生效。
+function AvailableTools({ tools, config }: { tools: ToolListItem[]; config: Config | null }) {
+  const identities = useMemo(() => new Map(tools.map((t) => [t.name, t.identity])), [tools])
+  const { builtin, servers } = useMemo(() => {
+    const builtin: ToolListItem[] = []
+    const serverMap = new Map<string, ToolListItem[]>()
+    for (const t of tools) {
+      if (t.identity.kind === 'builtin') builtin.push(t)
+      else {
+        const list = serverMap.get(t.identity.server) ?? []
+        list.push(t)
+        serverMap.set(t.identity.server, list)
+      }
+    }
+    return { builtin, servers: [...serverMap.entries()].sort(([a], [b]) => a.localeCompare(b)) }
+  }, [tools])
+
+  return (
+    <div className={styles.toolGroups}>
+      <ToolGroup label="系统工具" count={builtin.length} defaultOpen>
+        {builtin.map((t) => <ToolRow key={t.name} item={t} label={t.name} config={config} identities={identities} />)}
+      </ToolGroup>
+      {servers.map(([server, list]) => (
+        <ToolGroup key={server} label={server} count={list.length} mcp>
+          {list.map((t) => (
+            <ToolRow
+              key={t.name}
+              item={t}
+              label={t.identity.kind === 'mcp' ? t.identity.name : t.name}
+              config={config}
+              identities={identities}
+            />
+          ))}
+        </ToolGroup>
+      ))}
+    </div>
+  )
+}
+
+// 单行：显示名 + 权限徽章（徽章永远按完整注册名 + 身份镜像从配置求值）。
+function ToolRow({ item, label, config, identities }: {
+  item: ToolListItem
+  label: string
+  config: Config | null
+  identities: ReadonlyMap<string, ToolListItem['identity']>
+}) {
+  const perm = getToolPermission(item.name, config, identities)
+  return (
+    <div className={styles.miniItem}>
+      <code className={styles.miniName} title={item.name}>{label}</code>
+      <span className={styles.toolPerm} data-perm={perm}>{perm}</span>
+    </div>
+  )
+}
+
+// 可展开分组头（chevron + 标签 + MCP 徽章 + 计数）。
+function ToolGroup({ label, count, mcp = false, defaultOpen = false, children }: {
+  label: string
+  count: number
+  mcp?: boolean
+  defaultOpen?: boolean
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className={styles.toolGroup}>
+      <button className={styles.toolGroupHeader} onClick={() => setOpen(!open)} aria-expanded={open}>
+        <ChevronDown size={11} strokeWidth={2} className={styles.toolGroupChevron} data-open={open} />
+        <span className={styles.toolGroupLabel}>{label}</span>
+        {mcp && <span className={styles.toolGroupBadge}>MCP</span>}
+        <span className={styles.toolGroupCount}>{count}</span>
+      </button>
+      {open && <div className={styles.toolGroupBody}>{children}</div>}
     </div>
   )
 }

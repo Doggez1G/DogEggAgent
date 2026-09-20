@@ -788,7 +788,7 @@
   resize: vertical;
 }
 
-/* ── 通用条目行（Skills/MCP 列表复用）── */
+/* ── 通用条目行（Skills 列表复用）── */
 .providerItem {
   display: flex;
   align-items: center;
@@ -797,4 +797,80 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   margin-bottom: var(--sp-2);
+}
+
+/* ── MCP server 卡片：状态点 + 名称/徽章行 + 元信息行 + 操作列 ──
+   名称与状态徽章是独立 chip（不混进标题文本流），元信息独占一行——
+   避免「stdio · 运行中 · N 工具」这类长串在窄容器里逐字竖排折行。 */
+.mcpCard {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--sp-2);
+}
+.mcpStatusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  background: var(--color-muted, #888);
+}
+.mcpStatusDot[data-status='running'] { background: var(--color-success, #22c55e); }
+.mcpStatusDot[data-status='starting'] { background: var(--color-warning, #eab308); }
+.mcpStatusDot[data-status='error'] { background: var(--color-danger, #ef4444); }
+.mcpCardBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mcpCardTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+.mcpCardName {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mcpBadge {
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1.4;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  color: var(--color-subtext);
+}
+.mcpBadge[data-status='running'] {
+  background: var(--color-success-soft, rgba(34, 197, 94, 0.12));
+  border-color: transparent;
+  color: var(--color-success, #22c55e);
+}
+.mcpBadge[data-status='error'] {
+  background: var(--color-danger-soft, rgba(239, 68, 68, 0.12));
+  border-color: transparent;
+  color: var(--color-danger, #ef4444);
+}
+.mcpCardMeta { font-size: 12px; color: var(--color-subtext); }
+.mcpCardError {
+  font-size: 12px;
+  color: var(--color-danger, #ef4444);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mcpCardActions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  flex-shrink: 0;
 }

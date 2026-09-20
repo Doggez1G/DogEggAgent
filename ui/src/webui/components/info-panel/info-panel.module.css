@@ -320,10 +320,69 @@
 
 .emptyText { font-size: var(--fs-xs); color: var(--color-subtext); padding: var(--sp-1) 0; }
 
-/* ── 可用工具 ── */
+/* ── 可用工具（v2：按来源分组的可展开清单）── */
 .miniList { display: flex; flex-direction: column; gap: var(--sp-1); }
-.miniItem { padding: 2px var(--sp-2); border-radius: var(--radius-sm); background: var(--color-bg); }
-.miniName { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--color-accent); font-weight: 500; }
+/* 行：名称 flex 占满 + 超长省略（完整名在 title），权限徽章右对齐不换行 */
+.miniItem {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  padding: 2px var(--sp-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+}
+.miniName {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--color-accent);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 分组（系统工具 / MCP 服务）：组头 chevron + 标签 + 徽章 + 计数，可展开收起 */
+.toolGroups { display: flex; flex-direction: column; gap: 2px; }
+.toolGroupHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  width: 100%;
+  padding: 3px 4px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.toolGroupHeader:hover { background: var(--color-bg); }
+.toolGroupChevron { flex-shrink: 0; color: var(--color-subtext); transition: transform 0.12s ease; }
+.toolGroupChevron[data-open='false'] { transform: rotate(-90deg); }
+.toolGroupLabel {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.toolGroupBadge {
+  flex-shrink: 0;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+.toolGroupCount { flex-shrink: 0; font-size: 10px; color: var(--color-subtext); }
+.toolGroupBody { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 2px var(--sp-3); }
 
 /* ── System Prompt / Log ── */
 .miniContent { display: flex; flex-direction: column; gap: var(--sp-1); }

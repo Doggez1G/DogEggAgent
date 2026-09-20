@@ -138,15 +138,22 @@ export function McpSection({ port }: { port: UiPort }) {
             <div className={styles.sectionTitle} style={{ fontSize: 12, opacity: 0.7 }}>{g.label}</div>
             {items.length === 0 && <div style={{ opacity: 0.5, fontSize: 12 }}>（无）</div>}
             {items.map((s) => (
-              <div key={s.name} className={styles.providerItem}>
-                <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: s.status === 'running' ? 'var(--color-success, #22c55e)' : s.status === 'error' ? 'var(--color-danger)' : 'var(--color-muted, #888)' }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 500 }}>{s.enabled ? s.name : `${s.name}（已停用）`} <span style={{ opacity: 0.6, fontSize: 12 }}>{s.transport.type} · {STATUS_LABEL[s.status]} · {s.tools.length} 工具</span></div>
-                  {s.error && <div style={{ color: 'var(--color-danger)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.error}</div>}
+              <div key={s.name} className={styles.mcpCard}>
+                <span className={styles.mcpStatusDot} data-status={s.status} />
+                <div className={styles.mcpCardBody}>
+                  <div className={styles.mcpCardTitle}>
+                    <span className={styles.mcpCardName}>{s.enabled ? s.name : `${s.name}（已停用）`}</span>
+                    <span className={styles.mcpBadge}>{s.transport.type}</span>
+                    <span className={styles.mcpBadge} data-status={s.status}>{STATUS_LABEL[s.status]}</span>
+                  </div>
+                  <div className={styles.mcpCardMeta}>{s.tools.length} 个工具</div>
+                  {s.error && <div className={styles.mcpCardError} title={s.error}>{s.error}</div>}
                 </div>
-                <button className={styles.navItem} onClick={() => port.post({ type: 'mcp_manage', action: 'toggle', scope: s.scope, name: s.name, enabled: !s.enabled })}>{s.enabled ? '停用' : '启用'}</button>
-                <button className={styles.permChipX} title="编辑" onClick={() => { setFormError(''); setEditing(serverToForm(s)) }}><Pencil size={12} /></button>
-                <button className={styles.permChipX} title="删除" onClick={() => setPendingDelete(s)}><Trash2 size={12} /></button>
+                <div className={styles.mcpCardActions}>
+                  <button className={styles.navItem} onClick={() => port.post({ type: 'mcp_manage', action: 'toggle', scope: s.scope, name: s.name, enabled: !s.enabled })}>{s.enabled ? '停用' : '启用'}</button>
+                  <button className={styles.permChipX} title="编辑" onClick={() => { setFormError(''); setEditing(serverToForm(s)) }}><Pencil size={12} /></button>
+                  <button className={styles.permChipX} title="删除" onClick={() => setPendingDelete(s)}><Trash2 size={12} /></button>
+                </div>
               </div>
             ))}
           </div>

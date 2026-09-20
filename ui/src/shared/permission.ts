@@ -1,12 +1,18 @@
-import { classifyPermission, type Config, type PermissionConfig, type PermissionRule } from '@dogegg/bridge'
+import { classifyPermission, type Config, type PermissionConfig, type PermissionRule, type ToolIdentity } from '@dogegg/bridge'
 
 // 工具权限标签（display-only）：null 配置视为 ask。
 // 三桶判定逻辑归 bridge 的 classifyPermission——契约 schema 的唯一解释者，UI 不再自行实现。
 // display 不传 args：参数化模式（如「允许读 docs/**」）在无参数可比时按 fail-closed 不命中，
 // 标签回落到整键规则/默认 ask——展示层宁可保守，不替参数化规则宣称放行。
-export function getToolPermission(toolName: string, config: Config | null): string {
+// identities 可选注入（tools_list 的身份镜像）——MCP 服务键规则按身份命中，缺失时服务键
+// 对 display 判定不可见（内建键照常）。
+export function getToolPermission(
+  toolName: string,
+  config: Config | null,
+  identities?: ReadonlyMap<string, ToolIdentity>,
+): string {
   if (!config) return 'ask'
-  return classifyPermission(config.permission, toolName)
+  return classifyPermission(config.permission, toolName, undefined, undefined, identities)
 }
 
 // 桶内内建工具键的摘要文案（TUI 配置树用；WebUI 设置面板为全英文文案，就地内联同义表述）。
