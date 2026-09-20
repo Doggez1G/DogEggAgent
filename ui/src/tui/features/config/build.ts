@@ -258,6 +258,7 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx, too
           kind: 'action',
           value: '',
           run: () => ctx.set(`permission.${path.bucket}`, { ...bucket, [name]: [] }),
+          afterRunPath: { kind: 'permissionTool', bucket: path.bucket, tool: name }, // 选择即钻入细化层
         })
       }
       // 内建工具键：运行时清单的 builtin 身份；未播种（tools 缺省）回退静态 KNOWN_TOOLS。
@@ -271,6 +272,7 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx, too
           kind: 'action',
           value: '',
           run: () => ctx.set(`permission.${path.bucket}`, { ...bucket, [name]: [] }),
+          afterRunPath: { kind: 'permissionTool', bucket: path.bucket, tool: name }, // 选择即钻入细化层
         })
       }
       return entries

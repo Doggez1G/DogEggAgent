@@ -32,9 +32,12 @@ export function handleConfigKeys(v: Extract<View, { kind: 'config' }>, key: Key,
     else if (entry?.kind === 'action') {
       entry.run()
       // 操作后的导航行为：
+      // - 带 afterRunPath 的 action（selectTool 选中键）：选择即钻入，直接落到该键的细化层
       // - 有 del 的 action（按 Enter 删除）：返回父层（项已删，不留空页）
-      // - 无 del 的 action（选择/添加）：留在同页，cursor 不变
-      if (entry.del) {
+      // - 其余 action（选择/添加）：留在同页，cursor 不变
+      if (entry.afterRunPath) {
+        api.setView({ kind: 'config', path: entry.afterRunPath, cursor: 0, preview: null })
+      } else if (entry.del) {
         api.setView({ kind: 'config', path: parentPath(v.path) ?? { kind: 'root' }, cursor: 0, preview: null })
       }
     }

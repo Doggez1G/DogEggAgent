@@ -142,6 +142,8 @@ describe('config-tree permission 编辑（v2：桶 → 工具 → 模式数组�
     ])
     ;(entries[0] as { run: () => void }).run()
     expect(calls[0]![1]).toMatchObject({ playwright: [] })
+    // 选择即钻入：选中后直接落到该键的 permissionTool 细化层（免 esc 退回再钻入的往返）。
+    expect(entries[0]).toMatchObject({ afterRunPath: { kind: 'permissionTool', bucket: 'ask', tool: 'playwright' } })
   })
 
   it('selectTool：离线服务标注未运行；配置 mcpServers 里的服务即使无运行时工具也出现', () => {

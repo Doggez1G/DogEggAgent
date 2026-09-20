@@ -121,6 +121,14 @@ describe('handleConfigKeys', () => {
     handleConfigKeys(configView, key({ upArrow: true }), '', { setView, getConfig: () => null, treeCtx, entries: () => [] })
     expect(setView).toHaveBeenCalledWith(expect.objectContaining({ cursor: 0 }))
   })
+  it('action 带 afterRunPath：执行后选择即钻入（selectTool → permissionTool）', () => {
+    const selectView = { kind: 'config' as const, path: { kind: 'selectTool' as const, bucket: 'allow' as const }, cursor: 0, preview: null }
+    const run = vi.fn()
+    const entry = { label: 'x', kind: 'action' as const, value: '', run, afterRunPath: { kind: 'permissionTool', bucket: 'allow', tool: 'x' } as const }
+    handleConfigKeys(selectView, key({ return: true }), '', { setView, getConfig: () => cfg, treeCtx, entries: () => [entry] })
+    expect(run).toHaveBeenCalled()
+    expect(setView).toHaveBeenCalledWith(expect.objectContaining({ path: { kind: 'permissionTool', bucket: 'allow', tool: 'x' }, cursor: 0 }))
+  })
 })
 
 describe('handleSuggestionKeys', () => {
