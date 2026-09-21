@@ -2,7 +2,7 @@ import { basename, dirname, resolve } from 'node:path'
 import { realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import type { PermissionDecision, PermissionConfig, ToolIdentity, ToolPermission, ToolArgs } from '@dogegg/bridge'
-import { classifyPermission as classify, primarySpecifier } from '@dogegg/bridge'
+import { BUILTIN_TOOLS, classifyPermission as classify, primarySpecifier } from '@dogegg/bridge'
 
 // 两层权限的运行时层：配置三桶静态分类（含参数化规则，匹配引擎在 bridge）+ 运行时会话内提升。
 // 会话提升为「按工具分组的规则表」：整工具（patterns 空）或范围模式（推导见 permission/derive.ts）。
@@ -94,13 +94,19 @@ export class PermissionManager {
   }
 
   // 规则侧归一化：主参数为 path 的内建工具，其 patterns 按锚点声明归一（见 normalizePattern）；
-  // shell（command 主参数）与 MCP 服务键（`mcp:` 前缀键——patterns 是工具名选择器）一律不动——
-  // 均无「相对 cwd」概念。前缀即语义，无需身份快照识别键。
+  // shell（command 主参数）与 MCP 服务键一律不动——均无「相对 cwd」概念。
+  // 服务键识别双保险：`mcp:` 前缀（规范式）∨ 裸服务名（身份快照清单，且非内建工具名——裸名键
+  // 归内建规则所有）。
   private normalizeRules(cwd: string): PermissionConfig {
+    const serverNames = new Set(
+      [...(this.identities?.() ?? []).values()].filter((id) => id.kind === 'mcp').map((id) => id.server),
+    )
+    const isServiceKey = (key: string): boolean =>
+      key.startsWith('mcp:') || (serverNames.has(key) && !(BUILTIN_TOOLS as readonly string[]).includes(key))
     const mapBucket = (bucket: PermissionConfig['allow']): PermissionConfig['allow'] =>
       Object.fromEntries(Object.entries(bucket).map(([tool, rule]) => [
         tool,
-        primarySpecifier(tool) === 'path' && !tool.startsWith('mcp:')
+        primarySpecifier(tool) === 'path' && !isServiceKey(tool)
           ? { ...rule, patterns: rule.patterns.map((p) => normalizePattern(p, cwd)) }
           : rule,
       ]))

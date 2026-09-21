@@ -1,5 +1,5 @@
 import type { z } from 'zod'
-import { permissionSchema, primarySpecifier, type PermissionRule } from './config'
+import { BUILTIN_TOOLS, permissionSchema, primarySpecifier, type PermissionRule } from './config'
 import { matchGlob, matchWildcard } from './glob'
 import type { ToolIdentity } from './tools'
 
@@ -66,7 +66,9 @@ function mcpServerHit(
 ): boolean {
   const id = identities?.get(tool)
   if (id?.kind !== 'mcp') return false
-  const rule = bucket[`mcp:${id.server}`]
+  // 双写法：mcp:<服务名> 前缀键为规范式；裸服务名键为兼容回退——仅当服务名不是内建工具名时
+  // 生效（裸名键归内建规则所有，双重语义禁止；内建名清单见 config.ts BUILTIN_TOOLS）。
+  const rule = bucket[`mcp:${id.server}`] ?? ((BUILTIN_TOOLS as readonly string[]).includes(id.server) ? undefined : bucket[id.server])
   if (!rule) return false
   if (rule.whole) return true
   return rule.patterns.some((p) => matchWildcard(p, id.name))

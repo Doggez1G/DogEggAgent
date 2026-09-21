@@ -95,4 +95,23 @@ describe('权限服务键（MCP 服务裸名桶键）', () => {
     )
     expect(pm.classify('mcp__playwright__browser_evaluate')).toBe('reject')
   })
+
+  it('裸服务名键回退：非内建名的裸键按服务规则生效（兼容双写法）', () => {
+    const pm = new PermissionManager(
+      { allow: { playwright: { whole: true, patterns: [] } }, reject: {}, ask: {} },
+      [],
+      ids({ 'mcp__playwright__x': { kind: 'mcp', server: 'playwright', name: 'x' } }),
+    )
+    expect(pm.classify('mcp__playwright__x')).toBe('allow')
+  })
+
+  it('服务名与内建工具同名：裸键归内建规则（保留名单），服务规则必须 mcp: 前缀', () => {
+    const pm = new PermissionManager(
+      { allow: { shell: { whole: true, patterns: [] } }, reject: {}, ask: {} },
+      [],
+      ids({ 'mcp__shell__x': { kind: 'mcp', server: 'shell', name: 'x' } }),
+    )
+    expect(pm.classify('shell')).toBe('allow') // 名字分支：内建 shell 命中
+    expect(pm.classify('mcp__shell__x')).toBe('ask') // 服务分支被保留名单拦截——不误放行
+  })
 })
