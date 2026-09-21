@@ -23,6 +23,7 @@ export function handleFormKeys(v: Extract<View, { kind: 'form' }>, key: Key, inp
     if (!field) return submit(v, api) // 保存行
     if (field.readonly) return
     if (field.options) {
+      if (field.options.length === 0) return // 作者错误防御：空选项集不可循环（避免 % 0 得 NaN）
       // 选项字段：Enter 循环切到下一个选项。
       const idx = field.options.findIndex((o) => o.value === field.value)
       const next = field.options[(idx + 1) % field.options.length] ?? field.options[0]!

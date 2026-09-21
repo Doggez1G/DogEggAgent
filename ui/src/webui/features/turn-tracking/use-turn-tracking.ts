@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AgentToUiMessage, Config, UiPort } from '@dogegg/bridge'
+import type { AgentToUiMessage, Config, ToolIdentity, UiPort } from '@dogegg/bridge'
 import { effectivePerm } from '../../../shared'
 import { applyToolStart, applyToolEnd, extractFilesTouched, type ToolCallEntry, type ToolDecision } from './logic/tool-tracking'
 import type { FileTouched } from '../../view-state'
@@ -30,15 +30,22 @@ export function useTurnTracking(port: UiPort): {
   const permissionDecisions = useRef<Map<string, ToolDecision>>(new Map())
   // 追踪最新 config——onMessage 闭包不能直接读 config state（不在 effect deps 中）。
   const configRef = useRef<Config | null>(null)
+  // 工具身份镜像（tools_list 广播）——effectivePerm 判定 MCP 服务键规则必需（服务键按身份命中）。
+  const identitiesRef = useRef<Map<string, ToolIdentity>>(new Map())
   const lastSubmitText = useRef<string>('')
   // pendingPermission 的 ref 镜像——订阅回调是首渲染闭包，读 state 恒为 null（分支永不生效）。
   const pendingRef = useRef<{ id: string; tool: string; input: unknown; alwaysScope?: { pattern: string } } | null>(null)
 
   useEffect(() => {
-    // 挂载即同步会话提升集——浏览器刷新后镜像为空，需要从后端播种。
+    // 挂载即同步会话提升集与工具身份镜像——浏览器刷新后镜像为空，需要从后端播种。
     port.post({ type: 'permissions_request' })
+    port.post({ type: 'tools_request' })
     const off = port.onMessage((msg: AgentToUiMessage) => {
       if (msg.type === 'tool_pending') { setPendingTool(msg.name); return }
+      if (msg.type === 'tools_list') {
+        identitiesRef.current = new Map(msg.tools.map((t) => [t.name, t.identity]))
+        return
+      }
       if (msg.type === 'config_state' || msg.type === 'config_updated') {
         configRef.current = msg.config
       } else if (msg.type === 'permission_request') {
@@ -65,7 +72,7 @@ export function useTurnTracking(port: UiPort): {
         // 按 toolName 查找 decision——permission_request.id 与 tool_start.id 不同。
         const decision = permissionDecisions.current.get(msg.name)
         // 记录执行时的生效权限快照（区分配置 allow 与会话提升 always）——不随后续设置变化。
-        const perm = effectivePerm(configRef.current?.permission ?? { allow: {}, reject: {}, ask: {} }, msg.name, sessionRules.current)
+        const perm = effectivePerm(configRef.current?.permission ?? { allow: {}, reject: {}, ask: {} }, msg.name, sessionRules.current, identitiesRef.current)
         setToolCalls((prev) => applyToolStart(prev, msg, decision, perm, seq))
         // 用完后清除 decision（避免下一个同名工具继承上次决策）。
         if (decision) permissionDecisions.current.delete(msg.name)
@@ -74,7 +81,7 @@ export function useTurnTracking(port: UiPort): {
         const touched = extractFilesTouched(msg)
         if (touched) setFilesTouched((prev) => [...prev, touched])
       } else if (msg.type === 'tool_end') {
-        setToolCalls((prev) => applyToolEnd(prev, msg, effectivePerm(configRef.current?.permission ?? { allow: {}, reject: {}, ask: {} }, msg.name, sessionRules.current), ++toolSeqRef.current))
+        setToolCalls((prev) => applyToolEnd(prev, msg, effectivePerm(configRef.current?.permission ?? { allow: {}, reject: {}, ask: {} }, msg.name, sessionRules.current, identitiesRef.current), ++toolSeqRef.current))
       } else if (msg.type === 'permissions_list') {
         // 会话提升集的后端广播——镜像的权威同步点（挂载/会话切换播种、决策后刷新都走这里）。
         sessionRules.current = new Map(msg.permissions.map((p) => [p.tool, p.patterns]))

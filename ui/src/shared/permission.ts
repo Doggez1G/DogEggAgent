@@ -25,12 +25,15 @@ export function describeBucketTool(rule: PermissionRule): string {
 // 生效权限的展示值：区分「配置永久 allow」与「会话内提升」（整工具或范围模式）。
 // classifyPermission 把会话提升并入 'allow' 桶（与后端网关判定同语义），
 // 但展示层必须还原来源——提升只在本会话有效，显示成 allow 会让用户误以为进了永久放行。
+// identities 可选注入（tools_list 的身份镜像）——MCP 服务键规则按身份命中，缺失时服务键
+// 对 display 判定不可见（内建键照常）。
 export function effectivePerm(
   cfg: PermissionConfig,
   name: string,
   sessionRules: ReadonlyMap<string, string[]>,
+  identities?: ReadonlyMap<string, ToolIdentity>,
 ): string {
-  const bucket = classifyPermission(cfg, name, undefined, sessionRules)
+  const bucket = classifyPermission(cfg, name, undefined, sessionRules, identities)
   if (bucket === 'allow' && sessionRules.has(name) && !(name in cfg.allow)) return 'always'
   return bucket
 }
