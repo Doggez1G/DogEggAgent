@@ -271,10 +271,14 @@ export class Agent {
         case 'update':
           this.skills.update(cmd.scope, cmd.name, cmd.content ?? '')
           break
-        case 'toggle':
+        case 'toggle': {
+          // 对缺失态条目「启用」即清理孤儿记录——文案区分，避免误导为恢复了可用 skill。
+          const wasMissing = this.skills.list().find((s) => s.scope === cmd.scope && s.name === cmd.name)?.missing === true
           this.skills.setEnabled(cmd.scope, cmd.name, cmd.enabled === true)
-          this.emit({ type: 'notice', text: `skill 已${cmd.enabled ? '启用' : '停用'}：${cmd.name}（${cmd.scope}）` })
+          const action = cmd.enabled ? (wasMissing ? '已清理（移除孤儿记录）' : '已启用') : '已停用'
+          this.emit({ type: 'notice', text: `skill ${action}：${cmd.name}（${cmd.scope}）` })
           break
+        }
         case 'delete':
           this.skills.remove(cmd.scope, cmd.name)
           this.emit({ type: 'notice', text: `skill 已删除：${cmd.name}（${cmd.scope}）` })

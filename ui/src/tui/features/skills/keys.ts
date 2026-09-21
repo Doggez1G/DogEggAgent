@@ -32,7 +32,8 @@ export function handleSkillsKeys(v: Extract<View, { kind: 'skills' }>, key: Key,
     // 新建：表单视图——落点是选项字段（Enter 在项目级/用户级间切换），无需前置菜单。
     api.suppressEnter()
     createForm(api, v)
-  } else if (inputChar === 'e' && current) {
+  } else if (inputChar === 'e' && current && !current.missing) {
+    // 缺失态无文件可编（WebUI 同款守卫）——清理走 t（启用）或 d（删除）。
     api.openEditor(current.path)
   } else if (inputChar === 't' && current) {
     // 启停：停用 = 退出系统提示/联想/调用（保留文件）；缺失态按 t = 清理孤儿记录（等价启用）。

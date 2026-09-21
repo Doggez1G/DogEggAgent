@@ -65,24 +65,29 @@ export class SkillsManager {
     const out: SkillInfo[] = []
     for (const scope of ['project', 'user'] as const) {
       const dir = this.dirFor(scope)
-      if (!dir || !existsSync(dir)) continue
+      if (!dir) continue
       const disabled = new Set(this.readDisabled(scope))
-      let entries: string[]
-      try {
-        entries = readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && SKILL_NAME_RE.test(e.name)).map((e) => e.name)
-      } catch {
-        continue // 目录不可读（权限等）：该级跳过，不拖垮整体
-      }
       const found = new Set<string>()
-      for (const name of entries) {
-        const path = join(dir, name, 'SKILL.md')
-        if (!existsSync(path)) continue
+      // 目录存在才扫文件；目录整体消失但状态名单还在时，孤儿枚举照常（见下）——可见供清理。
+      if (existsSync(dir)) {
+        let entries: string[]
         try {
-          const { description } = parseSkillMd(readFileSync(path, 'utf8'))
-          found.add(name)
-          out.push({ name, description, scope, path, enabled: !disabled.has(name), missing: false })
+          entries = readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && SKILL_NAME_RE.test(e.name)).map((e) => e.name)
         } catch {
-          continue // 单个 skill 解析失败不拖垮整体
+          entries = [] // 目录不可读（权限等）：按无条目处理，孤儿枚举照常
+        }
+        for (const name of entries) {
+          const path = join(dir, name, 'SKILL.md')
+          if (!existsSync(path)) continue
+          try {
+            const { description } = parseSkillMd(readFileSync(path, 'utf8'))
+            found.add(name)
+            out.push({ name, description, scope, path, enabled: !disabled.has(name), missing: false })
+          } catch {
+            // SKILL.md 解析失败：条目照常可见（不隐身），标明原因供诊断——它仍参与停用名单语义。
+            found.add(name)
+            out.push({ name, description: '（SKILL.md 解析失败——请检查 frontmatter/正文）', scope, path, enabled: !disabled.has(name), missing: false })
+          }
         }
       }
       // 名单孤儿：停用名单在案、文件系统已消失（外部删除等）——可见供清理，永不进提示/调用。

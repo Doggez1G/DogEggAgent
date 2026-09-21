@@ -27,7 +27,7 @@ export interface AgentEventsDeps {
   configIntentRef: { current: 'model' | 'config' | null }
   setView(view: View): void
   updateConfig(c: Config): void
-  openMenu(title: string, items: { label: string; onSelect: () => void }[]): void
+  openMenu(title: string, items: { label: string; onSelect: () => void }[], returnView?: View): void
   openModelPicker(c: Config): void
   openConfigTree(c: Config): void
   setStatusBarData(updater: StatusBarData | ((d: StatusBarData) => StatusBarData)): void
@@ -182,7 +182,7 @@ export function useAgentEvents(deps: AgentEventsDeps): void {
                   onSelect: () => { d.port.post({ type: 'permission_revoke', tool, pattern: p }) },
                 })),
                 { label: '撤销该工具全部提升', onSelect: () => { d.port.post({ type: 'permission_revoke', tool }) } },
-              ])
+              ], d.viewRef.current) // 内层菜单 esc 回顶层提升菜单（而非关面板）
             },
           })))
         }
