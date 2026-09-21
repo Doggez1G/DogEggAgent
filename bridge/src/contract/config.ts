@@ -140,6 +140,24 @@ export const configSchema = z.object({
   mcpServers: z.array(mcpServerSchema).default([]),
   providers: z.array(providerSchema).default([]),
 })
+  // 服务键前缀交叉校验（立法）：permission 桶键若与 mcpServers 里的服务名同名的裸键，
+  // 在前缀化立法（mcp:<服务名>）下不再作为服务键生效——会静默失配，加载期直接拒绝并指明写法。
+  // 仅校验全局 mcpServers 名单；项目级（.dogegg/.mcp.json）服务的裸键由调用方按需校验。
+  .superRefine((cfg, ctx) => {
+    const names = new Set(cfg.mcpServers.map((srv) => srv.name))
+    if (names.size === 0) return
+    for (const bucket of [cfg.permission.allow, cfg.permission.reject, cfg.permission.ask]) {
+      for (const key of Object.keys(bucket)) {
+        if (key.startsWith('mcp:')) continue
+        if (names.has(key)) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `权限键 "${key}" 是 MCP 服务名——服务键需写为 "mcp:${key}"（见 docs/config.md 的 MCP 服务键章节）`,
+          })
+        }
+      }
+    }
+  })
 
 export type Config = z.infer<typeof configSchema>
 export type ProviderConfig = z.infer<typeof providerSchema>

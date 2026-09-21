@@ -85,6 +85,14 @@ describe('ConfigStore.load', () => {
     })).toThrow(/作用域前缀/)
   })
 
+  it('裸服务名键拒绝加载：服务键必须写 mcp:<服务名> 前缀（交叉校验）', () => {
+    expect(() => store.load({
+      providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] }],
+      mcpServers: [{ name: 'playwright', transport: { type: 'stdio', command: 'npx' } }],
+      permission: { allow: { playwright: { whole: true, patterns: [] } }, reject: {}, ask: {} },
+    })).toThrow(/mcp:playwright/)
+  })
+
   it('save then load roundtrips', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dogegg-cfg-'))
     const file = join(dir, 'config.json')
