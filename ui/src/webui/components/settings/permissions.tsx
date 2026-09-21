@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ChevronDown, X } from 'lucide-react'
 import type { Config, PermissionRule, ToolListItem, UiPort } from '@dogegg/bridge'
-import { KNOWN_TOOLS } from '../../../shared'
 import styles from './settings.module.css'
 
 // 权限设置区（v2：桶 → 键 → 模式数组，空数组 = 整工具/整服务）——从 view.tsx 抽出的独立区块组件。
@@ -158,10 +157,8 @@ function BucketCard({ bucket, bucketMap, setBucket, toolsList, mcpServers }: {
     serverNames.add(t.identity.server)
     serverCounts.set(t.identity.server, (serverCounts.get(t.identity.server) ?? 0) + 1)
   }
-  // 服务键检测（双保险）：`mcp:` 前缀（规范式）∨ 裸服务名且非内建工具名（兼容回退式，
-  // 裸名键归内建规则所有）——与 TUI / 引擎判定同构。
-  const isServerKey = (key: string): boolean =>
-    key.startsWith('mcp:') || (serverNames.has(key) && !(KNOWN_TOOLS as readonly string[]).includes(key))
+  // 服务键检测（v3 立法：服务键一律带 `mcp:` 前缀，语法自明）。
+  const isServerKey = (key: string): boolean => key.startsWith('mcp:')
   const serverToolNames = (key: string): string[] | undefined => {
     if (!isServerKey(key)) return undefined
     const server = key.slice(4)

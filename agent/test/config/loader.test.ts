@@ -85,21 +85,12 @@ describe('ConfigStore.load', () => {
     })).toThrow(/作用域前缀/)
   })
 
-  it('裸服务名键：非内建名的裸键合法（兼容回退式生效）', () => {
-    const cfg = store.load({
+  it('裸服务名键拒绝加载：服务键必须写 mcp:<服务名> 前缀（强制前缀立法）', () => {
+    expect(() => store.load({
       providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] }],
       mcpServers: [{ name: 'playwright', transport: { type: 'stdio', command: 'npx' } }],
       permission: { allow: { playwright: { whole: true, patterns: [] } }, reject: {}, ask: {} },
-    })
-    expect(cfg.permission.allow.playwright).toEqual({ whole: true, patterns: [] })
-  })
-
-  it('服务名与内建工具同名且用裸键：双重语义禁止，拒绝加载并指明 mcp: 前缀写法', () => {
-    expect(() => store.load({
-      providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] }],
-      mcpServers: [{ name: 'shell', transport: { type: 'stdio', command: 'x' } }],
-      permission: { allow: { shell: { whole: true, patterns: [] } }, reject: {}, ask: {} },
-    })).toThrow(/双重语义/)
+    })).toThrow(/mcp:playwright/)
   })
 
   it('save then load roundtrips', () => {

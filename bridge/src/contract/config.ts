@@ -71,10 +71,6 @@ export const PRIMARY_SPECIFIER: Record<string, 'path' | 'command'> = { shell: 'c
 // （如 browser_close），不存在路径锚点语义，跳过校验。
 export const BUILTIN_PATH_TOOLS = ['read_file', 'write_file', 'edit_file', 'ls', 'glob', 'grep'] as const
 
-// 全部内建工具名（含 command 主参数的 shell）——MCP 服务裸名回退键的保留名单：
-// 服务名与内建工具同名时，裸名键归内建工具规则所有（双重语义禁止），服务规则必须写 mcp: 前缀键。
-export const BUILTIN_TOOLS = [...BUILTIN_PATH_TOOLS, 'shell'] as const
-
 export function primarySpecifier(tool: string): 'path' | 'command' {
   return PRIMARY_SPECIFIER[tool] ?? 'path'
 }
@@ -148,18 +144,17 @@ export const configSchema = z.object({
   // 在前缀化立法（mcp:<服务名>）下不再作为服务键生效——会静默失配，加载期直接拒绝并指明写法。
   // 仅校验全局 mcpServers 名单；项目级（.dogegg/.mcp.json）服务的裸键由调用方按需校验。
   .superRefine((cfg, ctx) => {
-    // 服务键双写法立法：mcp:<服务名>（规范式）恒合法；裸服务名键为兼容回退式——仅当服务名
-    // 不是内建工具名时生效（裸名键归内建规则所有）。唯一拒绝：服务名与内建工具同名且用了裸键
-    // （双重语义禁止）——报错指明改用 mcp: 前缀或更改服务名。
+    // 服务键强制前缀立法：服务键必须写 mcp:<服务名>——裸服务名键在前缀化立法下不作为服务键
+    // 生效（静默失配），加载期直接拒绝并指明写法。服务名零约束（前缀隔离保证与内建名无歧义）。
     const names = new Set(cfg.mcpServers.map((srv) => srv.name))
     if (names.size === 0) return
     for (const bucket of [cfg.permission.allow, cfg.permission.reject, cfg.permission.ask]) {
       for (const key of Object.keys(bucket)) {
         if (key.startsWith('mcp:')) continue
-        if (names.has(key) && (BUILTIN_TOOLS as readonly string[]).includes(key)) {
+        if (names.has(key)) {
           ctx.addIssue({
             code: 'custom',
-            message: `权限键 "${key}" 同时是内建工具名与 MCP 服务名——双重语义禁止：服务规则请写 "mcp:${key}"，或更改服务名`,
+            message: `权限键 "${key}" 是 MCP 服务名——服务键必须写为 "mcp:${key}"（见 docs/config.md 的 MCP 服务键章节）`,
           })
         }
       }

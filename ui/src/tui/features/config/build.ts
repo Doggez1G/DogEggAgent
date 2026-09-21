@@ -42,7 +42,7 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx, too
       const bucketName = path.bucket
       const bucket = config.permission[bucketName]
       const entries: Entry[] = Object.entries(bucket).map(([tool, rule]) => {
-        const isServer = isMcpServerKey(tool, config, tools)
+        const isServer = isMcpServerKey(tool)
         return {
           label: isServer ? `${tool.slice(4)}（MCP 服务）` : tool,
           kind: 'goto' as const,
@@ -64,7 +64,7 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx, too
 
       // 整键开关（v3 立法）：whole 是显式字段，空选（whole:false + 空 patterns）可表达——
       // 开关恒可用、状态恒与引擎一致，无任何virgin特例。
-      const isServer = isMcpServerKey(path.tool, config, tools)
+      const isServer = isMcpServerKey(path.tool)
       const entries: Entry[] = []
       const toggleRow: Entry = rule.whole
         ? { label: `✓ ${isServer ? '整组' : '整工具'}生效（回车取消——改为按${isServer ? '勾选/规则' : '模式'}限定）`, kind: 'action', value: '', run: () => setRule({ ...rule, whole: false }) }
@@ -277,8 +277,8 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx, too
         serverToolCount.set(t.identity.server, (serverToolCount.get(t.identity.server) ?? 0) + 1)
       }
       for (const name of serverNames) {
-        const key = `mcp:${name}` // v3 立法：服务键规范式带 mcp: 前缀（键空间与内建工具名正交）
-        if (key in bucket || name in bucket) continue // 裸名回退式已存在时同样跳过
+        const key = `mcp:${name}` // v3 立法：服务键必须带 mcp: 前缀（键空间与内建工具名正交）
+        if (key in bucket) continue
         const n = serverToolCount.get(name)
         entries.push({
           label: `${name}（MCP 服务 · ${n === undefined ? '未运行' : `${n} 个工具`}）`,
@@ -311,15 +311,9 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx, too
 
 // 桶键是否为 MCP 服务名：配置 mcpServers 清单 ⊕ 运行时身份中出现过的服务
 //（权限引擎按身份匹配服务键——见 bridge/contract/permission.ts 的服务键立法）。
-// 桶键是否为 MCP 服务键（双保险判定）：`mcp:` 前缀（规范式）∨ 裸服务名且非内建工具名
-// （兼容回退式——裸名键归内建规则所有，见 bridge BUILTIN_TOOLS 立法）。
-function isMcpServerKey(key: string, config: Config, tools?: ToolListItem[]): boolean {
-  if (key.startsWith('mcp:')) return true
-  const serverNames = new Set(config.mcpServers.map((s) => s.name))
-  for (const t of tools ?? []) {
-    if (t.identity.kind === 'mcp') serverNames.add(t.identity.server)
-  }
-  return serverNames.has(key) && !(KNOWN_TOOLS as readonly string[]).includes(key)
+// 桶键是否为 MCP 服务键：v3 立法——服务键一律带 `mcp:` 前缀（键空间与内建工具名正交，语法自明）。
+function isMcpServerKey(key: string): boolean {
+  return key.startsWith('mcp:')
 }
 
 // 服务键的显示名：剥去 `mcp:` 前缀（配置里存前缀键，界面展示裸服务名）。
