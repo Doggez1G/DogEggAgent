@@ -11,9 +11,9 @@ const ids = (map: Record<string, ToolIdentity>) => (): ReadonlyMap<string, ToolI
 describe('权限服务键（MCP 服务裸名桶键）', () => {
   // 推演基线：playwright 整组放行，仅 browser_evaluate 强制询问。
   const cfg: PermissionConfig = {
-    allow: { playwright: { whole: true, patterns: [] } },
+    allow: { 'mcp:playwright': { whole: true, patterns: [] } },
     reject: {},
-    ask: { playwright: { whole: false, patterns: ['browser_evaluate'] } },
+    ask: { 'mcp:playwright': { whole: false, patterns: ['browser_evaluate'] } },
   }
 
   it('整组放行：身份 server 命中 whole 规则，内部名无关', () => {
@@ -34,7 +34,7 @@ describe('权限服务键（MCP 服务裸名桶键）', () => {
     const askCfg: PermissionConfig = {
       allow: {},
       reject: {},
-      ask: { playwright: { whole: false, patterns: ['browser_evaluate', 'browser_*'] } },
+      ask: { 'mcp:playwright': { whole: false, patterns: ['browser_evaluate', 'browser_*'] } },
     }
     const pm = new PermissionManager(askCfg, [], ids({
       'mcp__playwright__browser_evaluate': { kind: 'mcp', server: 'playwright', name: 'browser_evaluate' },
@@ -48,7 +48,7 @@ describe('权限服务键（MCP 服务裸名桶键）', () => {
 
   it('whole:false + 空选 = 不命中任何工具（键存在但无规则）', () => {
     const pm = new PermissionManager(
-      { allow: { playwright: { whole: false, patterns: [] } }, reject: {}, ask: {} },
+      { allow: { 'mcp:playwright': { whole: false, patterns: [] } }, reject: {}, ask: {} },
       [],
       ids({ 'mcp__playwright__x': { kind: 'mcp', server: 'playwright', name: 'x' } }),
     )
@@ -57,7 +57,7 @@ describe('权限服务键（MCP 服务裸名桶键）', () => {
 
   it('哈希标签同样命中：匹配按身份进行，LLM 可见名只是调用管道', () => {
     const pm = new PermissionManager(
-      { allow: { '我的服务': { whole: true, patterns: [] } }, reject: {}, ask: {} },
+      { allow: { 'mcp:我的服务': { whole: true, patterns: [] } }, reject: {}, ask: {} },
       [],
       ids({ 'h-3fa2b1c9d0e4': { kind: 'mcp', server: '我的服务', name: 'close' } }),
     )
@@ -65,7 +65,7 @@ describe('权限服务键（MCP 服务裸名桶键）', () => {
   })
 
   it('kind 门控：无身份（未注入）时服务键不命中——名字分支也匹配不上裸服务名', () => {
-    const pm = new PermissionManager({ allow: { playwright: { whole: true, patterns: [] } }, reject: {}, ask: {} })
+    const pm = new PermissionManager({ allow: { 'mcp:playwright': { whole: true, patterns: [] } }, reject: {}, ask: {} })
     expect(pm.classify('mcp__playwright__x')).toBe('ask') // 固定安全默认，而非误放行
   })
 
@@ -86,8 +86,8 @@ describe('权限服务键（MCP 服务裸名桶键）', () => {
   it('reject 整组压过 allow（安全立法不变）', () => {
     const pm = new PermissionManager(
       {
-        allow: { playwright: { whole: true, patterns: [] } },
-        reject: { playwright: { whole: false, patterns: ['browser_evaluate'] } },
+        allow: { 'mcp:playwright': { whole: true, patterns: [] } },
+        reject: { 'mcp:playwright': { whole: false, patterns: ['browser_evaluate'] } },
         ask: {},
       },
       [],

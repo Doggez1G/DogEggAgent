@@ -77,7 +77,7 @@ function ToolPermGroup({ tool, rule, onSetRule, onRemove, serverTools }: {
   return (
     <div className={styles.permTool}>
       <div className={styles.permToolHeader}>
-        <span className={styles.permToolName}>{tool}</span>
+        <span className={styles.permToolName}>{tool.startsWith('mcp:') ? tool.slice(4) : tool}</span>
         <span className={styles.permToolSummary}>
           {rule.whole
             ? (isServer ? 'whole server' : 'whole tool')
@@ -157,13 +157,13 @@ function BucketCard({ bucket, bucketMap, setBucket, toolsList, mcpServers }: {
     serverNames.add(t.identity.server)
     serverCounts.set(t.identity.server, (serverCounts.get(t.identity.server) ?? 0) + 1)
   }
-  // 服务键检测与该服务的运行时内部工具名（勾选 chips 的数据源；undefined = 非服务键）。
-  const isServerKey = (key: string): boolean =>
-    serverNames.has(key) || toolsList.some((t) => t.identity.kind === 'mcp' && t.identity.server === key)
-  const serverToolNames = (key: string): string[] | undefined =>
-    isServerKey(key)
-      ? toolsList.flatMap((t) => (t.identity.kind === 'mcp' && t.identity.server === key ? [t.identity.name] : []))
-      : undefined
+  // 服务键检测（v3 立法：服务键一律带 `mcp:` 前缀，语法自明）与该服务的运行时内部工具名。
+  const isServerKey = (key: string): boolean => key.startsWith('mcp:')
+  const serverToolNames = (key: string): string[] | undefined => {
+    if (!isServerKey(key)) return undefined
+    const server = key.slice(4)
+    return toolsList.flatMap((t) => (t.identity.kind === 'mcp' && t.identity.server === server ? [t.identity.name] : []))
+  }
   return (
     <div className={styles.permCard}>
       <button type="button" className={styles.permCardHeader} onClick={() => setOpen(!open)} aria-expanded={open}>
@@ -199,9 +199,11 @@ function BucketCard({ bucket, bucketMap, setBucket, toolsList, mcpServers }: {
               }}
             >
               <option value="">+ Add tool...</option>
-              {[...serverNames].filter((s) => !(s in bucketMap)).map((s) => {
+              {[...serverNames].map((s) => {
+                const key = `mcp:${s}` // v3 立法：服务键带 mcp: 前缀（键空间与内建工具名正交）
+                if (key in bucketMap) return null
                 const n = serverCounts.get(s)
-                return <option key={s} value={s}>{s} (MCP · {n === undefined ? 'offline' : `${n} tools`})</option>
+                return <option key={key} value={key}>{s} (MCP · {n === undefined ? 'offline' : `${n} tools`})</option>
               })}
               {toolsList.filter((t) => t.identity.kind === 'builtin' && !(t.name in bucketMap))
                 .map((t) => <option key={t.name} value={t.name}>{t.name} — {t.description}</option>)}

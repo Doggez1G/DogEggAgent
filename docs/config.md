@@ -49,15 +49,17 @@
 三桶顶层结构一致，桶内是「键 → 规则」的映射，键有两类——内建工具名与 MCP 服务名：
 
 - **`whole: true`** → 整键生效：`"read_file": { "whole": true, "patterns": [] }` 表示该工具的
-  所有调用都按本桶处理；`"playwright": { "whole": true, "patterns": [] }` 表示该服务下所有
-  工具都按本桶处理（见下节）。此时 patterns 不参与匹配，仅作取消整选后的恢复内容；
+  所有调用都按本桶处理；`"mcp:playwright": { "whole": true, "patterns": [] }` 表示该服务下
+  所有工具都按本桶处理（见下节）。此时 patterns 不参与匹配，仅作取消整选后的恢复内容；
 - **`whole: false`** → 只有**命中 patterns 的调用**按本桶处理，未命中的调用按「未列出工具」
   走默认 ask。patterns 为空数组表示键存在但当前不命中任何规则（编辑中的空选态）。
 
 ### MCP 服务键（以服务为权限单元）
 
-桶键除内建工具名外，还可以是 **MCP 服务的裸名**（即 `mcpServers` 里的 `name`，如 `playwright`）。
-服务是一个权限单元——匹配按工具注册期记录的服务归属进行，**与工具的内部名字无关**：
+桶键除内建工具名外，还可以是 **MCP 服务键 `mcp:<服务名>`**（服务名即 `mcpServers` 里的 `name`，
+如 `mcp:playwright`）。`mcp:` 前缀使服务键与内建工具键的键空间彻底正交——服务名不受任何字符
+限制也不会与内建工具名歧义。服务是一个权限单元——匹配按工具注册期记录的服务归属进行，
+**与工具的内部名字无关**：
 
 - **`whole: true`** → 整组生效：该服务下的所有工具都按本桶处理（服务升级新增工具自动覆盖）；
 - **`whole: false`** → patterns 条目匹配的是**服务内部工具名**（服务 `tools/list` 声明的名字，
@@ -69,8 +71,8 @@
 ```json
 {
   "permission": {
-    "allow": { "playwright": { "whole": true,  "patterns": [] } },
-    "ask":   { "playwright": { "whole": false, "patterns": ["browser_evaluate"] } }
+    "allow": { "mcp:playwright": { "whole": true,  "patterns": [] } },
+    "ask":   { "mcp:playwright": { "whole": false, "patterns": ["browser_evaluate"] } }
   }
 }
 ```

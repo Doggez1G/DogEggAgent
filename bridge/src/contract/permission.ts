@@ -31,13 +31,14 @@ export type ToolArgs = Record<string, unknown>
 // 【shell 规则立法】参数化 shell 规则（command 模式）是「便利而非安全边界」：
 // 通配会命中 `git status && rm -rf /` 这类命令链。命令链拆分器（逐段判定）是独立后续批次；
 // 在此之前，危险命令的防线是 ask 桶显式压制 + 默认 ask。
-// 【MCP 服务键立法】桶键除内建工具名外，还可以是 MCP 服务裸名（如 playwright）——语义由身份
-// 门控分派，与名字字面无关：kind='mcp' 的工具按注册期身份（server + 内部工具名）匹配服务键。
-// rule.whole = 整组生效（该服务下所有工具，不管内部名字如何）；whole: false 时 patterns 与
-// 内部工具名做平文本精确/通配（matchWildcard）——【工具启用匹配，永不涉及执行参数】。名字
-// 分支（toolEntryMatches）对所有工具照常生效——手写的 `mcp__x__*` 通配键、内建键走它；两分支
-// 任一命中即桶命中。跨桶优先级不受影响：「allow 整组 + ask 勾选个别」可行，反向（ask 整组 +
-// allow 个别）被桶优先级压制。
+// 【MCP 服务键立法】桶键除内建工具名外，还可以是 **`mcp:<服务裸名>`**（如 `mcp:playwright`）——
+// 前缀使服务键与内建工具键的键空间彻底正交（内建名不含冒号），「这个键是不是服务键」由语法
+// 自明，无需身份快照或启发式判定。语义：kind='mcp' 的工具按注册期身份（server + 内部工具名）
+// 匹配其前缀键。rule.whole = 整组生效（该服务下所有工具，不管内部名字如何）；whole: false 时
+// patterns 与内部工具名做平文本精确/通配（matchWildcard）——【工具启用匹配，永不涉及执行参数】。
+// 名字分支（toolEntryMatches）对所有工具照常生效——手写的 `mcp__x__*` 通配键、内建键走它；
+// 两分支任一命中即桶命中。跨桶优先级不受影响：「allow 整组 + ask 勾选个别」可行，反向（ask
+// 整组 + allow 个别）被桶优先级压制。
 export function classifyPermission(
   cfg: PermissionConfig,
   tool: string,
@@ -56,7 +57,7 @@ export function classifyPermission(
   return 'ask'
 }
 
-// 服务键分支命中：工具身份为 mcp 时，在其服务裸名的桶键上按规则语义判定。
+// 服务键分支命中：工具身份为 mcp 时，在其 `mcp:<服务名>` 前缀桶键上按规则语义判定。
 // 身份由注册关口随工具维护（agent 注入快照）——匹配不解析 LLM 可见名，服务名含任何字符都无歧义。
 function mcpServerHit(
   bucket: Record<string, PermissionRule>,
@@ -65,7 +66,7 @@ function mcpServerHit(
 ): boolean {
   const id = identities?.get(tool)
   if (id?.kind !== 'mcp') return false
-  const rule = bucket[id.server]
+  const rule = bucket[`mcp:${id.server}`]
   if (!rule) return false
   if (rule.whole) return true
   return rule.patterns.some((p) => matchWildcard(p, id.name))

@@ -42,9 +42,9 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx, too
       const bucketName = path.bucket
       const bucket = config.permission[bucketName]
       const entries: Entry[] = Object.entries(bucket).map(([tool, rule]) => {
-        const isServer = isMcpServerKey(tool, config, tools)
+        const isServer = isMcpServerKey(tool)
         return {
-          label: isServer ? `${tool}（MCP 服务）` : tool,
+          label: isServer ? `${tool.slice(4)}（MCP 服务）` : tool,
           kind: 'goto' as const,
           value: describeBucketEntry(rule, isServer) + crossBucketHint(config, bucketName, tool),
           subPath: { kind: 'permissionTool', bucket: bucketName, tool } as ConfigPath,
@@ -64,7 +64,7 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx, too
 
       // 整键开关（v3 立法）：whole 是显式字段，空选（whole:false + 空 patterns）可表达——
       // 开关恒可用、状态恒与引擎一致，无任何virgin特例。
-      const isServer = isMcpServerKey(path.tool, config, tools)
+      const isServer = isMcpServerKey(path.tool)
       const entries: Entry[] = []
       const toggleRow: Entry = rule.whole
         ? { label: `✓ ${isServer ? '整组' : '整工具'}生效（回车取消——改为按${isServer ? '勾选/规则' : '模式'}限定）`, kind: 'action', value: '', run: () => setRule({ ...rule, whole: false }) }
@@ -73,8 +73,9 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx, too
       // ── MCP 服务键：勾选式细化——运行时身份枚举该服务的工具清单，回车勾选/取消（= 增删
       // 内部工具名）。参数模式对服务键不适用（MCP 无主参数概念——立法见 bridge/permission.ts）。──
       if (isServer) {
+        const server = serverDisplayName(path.tool)
         const runtimeTools = (tools ?? []).flatMap((t) =>
-          t.identity.kind === 'mcp' && t.identity.server === path.tool ? [t.identity.name] : [])
+          t.identity.kind === 'mcp' && t.identity.server === server ? [t.identity.name] : [])
         if (runtimeTools.length === 0) {
           entries.push({ label: '（服务未运行或无工具清单——已保存规则按保存内容生效）', kind: 'action', value: '', run: () => {} })
         }
@@ -276,14 +277,15 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx, too
         serverToolCount.set(t.identity.server, (serverToolCount.get(t.identity.server) ?? 0) + 1)
       }
       for (const name of serverNames) {
-        if (name in bucket) continue
+        const key = `mcp:${name}` // v3 立法：服务键带 mcp: 前缀（键空间与内建工具名正交）
+        if (key in bucket) continue
         const n = serverToolCount.get(name)
         entries.push({
           label: `${name}（MCP 服务 · ${n === undefined ? '未运行' : `${n} 个工具`}）`,
           kind: 'action',
           value: '',
-          run: () => ctx.set(`permission.${path.bucket}`, { ...bucket, [name]: { whole: true, patterns: [] } }),
-          afterRunPath: { kind: 'permissionTool', bucket: path.bucket, tool: name }, // 选择即钻入细化层
+          run: () => ctx.set(`permission.${path.bucket}`, { ...bucket, [key]: { whole: true, patterns: [] } }),
+          afterRunPath: { kind: 'permissionTool', bucket: path.bucket, tool: key }, // 选择即钻入细化层
         })
       }
       // 内建工具键：运行时清单的 builtin 身份；未播种（tools 缺省）回退静态 KNOWN_TOOLS。
@@ -309,9 +311,14 @@ export function buildEntries(config: Config, path: ConfigPath, ctx: TreeCtx, too
 
 // 桶键是否为 MCP 服务名：配置 mcpServers 清单 ⊕ 运行时身份中出现过的服务
 //（权限引擎按身份匹配服务键——见 bridge/contract/permission.ts 的服务键立法）。
-function isMcpServerKey(key: string, config: Config, tools?: ToolListItem[]): boolean {
-  return config.mcpServers.some((s) => s.name === key) ||
-    (tools ?? []).some((t) => t.identity.kind === 'mcp' && t.identity.server === key)
+// 桶键是否为 MCP 服务键：v3 立法——服务键一律带 `mcp:` 前缀（与内建工具键空间正交，语法自明）。
+function isMcpServerKey(key: string): boolean {
+  return key.startsWith('mcp:')
+}
+
+// 服务键的显示名：剥去 `mcp:` 前缀（配置里存前缀键，界面展示裸服务名）。
+function serverDisplayName(key: string): string {
+  return key.startsWith('mcp:') ? key.slice(4) : key
 }
 
 // 桶内键的摘要文案：v3 三态——整选（whole，含保留内容）/ 按模式/按勾选 / 空选（不命中）。

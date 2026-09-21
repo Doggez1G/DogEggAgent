@@ -75,7 +75,8 @@ export function primarySpecifier(tool: string): 'path' | 'command' {
   return PRIMARY_SPECIFIER[tool] ?? 'path'
 }
 
-// 单键规则的内存/契约形态（UI 读写、引擎匹配共用）。
+// 单键规则的内存/契约形态（UI 读写、引擎匹配共用）；Config.permission 的整体类型由
+// permissionSchema 推导（见 contract/permission.ts 的 PermissionConfig）。
 export type PermissionRule = z.infer<typeof bucketRuleSchema>
 
 const permissionV3Schema = z.object({
@@ -84,13 +85,7 @@ const permissionV3Schema = z.object({
   ask: z.record(z.string(), bucketRuleSchema).default({}),
 })
 
-// v2 权限配置的内存形态（Config.permission 的类型）：三桶 → 键 → 规则。
-export type PermissionConfigV2 = {
-  allow: Record<string, PermissionRule>
-  reject: Record<string, PermissionRule>
-  ask: Record<string, PermissionRule>
-}
-
+// 权限 schema：v3 结构化形态（唯一合法格式）+ 作用域校验。
 export const permissionSchema = permissionV3Schema.superRefine((p, ctx) => {
   // 作用域前缀校验（立法）：路径模式必须显式声明作用域——锚点（./、../、~/）、盘符（绝对），
   // 或以 * 开头（无锚点，glob 从文件系统根匹配：**/x 全盘任意深度、*/x 仅盘根一层）。

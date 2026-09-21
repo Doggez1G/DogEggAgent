@@ -174,9 +174,9 @@ describe('config-tree permission 编辑（v3：桶 → 键 → { whole, patterns
       'read_file', 'write_file', 'edit_file', 'ls', 'glob', 'grep',
     ])
     ;(entries[0] as { run: () => void }).run()
-    expect(calls[0]![1]).toMatchObject({ playwright: { whole: true, patterns: [] } })
+    expect(calls[0]![1]).toMatchObject({ 'mcp:playwright': { whole: true, patterns: [] } })
     // 选择即钻入：选中后直接落到该键的 permissionTool 细化层（免 esc 退回再钻入的往返）。
-    expect(entries[0]).toMatchObject({ afterRunPath: { kind: 'permissionTool', bucket: 'ask', tool: 'playwright' } })
+    expect(entries[0]).toMatchObject({ afterRunPath: { kind: 'permissionTool', bucket: 'ask', tool: 'mcp:playwright' } })
   })
 
   it('selectTool：离线服务标注未运行；配置 mcpServers 里的服务即使无运行时工具也出现', () => {
@@ -197,7 +197,7 @@ describe('config-tree permission 编辑（v3：桶 → 键 → { whole, patterns
     const srvCfg = configSchema.parse({
       providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] }],
       mcpServers: [{ name: 'playwright', transport: { type: 'stdio', command: 'npx' } }],
-      permission: { allow: { playwright: { whole: true, patterns: [] } }, reject: {}, ask: {} },
+      permission: { allow: { 'mcp:playwright': { whole: true, patterns: [] } }, reject: {}, ask: {} },
     })
     const entries = buildEntries(srvCfg, { kind: 'permissionBucket', bucket: 'allow' }, ctx, [])
     expect(entries.map((e) => e.label)).toEqual(['playwright（MCP 服务）', '＋ 添加工具'])
@@ -216,17 +216,17 @@ describe('config-tree permission 编辑（v3：桶 → 键 → { whole, patterns
     const srvCfg = configSchema.parse({
       providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] }],
       mcpServers: [{ name: 'playwright', transport: { type: 'stdio', command: 'npx' } }],
-      permission: { allow: {}, reject: {}, ask: { playwright: { whole: false, patterns: ['browser_close', 'browser_*'] } } },
+      permission: { allow: {}, reject: {}, ask: { 'mcp:playwright': { whole: false, patterns: ['browser_close', 'browser_*'] } } },
     })
-    const entries = buildEntries(srvCfg, { kind: 'permissionTool', bucket: 'ask', tool: 'playwright' }, tracking, tools)
+    const entries = buildEntries(srvCfg, { kind: 'permissionTool', bucket: 'ask', tool: 'mcp:playwright' }, tracking, tools)
     expect(entries.map((e) => e.label)).toEqual([
       '· 整组生效（回车切回；当前勾选/规则将保留）',
       '✓ browser_close', '· browser_navigate', '＊ browser_*', '＋ 添加通配（匹配该服务的内部工具名，如 browser_*）',
     ])
     ;(entries[2] as { run: () => void }).run() // 勾选 browser_navigate
-    expect(calls[0]![1]).toMatchObject({ playwright: { whole: false, patterns: ['browser_close', 'browser_*', 'browser_navigate'] } })
+    expect(calls[0]![1]).toMatchObject({ 'mcp:playwright': { whole: false, patterns: ['browser_close', 'browser_*', 'browser_navigate'] } })
     ;(entries[1] as { run: () => void }).run() // 取消勾选 browser_close
-    expect(calls[1]![1]).toMatchObject({ playwright: { whole: false, patterns: ['browser_*'] } })
+    expect(calls[1]![1]).toMatchObject({ 'mcp:playwright': { whole: false, patterns: ['browser_*'] } })
   })
 
   it('服务键整选：切回整组保留勾选，取消整选恢复；整选态下勾选行锁定', () => {
@@ -239,16 +239,16 @@ describe('config-tree permission 编辑（v3：桶 → 键 → { whole, patterns
     const wholeCfg = configSchema.parse({
       providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] }],
       mcpServers: [{ name: 'playwright', transport: { type: 'stdio', command: 'npx' } }],
-      permission: { allow: {}, reject: {}, ask: { playwright: { whole: true, patterns: ['browser_close'] } } },
+      permission: { allow: {}, reject: {}, ask: { 'mcp:playwright': { whole: true, patterns: ['browser_close'] } } },
     })
-    const entries = buildEntries(wholeCfg, { kind: 'permissionTool', bucket: 'ask', tool: 'playwright' }, tracking, tools)
+    const entries = buildEntries(wholeCfg, { kind: 'permissionTool', bucket: 'ask', tool: 'mcp:playwright' }, tracking, tools)
     expect(entries.map((e) => e.label)).toEqual([
       '✓ 整组生效（回车取消——改为按勾选/规则限定）',
       '（以下勾选/规则保留中，取消整选后可更改）',
       '✓ browser_close', '· browser_navigate',
     ])
     ;(entries[0] as { run: () => void }).run() // 取消整选 → 恢复勾选
-    expect(calls[0]![1]).toMatchObject({ playwright: { whole: false, patterns: ['browser_close'] } })
+    expect(calls[0]![1]).toMatchObject({ 'mcp:playwright': { whole: false, patterns: ['browser_close'] } })
     ;(entries[3] as { run: () => void }).run() // 整选态下点勾选行 → 无操作（锁定）
     expect(calls).toHaveLength(1)
   })
