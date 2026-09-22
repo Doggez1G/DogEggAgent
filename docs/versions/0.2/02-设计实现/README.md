@@ -1,6 +1,6 @@
 # 02-设计实现
 
-回答「DogEggAgent 是怎么实现的」：按子系统逐一展开的**子系统级设计文档**——每个子系统给出职责与边界、核心数据结构（真实字段/类型形状）、关键流程逐步走查（标注源码 file:line）、关键立法与不变量、失败模式与恢复、与其它子系统的接缝。所有描述对照真实代码，禁止想当然；跨版本的语义决策以 `docs/adr/` 为唯一权威，本文档引用并摘要。
+回答「DogEggAgent 是怎么实现的」：按子系统逐一展开的**子系统级设计文档**——每篇给出职责与边界、核心数据结构（真实字段/类型形状）、**设计逐项详解**（编号设计项 `D-N`：设计问题 → 方案与取舍 → 真实代码摘录逐段走查（标注源码 file:line，摘录逐字取自源文件）→ mermaid 流程图/时序图/状态图）、关键立法与不变量、失败模式与恢复、与其它子系统的接缝。所有描述对照真实代码，禁止想当然；跨版本的语义决策以 `docs/adr/` 为唯一权威，本文档引用并摘要。
 
 **总架构交互图**：[architecture-overview.html](./assets/architecture-overview.html)——四包职责、两个组合根（bin/dogegg.ts 与 main-web.ts）、双通道（InMemory 同步 / SSE+zod）与消息流向的全景。
 
@@ -20,8 +20,8 @@
 | 08 | [技能系统](./08-技能系统.md) | 三态合成（扫描∪名单孤儿）、旁挂名单容错、渐进披露、$ARGUMENTS 渲染 | agent/src/skills/ | — |
 | 09 | [会话与持久化](./09-会话与持久化.md) | 存档 JSON 逐字段、resume 恢复链、删除当前会话接管、用量双口径 | agent/src/session/ | — |
 | 10 | [配置体系与编辑器](./10-配置体系与编辑器.md) | schema 全字段、loadConfigOrExit 失败路径、强类型操作解析、zod 校验回滚 | bridge/contract/config.ts、agent/src/config/ | — |
-| 11 | [TUI 架构](./11-TUI架构.md) | Static/动态分层立法、View 联合类型与按键分派、buildEntries 双端共用、ref 镜像教训 | ui/src/tui/ | — |
-| 12 | [WebUI 架构](./12-WebUI架构.md) | SSE 客户端校验、四数据域 hook、信息面板八卡、设置五区、shared 层对称 | ui/src/webui/、ui/src/shared/ | — |
+| 11 | [TUI 架构](./11-TUI架构.md) | Static/动态分层立法、View 联合类型与按键分派、弹层 returnView 链、ref 镜像教训 | ui/src/tui/ | — |
+| 12 | [WebUI 架构](./12-WebUI架构.md) | SSE 客户端校验、六数据域 hook、信息面板八卡、设置五区、shared 层对称 | ui/src/webui/、ui/src/shared/ | — |
 
 ## 全局立法速查（各篇详述）
 
