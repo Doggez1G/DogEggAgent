@@ -1,0 +1,251 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "配置体系：加载校验与热更新",
+    "locale": "zh-CN",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {
+      "id": "load",
+      "label": "加载与校验"
+    },
+    {
+      "id": "runtime",
+      "label": "运行时装配"
+    },
+    {
+      "id": "edit",
+      "label": "两端编辑"
+    }
+  ],
+  "phases": [
+    {
+      "id": "read",
+      "label": "读取",
+      "fromCol": 0,
+      "toCol": 1
+    },
+    {
+      "id": "check",
+      "label": "校验",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "apply",
+      "label": "装配与广播",
+      "fromCol": 4,
+      "toCol": 5
+    }
+  ],
+  "mainPath": [
+    "read",
+    "zod",
+    "refine",
+    "defaults",
+    "assemble",
+    "broadcast"
+  ],
+  "nodes": [
+    {
+      "id": "read",
+      "lane": "load",
+      "col": 0,
+      "type": "backend",
+      "label": "读取配置",
+      "sublabel": "用户级 + 项目级",
+      "width": 136
+    },
+    {
+      "id": "zod",
+      "lane": "load",
+      "col": 1,
+      "type": "security",
+      "label": "zod schema 校验",
+      "sublabel": "格式即版本（ADR-0013）",
+      "width": 150
+    },
+    {
+      "id": "refine",
+      "lane": "load",
+      "col": 2,
+      "type": "security",
+      "label": "superRefine 交叉校验",
+      "sublabel": "路径锚点 · mcp: 前缀",
+      "width": 160
+    },
+    {
+      "id": "defaults",
+      "lane": "load",
+      "col": 3,
+      "type": "backend",
+      "label": "出厂默认填充",
+      "sublabel": "permission 字段缺省时",
+      "width": 150
+    },
+    {
+      "id": "assemble",
+      "lane": "runtime",
+      "col": 4,
+      "type": "backend",
+      "label": "重建运行时",
+      "sublabel": "assembler / permission",
+      "width": 150
+    },
+    {
+      "id": "broadcast",
+      "lane": "runtime",
+      "col": 5,
+      "type": "messagebus",
+      "label": "config_updated",
+      "sublabel": "两端热刷新",
+      "width": 140
+    },
+    {
+      "id": "tui",
+      "lane": "edit",
+      "col": 1,
+      "type": "frontend",
+      "label": "TUI /config",
+      "sublabel": "权限树 · 整选开关",
+      "width": 140
+    },
+    {
+      "id": "web",
+      "lane": "edit",
+      "col": 2,
+      "type": "frontend",
+      "label": "WebUI 设置",
+      "sublabel": "五区结构化编辑",
+      "width": 140
+    },
+    {
+      "id": "rollback",
+      "lane": "edit",
+      "col": 3,
+      "type": "security",
+      "label": "校验失败回滚",
+      "sublabel": "回 lastGood 快照",
+      "width": 150
+    },
+    {
+      "id": "session",
+      "lane": "edit",
+      "col": 5,
+      "type": "database",
+      "label": "会话提升保留",
+      "sublabel": "snapshot → restore",
+      "width": 150
+    }
+  ],
+  "edges": [
+    {
+      "id": "read-zod",
+      "from": "read",
+      "to": "zod",
+      "label": "JSON 解析",
+      "variant": "emphasis"
+    },
+    {
+      "id": "zod-refine",
+      "from": "zod",
+      "to": "refine",
+      "label": "字段级通过",
+      "variant": "default"
+    },
+    {
+      "id": "refine-defaults",
+      "from": "refine",
+      "to": "defaults",
+      "label": "交叉校验通过",
+      "variant": "emphasis"
+    },
+    {
+      "id": "defaults-assemble",
+      "from": "defaults",
+      "to": "assemble",
+      "label": "配置就绪",
+      "variant": "default"
+    },
+    {
+      "id": "assemble-broadcast",
+      "from": "assemble",
+      "to": "broadcast",
+      "label": "重建完成广播",
+      "variant": "emphasis"
+    },
+    {
+      "id": "tui-refine",
+      "from": "tui",
+      "to": "refine",
+      "label": "保存前同 schema 校验",
+      "variant": "default"
+    },
+    {
+      "id": "web-refine",
+      "from": "web",
+      "to": "refine",
+      "label": "保存前同 schema 校验",
+      "variant": "default"
+    },
+    {
+      "id": "zod-rollback",
+      "from": "zod",
+      "to": "rollback",
+      "label": "schema 不合",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "id": "refine-rollback",
+      "from": "refine",
+      "to": "rollback",
+      "label": "锚点缺失 / 裸服务键",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "id": "rollback-web",
+      "from": "rollback",
+      "to": "web",
+      "label": "错误浮出 · 不落盘",
+      "variant": "security"
+    },
+    {
+      "id": "assemble-session",
+      "from": "assemble",
+      "to": "session",
+      "label": "先 snapshot 后 restore",
+      "variant": "default"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "不兼容立法",
+      "items": [
+        "只认当前格式，无迁移机器；旧格式加载即报错",
+        "加载失败人话报错 + 文档指引，程序不启动（不带病跑）"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "编辑回滚",
+      "items": [
+        "TUI /config 与 WebUI 设置经同一 schema 校验",
+        "失败回 lastGood 快照，不写坏配置"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "热更新不丢授权",
+      "items": [
+        "onConfigChanged 重建前 snapshot、重建后 restore",
+        "用户点过的「始终允许」跨配置编辑保留"
+      ]
+    }
+  ]
+}

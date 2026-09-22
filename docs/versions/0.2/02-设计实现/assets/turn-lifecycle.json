@@ -1,0 +1,272 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "对话轮次状态机（十态）",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "main-path",
+        "label": "主链一轮",
+        "focus": [
+          "idle",
+          "thinking",
+          "responding",
+          "tool_calling",
+          "finished"
+        ],
+        "note": "submit → 流式输出 → 工具决议 → final_answer，落盘与自动标题收尾。"
+      },
+      {
+        "id": "tool-loop",
+        "label": "工具与审批",
+        "focus": [
+          "tool_calling",
+          "waiting_permission",
+          "executing"
+        ],
+        "note": "ask 桶或默认兜底挂起审批，四档决议后执行；tool_done 回决议态继续下一个。"
+      },
+      {
+        "id": "recovery-path",
+        "label": "压缩与恢复",
+        "focus": [
+          "compacting",
+          "error",
+          "cancelled"
+        ],
+        "note": "80% 阈值或 /compact 进入压缩；cancel/error 落终态，reset 复位开新一轮。"
+      }
+    ]
+  },
+  "lanes": [
+    {
+      "id": "main",
+      "label": "对话主链"
+    },
+    {
+      "id": "events",
+      "label": "执行 · 审批 · 压缩"
+    },
+    {
+      "id": "terminal",
+      "label": "终态"
+    }
+  ],
+  "states": [
+    {
+      "id": "idle",
+      "type": "start",
+      "label": "空闲",
+      "sublabel": "等待 submit",
+      "lane": "main",
+      "col": 0,
+      "step": "01",
+      "tag": "入口"
+    },
+    {
+      "id": "thinking",
+      "type": "active",
+      "label": "思考输出中",
+      "sublabel": "reasoning 流式",
+      "lane": "main",
+      "col": 1,
+      "step": "02"
+    },
+    {
+      "id": "responding",
+      "type": "active",
+      "label": "正文输出中",
+      "sublabel": "text_delta 流式",
+      "lane": "main",
+      "col": 2,
+      "step": "03"
+    },
+    {
+      "id": "tool_calling",
+      "type": "active",
+      "label": "工具决议中",
+      "sublabel": "权限分类后执行或挂起",
+      "lane": "main",
+      "col": 3,
+      "step": "04"
+    },
+    {
+      "id": "finished",
+      "type": "success",
+      "label": "轮次完成",
+      "sublabel": "落盘 + 自动标题",
+      "lane": "main",
+      "col": 4,
+      "step": "05",
+      "tag": "final_answer"
+    },
+    {
+      "id": "waiting_permission",
+      "type": "decision",
+      "label": "等待审批",
+      "sublabel": "四档决策挂起",
+      "lane": "events",
+      "col": 0,
+      "tag": "ask / 默认兜底",
+      "width": 104
+    },
+    {
+      "id": "executing",
+      "type": "active",
+      "label": "工具执行中",
+      "sublabel": "signal 可中断 · 回执截断",
+      "lane": "events",
+      "col": 1,
+      "tag": "执行",
+      "width": 104
+    },
+    {
+      "id": "compacting",
+      "type": "active",
+      "label": "压缩中",
+      "sublabel": "全量交接总结替换 context",
+      "lane": "events",
+      "col": 2,
+      "tag": "80% / /compact"
+    },
+    {
+      "id": "error",
+      "type": "failure",
+      "label": "出错",
+      "sublabel": "错误可见 · 不降级",
+      "lane": "terminal",
+      "col": 0,
+      "tag": "error"
+    },
+    {
+      "id": "cancelled",
+      "type": "failure",
+      "label": "已取消",
+      "sublabel": "部分结果保留可继续",
+      "lane": "terminal",
+      "col": 1,
+      "tag": "cancel"
+    }
+  ],
+  "transitions": [
+    {
+      "id": "idle-thinking",
+      "from": "idle",
+      "to": "thinking",
+      "variant": "emphasis"
+    },
+    {
+      "id": "thinking-responding",
+      "from": "thinking",
+      "to": "responding",
+      "variant": "emphasis"
+    },
+    {
+      "id": "responding-toolcalling",
+      "from": "responding",
+      "to": "tool_calling",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "straight"
+    },
+    {
+      "id": "responding-finished",
+      "from": "responding",
+      "to": "finished",
+      "label": "final_answer",
+      "variant": "emphasis",
+      "route": "straight",
+      "via": [
+        [
+          402,
+          90
+        ],
+        [
+          710,
+          90
+        ]
+      ],
+      "fromSide": "top",
+      "toSide": "top"
+    },
+    {
+      "id": "toolcalling-waiting",
+      "from": "tool_calling",
+      "to": "waiting_permission",
+      "label": "ask 挂起",
+      "variant": "security"
+    },
+    {
+      "id": "waiting-executing",
+      "from": "waiting_permission",
+      "to": "executing",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "straight"
+    },
+    {
+      "id": "toolcalling-executing",
+      "from": "tool_calling",
+      "to": "executing",
+      "variant": "emphasis"
+    },
+    {
+      "id": "executing-toolcalling",
+      "from": "executing",
+      "to": "tool_calling",
+      "variant": "default"
+    },
+    {
+      "id": "executing-error",
+      "from": "executing",
+      "to": "error",
+      "label": "error 任意运行态",
+      "variant": "security"
+    },
+    {
+      "id": "executing-cancelled",
+      "from": "executing",
+      "to": "cancelled",
+      "label": "cancel 任意运行态",
+      "variant": "security",
+      "labelDy": 30
+    },
+    {
+      "id": "toolcalling-compacting",
+      "from": "tool_calling",
+      "to": "compacting",
+      "label": "compact_start",
+      "variant": "default"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "迁移立法",
+      "items": [
+        "主链迁移输入：submit → thought_done → tool_calls → final_answer",
+        "15 种输入各有 VALID_FROM 白名单，非法组合原地不动；finished 后下一轮 submit 回 idle"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "工具循环",
+      "items": [
+        "tool_auto 直达执行；ask 或默认兜底挂起审批，四档决议（本次 / 始终 / 范围 / 拒绝）",
+        "tool_done / result_back 后重新请求模型；拒绝与未知工具也发 tool_end（可见失败）"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "恢复语义",
+      "items": [
+        "cancel / error 对任意运行态生效；终态经 reset 或下一轮 submit 回 idle",
+        "compact_done 自动回 thinking / responding（手动回 idle）；压缩产出 ≥ 原文视为未压缩"
+      ]
+    }
+  ]
+}

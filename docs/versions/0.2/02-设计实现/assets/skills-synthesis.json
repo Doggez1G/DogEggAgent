@@ -1,0 +1,247 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "技能系统：三态合成与启停",
+    "locale": "zh-CN",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {
+      "id": "source",
+      "label": "技能来源"
+    },
+    {
+      "id": "synth",
+      "label": "扫描与合成"
+    },
+    {
+      "id": "ops",
+      "label": "用户操作"
+    },
+    {
+      "id": "out",
+      "label": "过滤与注入"
+    }
+  ],
+  "phases": [
+    {
+      "id": "collect",
+      "label": "收集",
+      "fromCol": 0,
+      "toCol": 1
+    },
+    {
+      "id": "merge",
+      "label": "三态合成",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "deliver",
+      "label": "过滤与注入",
+      "fromCol": 4,
+      "toCol": 5
+    }
+  ],
+  "mainPath": [
+    "userDir",
+    "scan",
+    "synthesize",
+    "filter",
+    "prompt"
+  ],
+  "nodes": [
+    {
+      "id": "userDir",
+      "lane": "source",
+      "col": 0,
+      "type": "external",
+      "label": "用户级目录",
+      "sublabel": "~/.dogegg/skills",
+      "width": 136
+    },
+    {
+      "id": "projectDir",
+      "lane": "source",
+      "col": 1,
+      "type": "external",
+      "label": "项目级目录",
+      "sublabel": "<repo>/.dogegg/skills",
+      "width": 136
+    },
+    {
+      "id": "stateFile",
+      "lane": "ops",
+      "col": 2,
+      "type": "database",
+      "label": "旁挂状态文件",
+      "sublabel": ".skills.json · disabled 名单",
+      "width": 150
+    },
+    {
+      "id": "scan",
+      "lane": "synth",
+      "col": 1,
+      "type": "backend",
+      "label": "两级扫描",
+      "sublabel": "SKILL.md frontmatter",
+      "width": 140
+    },
+    {
+      "id": "synthesize",
+      "lane": "synth",
+      "col": 2,
+      "type": "backend",
+      "label": "三态合成",
+      "sublabel": "扫描结果 ∪ 禁用名单",
+      "tag": "enabled / disabled / missing",
+      "width": 150
+    },
+    {
+      "id": "orphan",
+      "lane": "synth",
+      "col": 3,
+      "type": "security",
+      "label": "文件缺失（孤儿）",
+      "sublabel": "记录仍在 · 文件已丢",
+      "width": 140
+    },
+    {
+      "id": "filter",
+      "lane": "out",
+      "col": 4,
+      "type": "backend",
+      "label": "调用过滤",
+      "sublabel": "enabled 且非 missing",
+      "width": 140
+    },
+    {
+      "id": "prompt",
+      "lane": "out",
+      "col": 5,
+      "type": "messagebus",
+      "label": "系统提示注入",
+      "sublabel": "name + description",
+      "width": 150
+    },
+    {
+      "id": "toggle",
+      "lane": "ops",
+      "col": 1,
+      "type": "backend",
+      "label": "启停 toggle",
+      "sublabel": "TUI t 键 / WebUI 开关",
+      "width": 150
+    },
+    {
+      "id": "create",
+      "lane": "ops",
+      "col": 3,
+      "type": "backend",
+      "label": "create 新建",
+      "sublabel": "默认启用 · 清禁用记录",
+      "width": 150
+    }
+  ],
+  "edges": [
+    {
+      "id": "userdir-scan",
+      "from": "userDir",
+      "to": "scan",
+      "label": "用户级技能包",
+      "variant": "default"
+    },
+    {
+      "id": "projectdir-scan",
+      "from": "projectDir",
+      "to": "scan",
+      "label": "项目级技能包",
+      "variant": "default"
+    },
+    {
+      "id": "scan-synthesize",
+      "from": "scan",
+      "to": "synthesize",
+      "label": "目录扫描结果",
+      "variant": "emphasis"
+    },
+    {
+      "id": "statefile-synthesize",
+      "from": "stateFile",
+      "to": "synthesize",
+      "label": "disabled 名单",
+      "variant": "emphasis"
+    },
+    {
+      "id": "synthesize-orphan",
+      "from": "synthesize",
+      "to": "orphan",
+      "label": "已记录但文件丢失",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "id": "synthesize-filter",
+      "from": "synthesize",
+      "to": "filter",
+      "label": "三态清单",
+      "variant": "emphasis"
+    },
+    {
+      "id": "filter-prompt",
+      "from": "filter",
+      "to": "prompt",
+      "label": "触发时才读全文",
+      "variant": "emphasis"
+    },
+    {
+      "id": "toggle-statefile",
+      "from": "toggle",
+      "to": "stateFile",
+      "label": "写 disabled 列表",
+      "variant": "default"
+    },
+    {
+      "id": "create-statefile",
+      "from": "create",
+      "to": "stateFile",
+      "label": "移除禁用记录",
+      "variant": "default"
+    },
+    {
+      "id": "orphan-statefile",
+      "from": "orphan",
+      "to": "stateFile",
+      "label": "remove 幂等清理",
+      "variant": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "三态立法",
+      "items": [
+        "无记录 = 启用：缺失状态文件即全启用，损坏自愈为空",
+        "孤儿 = 已记录但文件丢失：列表显式呈现，remove 可清理"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "渐进披露",
+      "items": [
+        "系统提示只注入 name + description 省窗口",
+        "触发技能才读 SKILL.md 全文，$ARGUMENTS 渲染参数"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "过滤语义",
+      "items": [
+        "forInvocation / promptSection 只放行 enabled 且非 missing",
+        "toggle 缺省翻转；create 新技能自动移除禁用记录"
+      ]
+    }
+  ]
+}
