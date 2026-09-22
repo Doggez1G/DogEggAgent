@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "viewBox": [1020, 500],
+    "title": "DogEggAgent 四包架构",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "views": [
+      { "id": "chat-path", "label": "对话主链路", "focus": ["tui", "bridge", "agent", "llm"], "note": "一条用户消息经通道进入 agent，agent 调用 LLM 完成轮次。" },
+      { "id": "webui-path", "label": "WebUI 链路", "focus": ["webui", "server", "bridge", "agent"], "note": "浏览器经 SSE/POST 与 server 通信，server 复用同一 agent。" },
+      { "id": "tools-and-state", "label": "工具与持久化", "focus": ["agent", "mcpservers", "fs"], "note": "工具执行、MCP 外部服务与会话/配置的持久化。" }
+    ]
+  },
+  "components": [
+    { "id": "tui", "type": "frontend", "label": "TUI", "sublabel": "Ink 终端界面", "pos": [40, 150], "size": [130, 64] },
+    { "id": "webui", "type": "frontend", "label": "WebUI", "sublabel": "React 浏览器界面", "pos": [40, 400], "size": [130, 64] },
+    { "id": "bridge", "type": "messagebus", "label": "bridge", "sublabel": "消息契约与通道", "pos": [250, 150], "size": [130, 64], "tag": "zod 校验" },
+    { "id": "server", "type": "backend", "label": "server", "sublabel": "HTTP + SSE 托管", "pos": [250, 400], "size": [130, 64] },
+    { "id": "agent", "type": "backend", "label": "agent", "sublabel": "对话/工具/权限/skills/MCP", "pos": [470, 270], "size": [150, 72] },
+    { "id": "llm", "type": "external", "label": "LLM 端点", "sublabel": "OpenAI 兼容", "pos": [730, 130], "size": [140, 60] },
+    { "id": "mcpservers", "type": "external", "label": "MCP 服务器", "sublabel": "stdio / http", "pos": [730, 270], "size": [140, 60] },
+    { "id": "fs", "type": "database", "label": "本地文件系统", "sublabel": "会话/配置/skills", "pos": [730, 410], "size": [140, 60] }
+  ],
+  "connections": [
+    { "id": "tui-bridge", "from": "tui", "to": "bridge", "label": "InMemory 同进程" },
+    { "id": "webui-server", "from": "webui", "to": "server", "label": "SSE + POST", "variant": "emphasis" },
+    { "id": "server-bridge", "from": "server", "to": "bridge", "label": "AgentPort" },
+    { "id": "bridge-agent", "from": "bridge", "to": "agent", "label": "契约消息" },
+    { "id": "agent-llm", "from": "agent", "to": "llm" },
+    { "id": "agent-mcp", "from": "agent", "to": "mcpservers" },
+    { "id": "agent-fs", "from": "agent", "to": "fs", "label": "读写", "variant": "dashed", "fromSide": "bottom", "toSide": "left" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "组合根", "items": ["bin/dogegg.ts 唯一装配点", "TUI 走 InMemoryChannel，-web 走 SseChannel"] },
+    { "dot": "violet", "title": "契约立法", "items": ["bridge/src/contract 定义全部消息与 zod 校验", "两端只依赖 bridge，互相不可见"] },
+    { "dot": "emerald", "title": "agent 域", "items": ["turn 对话循环 / tools 注册表 / permission 引擎", "skills 与 MCP 经同一注册表暴露给模型"] }
+  ]
+}

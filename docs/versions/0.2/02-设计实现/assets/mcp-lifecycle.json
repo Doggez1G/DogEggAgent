@@ -1,0 +1,222 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "MCP 服务器连接生命周期",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "main-path",
+        "label": "正常生命周期",
+        "focus": [
+          "configured",
+          "starting",
+          "running",
+          "rebuild"
+        ],
+        "note": "配置生效后连接建立，工具注册进模型清单；配置变化走 diff 重建。"
+      },
+      {
+        "id": "failure-path",
+        "label": "失败与恢复",
+        "focus": [
+          "starting",
+          "error",
+          "running"
+        ],
+        "note": "启动失败原因人话可见；修正配置后回环重试。"
+      },
+      {
+        "id": "terminal-path",
+        "label": "终态",
+        "focus": [
+          "rebuild",
+          "stopped"
+        ],
+        "note": "停用保留配置随时恢复；删除 = 停用 + 配置移除，经同一 diff 路径。"
+      }
+    ],
+    "viewBox": [
+      1000,
+      700
+    ]
+  },
+  "lanes": [
+    {
+      "id": "main",
+      "label": "生命周期"
+    },
+    {
+      "id": "recovery",
+      "label": "失败恢复"
+    },
+    {
+      "id": "terminal",
+      "label": "终态"
+    }
+  ],
+  "states": [
+    {
+      "id": "configured",
+      "type": "start",
+      "label": "已配置",
+      "sublabel": "config.json / .mcp.json",
+      "lane": "main",
+      "col": 0,
+      "step": "01",
+      "tag": "入口"
+    },
+    {
+      "id": "starting",
+      "type": "active",
+      "label": "启动中",
+      "sublabel": "SDK connect",
+      "lane": "main",
+      "col": 1,
+      "step": "02",
+      "tag": "starting"
+    },
+    {
+      "id": "running",
+      "type": "success",
+      "label": "运行中",
+      "sublabel": "工具已注册",
+      "lane": "main",
+      "col": 2,
+      "step": "03",
+      "tag": "running"
+    },
+    {
+      "id": "rebuild",
+      "type": "decision",
+      "label": "配置变化",
+      "sublabel": "diff 重建（幂等）",
+      "lane": "main",
+      "col": 3,
+      "step": "04",
+      "tag": "rebuild"
+    },
+    {
+      "id": "error",
+      "type": "failure",
+      "label": "出错",
+      "sublabel": "原因人话可见",
+      "lane": "recovery",
+      "col": 0,
+      "tag": "单服务隔离",
+      "yOffset": 78
+    },
+    {
+      "id": "stopped",
+      "type": "neutral",
+      "label": "已停用 / 已删除",
+      "sublabel": "删除 = 停用 + 配置移除",
+      "lane": "terminal",
+      "col": 1,
+      "tag": "终态"
+    }
+  ],
+  "transitions": [
+    {
+      "id": "configured-start",
+      "from": "configured",
+      "to": "starting",
+      "variant": "emphasis"
+    },
+    {
+      "id": "start-running",
+      "from": "starting",
+      "to": "running",
+      "variant": "emphasis"
+    },
+    {
+      "id": "running-rebuild",
+      "from": "running",
+      "to": "rebuild",
+      "variant": "default",
+      "route": "drop"
+    },
+    {
+      "id": "rebuild-running",
+      "from": "rebuild",
+      "to": "running",
+      "variant": "default"
+    },
+    {
+      "id": "start-error",
+      "from": "starting",
+      "to": "error",
+      "variant": "security",
+      "fromSide": "left",
+      "toSide": "left",
+      "via": [
+        [
+          320,
+          157
+        ],
+        [
+          320,
+          385
+        ]
+      ],
+      "route": "straight"
+    },
+    {
+      "id": "error-start",
+      "from": "error",
+      "to": "starting",
+      "variant": "default",
+      "label": "修正后重试",
+      "fromSide": "left",
+      "toSide": "top",
+      "via": [
+        [
+          20,
+          385
+        ],
+        [
+          20,
+          80
+        ],
+        [
+          248,
+          80
+        ]
+      ]
+    },
+    {
+      "id": "rebuild-stop",
+      "from": "rebuild",
+      "to": "stopped",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "正常路径",
+      "items": [
+        "配置生效 → SDK connect → 工具注册进模型清单",
+        "配置变化走 diff 重建，无变化幂等空转"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "失败与隔离",
+      "items": [
+        "启动/注册失败单服务落 error 可见，不拖垮其它服务",
+        "注册标签撞车绝不静默覆盖"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "删除语义",
+      "items": [
+        "删除 = 停用 + 配置移除，经同一 diff 路径到终态"
+      ]
+    }
+  ]
+}

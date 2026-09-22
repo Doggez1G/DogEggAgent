@@ -1,0 +1,45 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "权限判定流程",
+    "locale": "zh-CN",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    { "id": "model", "label": "调用发起（模型）" },
+    { "id": "engine", "label": "权限引擎", "variant": "exception" },
+    { "id": "gateway", "label": "审批网关" },
+    { "id": "executor", "label": "执行与回填" }
+  ],
+  "phases": [
+    { "id": "invoke", "label": "发起", "fromCol": 0, "toCol": 1 },
+    { "id": "classify", "label": "逐桶求值", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "outcome", "label": "执行 / 兜底", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "mainPath": ["invoke", "engine", "allow", "execute", "result"],
+  "nodes": [
+    { "id": "invoke", "lane": "model", "col": 0, "type": "external", "label": "工具调用", "sublabel": "tool_calls + 参数", "width": 132 },
+    { "id": "engine", "lane": "engine", "col": 2, "type": "backend", "label": "权限引擎", "sublabel": "classifyPermission", "tag": "逐桶求值", "width": 140 },
+    { "id": "deny", "lane": "gateway", "col": 4, "type": "security", "label": "拒绝", "sublabel": "reject 命中", "width": 132 },
+    { "id": "approval", "lane": "gateway", "col": 3, "type": "security", "label": "审批弹层", "sublabel": "ask 命中", "tag": "四档决策", "width": 132 },
+    { "id": "allow", "lane": "engine", "col": 3, "type": "backend", "label": "放行", "sublabel": "allow / 提升命中", "width": 132 },
+    { "id": "execute", "lane": "executor", "col": 4, "type": "backend", "label": "执行工具", "sublabel": "ctx.abort 可取消", "width": 132 },
+    { "id": "result", "lane": "executor", "col": 5, "type": "messagebus", "label": "结果回填", "sublabel": "模型继续循环", "width": 132 }
+  ],
+  "edges": [
+    { "id": "invoke-engine", "from": "invoke", "to": "engine", "label": "realpath 归一后判定", "variant": "emphasis" },
+    { "id": "engine-deny", "from": "engine", "to": "deny", "label": "reject 命中", "variant": "security", "role": "error" },
+    { "id": "engine-approval", "from": "engine", "to": "approval", "label": "ask 命中 / 全部未命中", "variant": "security" },
+    { "id": "engine-allow", "from": "engine", "to": "allow", "label": "allow / 提升命中", "variant": "emphasis" },
+            { "id": "approval-allow", "from": "approval", "to": "allow", "label": "本次 / 始终 / 范围", "variant": "emphasis" },
+    { "id": "approval-deny", "from": "approval", "to": "invoke", "label": "拒绝（原因回模型）", "variant": "security", "role": "error", "fromSide": "left", "route": "return-left" },
+    { "id": "allow-execute", "from": "allow", "to": "execute", "variant": "default" },
+    { "id": "execute-result", "from": "execute", "to": "result", "label": "content / error", "variant": "default" }
+  ],
+  "cards": [
+    { "dot": "rose", "title": "优先级立法", "items": ["reject > 会话提升 > ask > allow > 默认 ask", "ask 整组 + allow 个别不成立（ask 命中即问）"] },
+    { "dot": "violet", "title": "两类键", "items": ["内建工具名：主参数模式（path 分段 glob / command 平文本）", "mcp:<服务名>：内部工具名勾选/通配，按注册期身份匹配"] },
+    { "dot": "emerald", "title": "安全兜底", "items": ["未命中任何规则 → 默认 ask（不可关闭）", "路径按 realpath 真实位置判定，防符号链接逃逸"] }
+  ]
+}
