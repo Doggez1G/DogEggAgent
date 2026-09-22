@@ -28,9 +28,12 @@ function loadConfigOrExit(): ReturnType<ConfigStore['load']> {
       : String(err)
     console.error(`配置加载失败（文件：${source ?? '未找到'}）：${issues}`)
     console.error('恢复方式：把上述字段改写为当前格式 { "whole": boolean, "patterns": string[] }；或整段删除 "permission" 字段回退出厂默认，再经 /config 重新配置。')
-    const doc = [join(import.meta.dirname, '../docs/config.md'), join(process.cwd(), 'docs/config.md')]
-      .find((p) => existsSync(p))
-    console.error(`配置格式说明：${doc ?? 'docs/config.md（DogEggAgent 仓库内；在线版尚未发布）'}`)
+    const doc = [
+      join(import.meta.dirname, '../docs/versions/0.2/03-用户手册/01-配置指南.md'),
+      join(process.cwd(), 'docs/versions/0.2/03-用户手册/01-配置指南.md'),
+      join(process.cwd(), 'docs/config.md'),
+    ].find((candidate: string) => existsSync(candidate))
+    console.error(`配置格式说明：${doc ?? 'docs/versions/0.2/03-用户手册/01-配置指南.md（仓库内；在线版尚未发布）'}`)
     process.exit(1)
   }
 }

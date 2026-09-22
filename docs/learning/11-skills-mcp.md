@@ -1,5 +1,7 @@
 # 11：Skills 与 MCP（扩展能力的两大支柱）
 
+> ⚠️ **存档**：本章为 v0.1 时代内容，部分已过时。当前版本学习指南见 [docs/versions/0.2/04-学习指南](../versions/0.2/04-学习指南/README.md)。
+
 > 对应 spec：`docs/superpowers/specs/2026-09-18-skills-mcp-design.md`（含立法与测试策略）。
 
 ## 11.1 Skills——自有目录体系 + Agent Skills 格式

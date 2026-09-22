@@ -1,5 +1,7 @@
 # 05 · session：工作集、持久化与生命周期
 
+> ⚠️ **存档**：本章为 v0.1 时代内容，部分已过时。当前版本学习指南见 [docs/versions/0.2/04-学习指南](../versions/0.2/04-学习指南/README.md)。
+
 > session/ 回答三个问题：一轮对话正在改动的数据放哪（conversation）、怎么存到磁盘（store）、
 > 新建/恢复/删除的流程是什么（manager）。
 

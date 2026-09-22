@@ -42,7 +42,8 @@ DogEggAgent/
 - UI 重构（已实施）：`docs/superpowers/specs/2026-09-07-ui-restructure-design.md`（features/ 纵切、ThemeRegistry、架构边界立法）
 - 扩展能力（已实施）：`docs/superpowers/specs/2026-09-18-skills-mcp-design.md`（Skills 自有目录体系与 CRUD 面板、MCP client 官方 SDK 接入、/skills /mcp /config 统一入口）
 - 语义决策记录：`docs/adr/`（0001–0013——关键语义决策存档，如 0010 权限匹配语义、0011 压缩 = 全量交接总结、0012 MCP 权限服务键按身份匹配 + 注册表合规关口、0013 权限桶值结构化 v3 + 配置演进不兼容原则）
-- 实现详解系列：`docs/learning/`（01-10 章，与当前代码同步的逐模块讲解）
+- 版本化文档 v0.2（当前）：`docs/versions/0.2/`——需求分析（9 功能域）/ 设计实现（12 篇 + archify 交互图）/ 用户手册 / 学习指南（13 章）
+- 实现详解系列：`docs/learning/`（v0.1 时代**已归档**，部分过时——以 `docs/versions/0.2/04-学习指南/` 为准）
 - 实施计划：`docs/plans/`（按日期排列的各批次实施计划）
 
 实现任何功能前先读对应章节；下文规范若与之冲突，以设计文档为准。

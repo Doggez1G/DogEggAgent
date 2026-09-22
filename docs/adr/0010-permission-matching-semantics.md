@@ -35,4 +35,4 @@
 
 - `bridge/src/contract/{config,permission,glob}.ts`：schema 作用域校验 + 双匹配函数（纯派生，三端共用）；
 - `agent/src/permission/manager.ts`：锚点归一化（含 `~/` 展开），cwd 由 ToolExecutor 传入；
-- 旧扁平条目配置加载期自动归一为 v2 形态；非法模式给出人话报错（组合根捕获 zod 错误）。
+- 旧扁平条目配置加载期自动归一为 v2 形态（**已被 ADR-0013 撤销：兼容归一层已删除，旧格式直接报错**）；非法模式给出人话报错（组合根捕获 zod 错误）。
