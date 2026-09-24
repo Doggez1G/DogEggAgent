@@ -76,6 +76,10 @@ export function createSseUiPort(onConnectionChange?: (state: ConnectionState) =>
         body: JSON.stringify(msg),
       })
       if (!res.ok) {
+        // 服务端 400 = 消息被 zod 校验拒绝（契约漂移信号）。多数调用点不接 Promise，
+        // 不在这里留痕就只剩浏览器控制台的 unhandled rejection——排障线索必须落地。
+        const detail = await res.text().catch(() => '')
+        console.warn('[dogegg] 上行消息被服务端拒绝', res.status, msg.type, detail)
         throw new Error(`POST failed: ${res.status}`)
       }
     },

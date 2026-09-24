@@ -5,6 +5,9 @@ import { mcpServerSchema } from './config'
 // UiToAgentMessage 的 zod schema——用于 POST /api/message 的运行时校验。
 // 与 ui-to-agent.ts 的类型定义一一对应，只是加了运行时验证能力。
 // 前端发来的 JSON body 必须通过此 schema 校验，否则返回 400。
+// 【漂移防线】类型与 schema 的成员对照没有编译期强制（ZodType<Union> 只约束输出 assignable，
+// schema 漏变体不报错）——bridge/test/ui-to-agent-schema.test.ts 用 Record<消息类型联合, 样本>
+// 穷举守卫：新增消息类型不补样本直接编译失败，样本不过 schema 测试失败。两者必须同步改。
 const permissionDecisionSchema = z.enum(['allow_once', 'allow_always', 'allow_always_scoped', 'reject'])
 
 export const uiToAgentMessageSchema: z.ZodType<UiToAgentMessage> = z.discriminatedUnion('type', [
@@ -29,11 +32,12 @@ export const uiToAgentMessageSchema: z.ZodType<UiToAgentMessage> = z.discriminat
   z.object({ type: z.literal('skills_request') }),
   z.object({
     type: z.literal('skills_manage'),
-    action: z.enum(['create', 'update', 'delete', 'get']),
+    action: z.enum(['create', 'update', 'delete', 'get', 'toggle']),
     scope: z.enum(['project', 'user']),
     name: z.string(),
     description: z.string().optional(),
     content: z.string().optional(),
+    enabled: z.boolean().optional(),
   }),
   z.object({ type: z.literal('invoke_skill'), name: z.string(), args: z.string() }),
   z.object({ type: z.literal('mcp_request') }),
