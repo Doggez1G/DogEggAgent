@@ -120,8 +120,8 @@ export function McpSection({ port }: { port: UiPort }) {
         )}
         {formError && <div style={{ color: 'var(--color-danger)', fontSize: 12 }}>{formError}</div>}
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className={styles.navItem} onClick={() => save(f)}>保存（保存即重启该 server）</button>
-          <button className={styles.navItem} onClick={() => { setEditing(null); setFormError('') }}>取消</button>
+          <button className={styles.actionBtn} onClick={() => save(f)}>保存（保存即重启该 server）</button>
+          <button className={styles.actionBtn} onClick={() => { setEditing(null); setFormError('') }}>取消</button>
         </div>
       </div>
     )
@@ -150,7 +150,7 @@ export function McpSection({ port }: { port: UiPort }) {
                   {s.error && <div className={styles.mcpCardError} title={s.error}>{s.error}</div>}
                 </div>
                 <div className={styles.mcpCardActions}>
-                  <button className={styles.navItem} onClick={() => port.post({ type: 'mcp_manage', action: 'toggle', scope: s.scope, name: s.name, enabled: !s.enabled })}>{s.enabled ? '停用' : '启用'}</button>
+                  <button className={styles.actionBtn} onClick={() => port.post({ type: 'mcp_manage', action: 'toggle', scope: s.scope, name: s.name, enabled: !s.enabled })}>{s.enabled ? '停用' : '启用'}</button>
                   <button className={styles.permChipX} title="编辑" onClick={() => { setFormError(''); setEditing(serverToForm(s)) }}><Pencil size={12} /></button>
                   <button className={styles.permChipX} title="删除" onClick={() => setPendingDelete(s)}><Trash2 size={12} /></button>
                 </div>
@@ -163,13 +163,13 @@ export function McpSection({ port }: { port: UiPort }) {
       {pendingDelete && (
         <div className={styles.providerItem} style={{ borderColor: 'var(--color-danger)' }}>
           <div style={{ flex: 1 }}>确认删除 server「{pendingDelete.name}」（{pendingDelete.scope}）？配置移除、进程停止。</div>
-          <button className={styles.navItem} onClick={() => { port.post({ type: 'mcp_manage', action: 'delete', scope: pendingDelete.scope, name: pendingDelete.name }); setPendingDelete(null) }}>确认</button>
-          <button className={styles.navItem} onClick={() => setPendingDelete(null)}>取消</button>
+          <button className={styles.actionBtn} onClick={() => { port.post({ type: 'mcp_manage', action: 'delete', scope: pendingDelete.scope, name: pendingDelete.name }); setPendingDelete(null) }}>确认</button>
+          <button className={styles.actionBtn} onClick={() => setPendingDelete(null)}>取消</button>
         </div>
       )}
 
       {!editing && (
-        <button className={styles.navItem} onClick={() => { setFormError(''); setEditing(emptyForm('global')) }}><Plus size={14} /> 新建 MCP server</button>
+        <button className={styles.actionBtn} onClick={() => { setFormError(''); setEditing(emptyForm('global')) }}><Plus size={14} /> 新建 MCP server</button>
       )}
     </div>
   )

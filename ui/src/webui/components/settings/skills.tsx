@@ -79,8 +79,8 @@ export function SkillsSection({ port }: { port: UiPort }) {
           spellCheck={false}
         />
         <div className={styles.sectionTitle}>
-          <button className={styles.navItem} onClick={saveEdit}>保存</button>
-          <button className={styles.navItem} onClick={() => setEditing(null)}>取消</button>
+          <button className={styles.actionBtn} onClick={saveEdit}>保存</button>
+          <button className={styles.actionBtn} onClick={() => setEditing(null)}>取消</button>
         </div>
       </div>
     )
@@ -109,9 +109,9 @@ export function SkillsSection({ port }: { port: UiPort }) {
                   </div>
                 </div>
                 {s.missing ? (
-                  <button className={styles.navItem} title="移除这条孤儿记录" onClick={() => port.post({ type: 'skills_manage', action: 'toggle', scope: s.scope, name: s.name, enabled: true })}>清理</button>
+                  <button className={styles.actionBtn} title="移除这条孤儿记录" onClick={() => port.post({ type: 'skills_manage', action: 'toggle', scope: s.scope, name: s.name, enabled: true })}>清理</button>
                 ) : (
-                  <button className={styles.navItem} onClick={() => port.post({ type: 'skills_manage', action: 'toggle', scope: s.scope, name: s.name, enabled: !s.enabled })}>{s.enabled ? '停用' : '启用'}</button>
+                  <button className={styles.actionBtn} onClick={() => port.post({ type: 'skills_manage', action: 'toggle', scope: s.scope, name: s.name, enabled: !s.enabled })}>{s.enabled ? '停用' : '启用'}</button>
                 )}
                 {!s.missing && <button className={styles.permChipX} title="编辑" onClick={() => requestEdit(s)}><Pencil size={12} /></button>}
                 <button className={styles.permChipX} title="删除" onClick={() => setPendingDelete(s)}><Trash2 size={12} /></button>
@@ -124,13 +124,13 @@ export function SkillsSection({ port }: { port: UiPort }) {
       {pendingDelete && (
         <div className={styles.providerItem} style={{ borderColor: 'var(--color-danger)' }}>
           <div style={{ flex: 1 }}>{pendingDelete.missing ? `清理 skill「${pendingDelete.name}」（${pendingDelete.scope}）的残留记录？目录已不存在，仅移除停用名单。` : `确认删除 skill「${pendingDelete.name}」（${pendingDelete.scope}）？目录整体删除，不可恢复。`}</div>
-          <button className={styles.navItem} onClick={() => { port.post({ type: 'skills_manage', action: 'delete', scope: pendingDelete.scope, name: pendingDelete.name }); setPendingDelete(null) }}>确认</button>
-          <button className={styles.navItem} onClick={() => setPendingDelete(null)}>取消</button>
+          <button className={styles.actionBtn} onClick={() => { port.post({ type: 'skills_manage', action: 'delete', scope: pendingDelete.scope, name: pendingDelete.name }); setPendingDelete(null) }}>确认</button>
+          <button className={styles.actionBtn} onClick={() => setPendingDelete(null)}>取消</button>
         </div>
       )}
 
       {!creating && (
-        <button className={styles.navItem} onClick={() => setCreating(true)}><Plus size={14} /> 新建 skill</button>
+        <button className={styles.actionBtn} onClick={() => setCreating(true)}><Plus size={14} /> 新建 skill</button>
       )}
       {creating && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -141,8 +141,8 @@ export function SkillsSection({ port }: { port: UiPort }) {
           <input className={styles.input} placeholder="名称（小写字母/数字/连字符，即 /命令名）" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <input className={styles.input} placeholder="一句话描述（模型与面板靠它判断何时使用）" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className={styles.navItem} onClick={create}>创建（生成骨架 SKILL.md）</button>
-            <button className={styles.navItem} onClick={() => setCreating(false)}>取消</button>
+            <button className={styles.actionBtn} onClick={create}>创建（生成骨架 SKILL.md）</button>
+            <button className={styles.actionBtn} onClick={() => setCreating(false)}>取消</button>
           </div>
         </div>
       )}

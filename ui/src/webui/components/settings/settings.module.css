@@ -799,6 +799,32 @@
   margin-bottom: var(--sp-2);
 }
 
+/* ── 行内动作按钮（启停 / 确认 / 取消 / 新建等文字按钮）──
+   立法：不得复用 .navItem——那是侧边导航类（width:100%），放进 flex 行会以整行为
+   basis 参与 flex 收缩，被压到近零宽后文字从盒内溢出、叠到标题上。行内动作按钮
+   必须宽度自适应内容（white-space:nowrap）且不参与收缩（flex-shrink:0）。 */
+.actionBtn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  white-space: nowrap;
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-subtext);
+  font-size: var(--fs-xs);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background-color var(--t-fast) ease, color var(--t-fast) ease, border-color var(--t-fast) ease;
+}
+.actionBtn:hover {
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+  border-color: var(--color-accent);
+}
+
 /* ── MCP server 卡片：状态点 + 名称/徽章行 + 元信息行 + 操作列 ──
    名称与状态徽章是独立 chip（不混进标题文本流），元信息独占一行——
    避免「stdio · 运行中 · N 工具」这类长串在窄容器里逐字竖排折行。 */
