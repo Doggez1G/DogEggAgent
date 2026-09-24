@@ -4,8 +4,12 @@ import type { Router } from './router'
 import { StaticFiles } from './static-files'
 
 // HTTP server：创建 node:http server，请求先匹配 API 路由，未匹配则 serve 静态文件。
-// 默认绑定 127.0.0.1（仅本地访问），可通过 HOST 环境变量覆盖（如部署到内网）。
-// CORS 限制为 localhost——但 CORS 只挡得住「浏览器愿意检查的跨站读」，见下方立法注释。
+// 默认绑定 127.0.0.1（仅本地访问）。HOST 仅支持回环地址（127.0.0.1/[::1]）——非回环部署
+// 不做承诺：下方来源校验立法要求服务端自证请求来自本机，非回环 Host 的 /api/* 一律 403
+//（fail-closed 保留）。理由：CORS 挡不住 no-cors fetch / 表单 POST 的写入，也挡不住
+// DNS rebinding（攻击域名解析到 127.0.0.1，请求看似同源实则外来）；一旦放宽 host 白名单
+//「部署到内网」，API（驱动 shell 执行、读任意文件）即暴露给内网任意主机——这不是本 server
+// 支持的场景。CORS 限制为 localhost——但 CORS 只挡得住「浏览器愿意检查的跨站读」，见下方立法注释。
 // staticDir 为 null 时（开发模式），非 API 路径返回 404——前端由 Vite dev server 代理。
 // staticDir 非 null 时（生产模式），非 API 路径 serve 静态文件。
 export class HttpServer {

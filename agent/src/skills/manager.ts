@@ -30,6 +30,9 @@ export interface SkillInfo {
 // 目录名 / 命令名立法：小写字母数字连字符，字母开头。
 export const SKILL_NAME_RE = /^[a-z0-9][a-z0-9-]*$/
 
+// 系统提示段条数上限（见 promptSection 立法注释）：超过只列前 N 条 + 溢出提示行。
+export const PROMPT_SECTION_LIMIT = 60
+
 export class SkillsManager {
   private projectDir: string | undefined
   // 清单缓存：系统提示段与 token 估算在每次状态变化时都会触发 list()——
@@ -152,7 +155,10 @@ export class SkillsManager {
   }
 
   // 改：整文件替换 SKILL.md（TUI $EDITOR / WebUI 编辑弹框保存的落点）。
+  // content 为空串直接拒绝（防清空立法）：编辑弹框把全文清空后保存，会把 SKILL.md 写成空文件，
+  // skill 从此不可调用且 description 丢失——用户十有八九是误操作；如真要清空应直接删除该 skill。
   update(scope: 'project' | 'user', name: string, content: string): void {
+    if (!content) throw new Error('SKILL.md 内容不能为空——如需清空请直接删除该 skill')
     this.assertInside(scope, name)
     const path = join(this.dirFor(scope)!, name, 'SKILL.md')
     if (!existsSync(path)) throw new Error(`skill 不存在：${name}（${scope}）`)
@@ -186,20 +192,31 @@ export class SkillsManager {
     const { body } = parseSkillMd(readFileSync(found.path, 'utf8'))
     if (!body) throw new Error(`skill ${name} 的 SKILL.md 正文为空`)
     const trimmedArgs = args.trim()
-    if (body.includes('$ARGUMENTS')) return body.replaceAll('$ARGUMENTS', trimmedArgs)
+    if (body.includes('$ARGUMENTS')) {
+      // 函数式替换（replaceAll 的 replacer 形态）：参数文本里的 $$ / $& / $' 等特殊序列
+      // 在字符串形态的替换值里会被重新解释改写（如 $$ → $），注入的用户参数被篡改——
+      // 函数式返回值按字面插入，不做二次解释。
+      return body.replaceAll('$ARGUMENTS', () => trimmedArgs)
+    }
     return trimmedArgs ? `${body}\n\n用户参数：${trimmedArgs}` : body
   }
 
   // 系统提示注入段（渐进披露）：只列可用条目（停用/缺失不广告）；无 skill 返回空串（不注入，省上下文）。
+  // 条数上限（PROMPT_SECTION_LIMIT）：技能段直接计入 system prompt 占用——大量技能时无上限注入
+  // 会挤占上下文窗口，且该段是固定开销，自动压缩永远追不平（压缩掉对话省不回清单段）。
+  // 超限只列前 60 条并指路 /skills 完整清单（面板/命令联想仍可见全部）。
   promptSection(): string {
     const skills = this.list().filter((s) => s.enabled && !s.missing)
     if (skills.length === 0) return ''
-    const lines = skills.map((s) => `- ${s.name}：${s.description || '（无描述）'}（${s.path}）`).join('\n')
+    const shown = skills.slice(0, PROMPT_SECTION_LIMIT)
+    const rest = skills.length - shown.length
+    const lines = shown.map((s) => `- ${s.name}：${s.description || '（无描述）'}（${s.path}）`).join('\n')
     return [
       '',
       '## 可用 Skills',
       '以下是可用的 skill 指令文件。当用户请求与某个 skill 的描述相关时，先用 read_file 读取其 SKILL.md 获取完整指令再执行。',
       lines,
+      ...(rest > 0 ? [`…另有 ${rest} 个 skill 未列出（完整清单见 /skills）`] : []),
     ].join('\n')
   }
 

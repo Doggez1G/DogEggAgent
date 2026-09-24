@@ -96,8 +96,17 @@ export class AgentLoop {
         // 压缩 = 把整个 context 交给模型总结、替换为一条摘要消息（无保留尾巴、无淘汰、无硬丢弃——
         // 诚实失败：压缩失败异常上抛，轮次以 error 收尾，由用户决定 /compact 重试或 /new）。
         // 压缩期间 emit state → compacting 让 UI 可感知，完成后回到 thinking/responding（继续本轮请求）。
+        //
+        // 压缩护栏（每迭代至多一次）：非劣原则保证压缩产出收敛，但极小 windowTokens 下固定开销
+        // （system prompt + 工具 schema）本身就恒超阈值——每迭代都会进压缩分支，若未来迭代体内
+        // 出现第二个压缩点（如工具执行后再查一次），就会退化成同迭代多次全量压缩、成倍烧 summarize
+        // 的 token。迭代内加 compactedThisIteration 标志把上界锁死在「每迭代至多压缩一次」：
+        // 一次压缩加本轮新消息若仍超阈值，说明已到窗口物理下限，同迭代再压无增益（该由用户
+        // /new 或调大 contextWindow），每迭代一次即可自愈上下文、又不放大固定开销。
+        let compactedThisIteration = false
         const used = estimateContextTokens(turn.systemPrompt, context, this.services.registry.schemas())
-        if (used > turn.windowTokens * COMPACTION_THRESHOLD) {
+        if (!compactedThisIteration && used > turn.windowTokens * COMPACTION_THRESHOLD) {
+          compactedThisIteration = true
           trans({ kind: 'compact_start' })
           const result = await this.services.compactor.compact({
             context,
@@ -159,18 +168,21 @@ export class AgentLoop {
           turnUsage.completionTokens += result.usage.completionTokens
         }
         const assistant = result.message
-        // 每轮 LLM 调用都 push 一个 thinking 条目——保持与 assistant 消息数一一对应。
+        // 思考内容 push 放在 assistant 角色断言之后（顺序立法）：thinking 与 assistant 消息必须
+        // 一一对应——若角色断言失败抛错，thinking 已多 push 一条而 history 无对应 assistant，
+        // resume 后 rebuildBlocksFromHistory 按序消费会让思考块张冠李戴（对齐缺口）。
         // 只在 turn.reasoning（当前模型开启了思考）时才记录实际 reasoning 内容；
         // 关闭思考时即使模型返回了 reasoning 也存空字符串——不记录、不显示。
         // 空字符串条目在 rebuildBlocksFromHistory 中被跳过（不显示思考气泡）。
-        thinking.push({ text: turn.reasoning ? (result.reasoning ?? '') : '' })
-
         if (assistant.role !== 'assistant') throw new Error('模型未返回 assistant 消息')
+        thinking.push({ text: turn.reasoning ? (result.reasoning ?? '') : '' })
         // 推理模型只返回 tool_calls 而无 text_delta 时，此处补上 thinking → responding 的收尾。
         if (state === 'thinking') state = trans({ kind: 'thought_done' })
         context.push(assistant)
         newMessages.push(assistant)
         this.services.emit({ type: 'message', role: 'assistant', id: newId() })
+        // 轮次进度回调：assistant 消息已落位——轮中检查点/标题/实时估算的触发点（接收方只读）。
+        turn.onProgress?.({ context, newMessages, thinking, usage: turnUsage })
 
         const calls = assistant.tool_calls ?? []
         if (calls.length === 0) {
@@ -200,6 +212,8 @@ export class AgentLoop {
           context.push(step.toolMessage)
           newMessages.push(step.toolMessage)
           state = trans(step.transitionInput)
+          // 轮次进度回调：工具 step 已完成回填——长工具任务期间每个 step 都推进检查点进度。
+          turn.onProgress?.({ context, newMessages, thinking, usage: turnUsage })
         }
       }
     } catch (e) {

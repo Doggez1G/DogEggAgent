@@ -26,10 +26,13 @@ export class NetworkError extends Error {
   get retryable(): boolean { return true }
 }
 
-// 流式超时错误——provider 接受连接但长时间不返回数据。
+// 流式超时错误——两级归因：connect（fetch → 响应头 60s 未返回）/ idle（流建立后长时间无新字节，
+// 阈值见 stream.ts：首字节前 60s，首字节后 180s——推理模型的思考静默是合法生成节奏，非死连接）。
+// 两者均可重试。idle 触发时前次尝试可能已 emit 过增量 partial——重试安全性由请求层保证：
+// withRetry 第 2 次尝试开始前发 stream_reset 清空 UI 残文（见 openai-client.ts），重试语义保持不变。
 export class StreamTimeoutError extends Error {
   constructor(public readonly kind: 'connect' | 'idle') {
-    super(kind === 'connect' ? '流式连接超时（服务器未及时响应）' : '流式空闲超时（长时间无数据）')
+    super(kind === 'connect' ? '流式连接超时（服务器未及时响应）' : '流式空闲超时（长时间未收到服务器新数据，已停止等待）')
     this.name = 'StreamTimeoutError'
   }
   get retryable(): boolean { return true }

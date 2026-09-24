@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ChevronDown, X } from 'lucide-react'
 import type { Config, PermissionRule, ToolListItem, UiPort } from '@dogegg/bridge'
+import { safeSettingsPost } from './safe-post'
 import styles from './settings.module.css'
 
 // 权限设置区（v2：桶 → 键 → 模式数组，空数组 = 整工具/整服务）——从 view.tsx 抽出的独立区块组件。
@@ -231,8 +232,9 @@ export function PermissionsSection({ config, port }: { config: Config; port: UiP
   }, [port])
 
   const setBucket = (bucket: 'allow' | 'reject' | 'ask', next: Record<string, PermissionRule>): void => {
-    // post 返回 void | Promise<void>（SSE 通道为 async）——发后即忘，块体丢弃返回值。
-    void port.post({ type: 'config_set', path: `permission.${bucket}`, value: next })
+    // 安全提交（post 返回 void | Promise<void>，SSE 通道失败会静默）——console.warn 留痕；
+    // 本 section 无 inline 错误面，失败由后端 config 回读自愈（config_updated 校正显示）。
+    safeSettingsPost(port, { type: 'config_set', path: `permission.${bucket}`, value: next })
   }
   return (
     <>

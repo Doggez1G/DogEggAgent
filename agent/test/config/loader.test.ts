@@ -119,3 +119,22 @@ describe('isConfigured', () => {
     expect(isConfigured(cfg)).toBe(false)
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// maxOutput 交叉校验（P2 修复回归）：maxOutput = -1 表示不设限（放行）；
+// maxOutput > contextWindow 在加载期直接拒绝——单次回复的输出预算超过整个上下文窗口没有意义。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('ConfigStore.load maxOutput 交叉校验', () => {
+  const provider = { name: 'o', protocol: 'openai' as const, baseURL: 'http://x', apiKey: 'k' }
+
+  it('maxOutput = -1（不设限）加载通过', () => {
+    const cfg = store.load({ providers: [{ ...provider, models: [{ name: 'm', contextWindow: 128000, maxOutput: -1 }] }] })
+    expect(cfg.providers[0]!.models[0]!.maxOutput).toBe(-1)
+  })
+
+  it('maxOutput > contextWindow → 加载报错，文案说明两者关系', () => {
+    expect(() => store.load({
+      providers: [{ ...provider, models: [{ name: 'm', contextWindow: 1000, maxOutput: 5000 }] }],
+    })).toThrow(/maxOutput/)
+  })
+})

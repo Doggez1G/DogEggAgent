@@ -44,6 +44,9 @@ function relTime(iso: string): string {
 export function Sidebar(props: SidebarProps) {
   const c = props.collapsed
   const [search, setSearch] = useState('')
+  // 项目树折叠态按 cwd 记录在 Sidebar（始终挂载）——收起侧栏时树整体卸载，若把 state 放在
+  // ProjectTree 内部，收起再展开后折叠态会丢失（全部回默认展开）。缺省展开。
+  const [expandedMap, setExpandedMap] = useState<Record<string, boolean>>({})
   const projects = groupByCwd(props.sessions, props.knownProjects)
 
   // 搜索过滤。
@@ -105,6 +108,8 @@ export function Sidebar(props: SidebarProps) {
                   sessions={proj.sessions}
                   activeSessionId={props.activeSessionId}
                   isRunning={props.isRunning}
+                  expanded={expandedMap[proj.cwd] ?? true}
+                  onToggleExpanded={() => setExpandedMap((m) => ({ ...m, [proj.cwd]: !(m[proj.cwd] ?? true) }))}
                   onNewSession={() => props.onNewSession(proj.cwd)}
                   onResumeSession={props.onResumeSession}
                   onDeleteSession={props.onDeleteSession}
@@ -151,20 +156,20 @@ export function Sidebar(props: SidebarProps) {
   )
 }
 
-// 项目树：折叠头 + 会话列表。
+// 项目树：折叠头 + 会话列表。折叠态受控（expanded/onToggleExpanded 由 Sidebar 持有）——
+// 侧栏收起再展开后保持（state 不随树组件的卸载而丢失）。
 function ProjectTree(props: {
   cwd: string; name: string; sessions: SessionItem[]
   activeSessionId: string; isRunning: boolean
+  expanded: boolean; onToggleExpanded: () => void
   onNewSession: () => void; onResumeSession: (id: string) => void
   onDeleteSession: (id: string) => void; onDeleteProject: () => void
 }) {
-  const [expanded, setExpanded] = useState(true)
-
   return (
     <div className={styles.project}>
       <div className={styles.projectHeader}>
-        <button className={styles.projectToggle} onClick={() => setExpanded(!expanded)} aria-label={expanded ? 'Collapse' : 'Expand'}>
-          {expanded ? <ChevronDown size={12} strokeWidth={2} /> : <ChevronRight size={12} strokeWidth={2} />}
+        <button className={styles.projectToggle} onClick={props.onToggleExpanded} aria-label={props.expanded ? 'Collapse' : 'Expand'}>
+          {props.expanded ? <ChevronDown size={12} strokeWidth={2} /> : <ChevronRight size={12} strokeWidth={2} />}
         </button>
         <FolderOpen size={13} strokeWidth={1.5} className={styles.projectIcon} />
         <span className={styles.projectName} title={props.cwd}>{props.name}</span>
@@ -177,7 +182,7 @@ function ProjectTree(props: {
         </button>
       </div>
 
-      {expanded && (
+      {props.expanded && (
         <div className={styles.sessionList}>
           {props.sessions.map((s) => (
             <div

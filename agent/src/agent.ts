@@ -102,6 +102,8 @@ export class Agent {
       conversation: this.conversation,
       sessions: this.sessions,
       emit: (m) => this.emit(m),
+      // 会话切换（new/resume）联动重挂项目级资源——与 set_cwd 分支的联动集同口径（见 onSessionSwitched）。
+      onSessionSwitched: (cwd) => this.onSessionSwitched(cwd),
     })
     this.configController = new ConfigController({
       ctx: this.ctx,
@@ -157,6 +159,11 @@ export class Agent {
     } else if (m.type === 'finished') {
       this.logger.log(this.conversation.getId(), 'state', 'finished')
     }
+    // notice 落入有界环形缓冲——SSE 单播恢复时重放（启动期告警发出时连接集为空，见 resendSessionState）。
+    if (m.type === 'notice') {
+      this.recentNotices.push(m)
+      if (this.recentNotices.length > 20) this.recentNotices.shift()
+    }
     this.port.post(m)
   }
 
@@ -176,7 +183,11 @@ export class Agent {
   }
 
   private estimateCurrentTokens(): number {
-    return this.ctx.assembler.estimate(this.conversation.getContext())
+    // 运行中轮读 loop 的实时上下文（onProgress 同步的只读引用）——否则长任务期间
+    // 状态迁移推送的 status_state 与 WebUI 轮询的 context_state 都停留在轮前旧值。
+    // 空闲期（live 为 null）回落 conversation 的工作集，口径不变。
+    const live = this.turnRunner.getLiveContext()
+    return this.ctx.assembler.estimate(live ?? this.conversation.getContext())
   }
 
   // 统一的 status_state 发射——status_request 与 set_cwd 共用，避免字段重复。
@@ -190,6 +201,19 @@ export class Agent {
     // 失效缓存强制重扫——面板/命令联想的清单永远反映磁盘事实（外部手改文件也在此可见）。
     this.skills.invalidate()
     this.emit({ type: 'skills_list', skills: this.skills.list() })
+  }
+
+  // 会话切换（newSession/resume）后的项目级资源重挂——联动集与 set_cwd 分支完全一致：
+  // 项目级 skills 目录随会话 cwd 走（跨项目 resume 后若不重挂，skills 面板/系统提示段显示
+  // 旧项目，toggle 还会写错项目的 .skills.json）；项目级 .mcp.json 同理需要 diff 重建。
+  // 钩子在 gate 占用期内被调用也无碍——这些操作自身不检查 gate（new/resume 本身已被 R2 阻塞语义保护，
+  // 到达此处时必然不在轮次中；deleteSession 的替换路径复用 newSession 亦然）。
+  private onSessionSwitched(cwd: string): void {
+    this.skills.setProjectDir(cwd)
+    this.emitSkillsList()
+    this.emitSystemState()
+    this.refreshTokenDisplays()
+    void this.rebuildMcp().catch(() => {})
   }
 
   // system_state 消息构造——system_request 拉取与变更主动推送共用同一形状与同一现算来源。
@@ -248,9 +272,18 @@ export class Agent {
   // 不作为服务键匹配，用户的 allow/reject 意图丢失（回落默认 ask）。MCP 重建完成后用生效服务
   // 名单（全局 ⊕ 项目）复查 permission 三桶键，让失配在运行时可见（错误可见立法）。
   // 已警告键去重：重建链触发频繁（启动/config 变更/set_cwd/面板 manage），同键重复弹 notice 是噪音。
+  // 去重集带键集合指纹复位：记录上次检查的三桶键集合指纹，变化时清空去重集——
+  // 否则用户改回裸键（曾把键改成 mcp: 前缀又改回来）会因去重集残留而永远不再告警。
   private readonly warnedBareMcpKeys = new Set<string>()
+  private warnedMcpKeysFingerprint = ''
   private warnBareMcpPermissionKeys(): void {
     const names = new Set(this.mergeMcp().map((e) => e.server.name))
+    // 指纹在任何键集合变化时都更新（包括生效服务名单为空的早退路径——服务被删又加回时同样要能再告警）。
+    const fingerprint = JSON.stringify([this.ctx.config.permission.allow, this.ctx.config.permission.reject, this.ctx.config.permission.ask].map((b) => Object.keys(b).sort()))
+    if (fingerprint !== this.warnedMcpKeysFingerprint) {
+      this.warnedMcpKeysFingerprint = fingerprint
+      this.warnedBareMcpKeys.clear()
+    }
     if (names.size === 0) return
     for (const bucket of [this.ctx.config.permission.allow, this.ctx.config.permission.reject, this.ctx.config.permission.ask]) {
       for (const key of Object.keys(bucket)) {
@@ -394,18 +427,31 @@ export class Agent {
     }
   }
 
-  // 重发当前会话的状态快照：session_ready（消息历史 + thinking）+ 挂起中的 permission_request。
+  // notice 有界环形缓冲（容量 20）：emit 时捕获、resendSessionState 单播恢复时重放。
+  private readonly recentNotices: Extract<AgentToUiMessage, { type: 'notice' }>[] = []
+
+  // 重发当前会话的状态快照：session_ready（消息历史 + thinking）+ 近期 notice 重放 + 挂起中的
+  // permission_request。
   // 【立法】SSE 重连/刷新后前端无后端重放——唯一恢复源是重发快照。server 在新 SSE 连接建立时
-  // 调用此方法；不重发的话消息流空白、挂起审批永久失联。
-  resendSessionState(): void {
+  // 调用此方法并传入**该连接的定向 sender**：恢复是新连接的私事，广播会把所有在看客户端的
+  // 运行中界面整体重置（运行中的流式内容只存在于循环局部，未落 history）。近期 notice 重放
+  // 解决「启动期告警发出时 SSE 连接集为空、WebUI 用户永远看不到」（如裸服务名权限键告警）。
+  // out 直连 port.post 而不走 this.emit——避免重放的 notice 被再次捕进环形缓冲。
+  resendSessionState(send?: (m: AgentToUiMessage) => void): void {
+    const out = send ?? ((m: AgentToUiMessage) => this.port.post(m))
     const thinking = this.conversation.getThinking()
-    this.emit({
+    out({
       type: 'session_ready',
       id: this.conversation.getId(),
       messages: [...this.conversation.getHistory()],
+      // busy 与 WP2 的 session_ready 契约同步（恢复链立法）：运行中重连时 UI 不被打回 idle。
+      busy: this.ctx.gate.busy,
       ...(thinking.length ? { thinking: [...thinking] } : {}),
     })
-    this.resendPendingPermissions()
+    for (const n of this.recentNotices) out(n)
+    for (const p of this.pending.snapshot()) {
+      out({ type: 'permission_request', id: p.id, tool: p.tool, input: p.input, ...(p.alwaysScope ? { alwaysScope: p.alwaysScope } : {}) })
+    }
   }
 
   // 压缩回调：闭合在 ctx 上（调用时读当前 config 解析 provider/model）。
@@ -469,6 +515,9 @@ export class Agent {
         break
       case 'clear_history':
         this.sessionManager.clearHistory()
+        // /clear 后 context 已空——估算口径完整变化（回到裸 system prompt + 工具 schema），
+        // 主动刷新状态栏与 Context 卡的 token 数字，否则显示停留在清空前的旧值。
+        this.refreshTokenDisplays()
         break
       case 'delete_session':
         this.sessionManager.deleteSession(cmd.id)
@@ -506,7 +555,8 @@ export class Agent {
         this.emitSkillsList()
         break
       case 'skills_manage':
-        if (this.ctx.gate.busy) { this.emit({ type: 'notice', text: '运行中，请稍候' }); break }
+        // busy 分支带 channel：WebUI 的 skills 面板 inline 展示该提示（不带 channel 会落到全局 toast 之外的面板盲区）。
+        if (this.ctx.gate.busy) { this.emit({ type: 'notice', text: '运行中，请稍候', channel: 'skills' }); break }
         this.handleSkillsManage(cmd)
         break
       case 'invoke_skill':
@@ -524,7 +574,8 @@ export class Agent {
         this.emitMcpList()
         break
       case 'mcp_manage':
-        if (this.ctx.gate.busy) { this.emit({ type: 'notice', text: '运行中，请稍候' }); break }
+        // busy 分支带 channel：WebUI 的 mcp 面板 inline 展示该提示（与 skills busy 同口径）。
+        if (this.ctx.gate.busy) { this.emit({ type: 'notice', text: '运行中，请稍候', channel: 'mcp' }); break }
         this.handleMcpManage(cmd)
         break
 
@@ -585,7 +636,9 @@ export class Agent {
         // 运行时切换工作目录——运行中阻塞（避免 in-flight 工具写到错误目录）。
         if (this.ctx.gate.busy) { this.emit({ type: 'notice', text: '运行中，请稍候' }); return }
         try {
-          const resolved = resolve(cmd.path)
+          // 相对路径锚定会话 cwd 解析（与 cd 状态机预期一致：/cd 子目录相对当前会话目录，
+          // 而非进程启动目录）；绝对路径语义不变（resolve 对绝对输入直接返回归一化结果）。
+          const resolved = resolve(this.conversation.getCwd(), cmd.path)
           const stat = statSync(resolved)
           if (!stat.isDirectory()) {
             this.emit({ type: 'notice', text: `${cmd.path} 不是目录` })

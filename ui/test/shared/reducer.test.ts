@@ -72,6 +72,14 @@ describe('reducer — stream_reset', () => {
     s = reducer(s, { type: 'text_delta', delta: '新' })
     expect(s.partial).toEqual({ kind: 'assistant', text: '新' })
   })
+
+  it('同时清空 pendingTool（重试后模型改吐纯文本时「准备调用 X」不悬挂到轮末）', () => {
+    let s = reducer(initial, { type: 'tool_pending', name: 'shell' })
+    s = reducer(s, { type: 'stream_reset' })
+    expect(s.pendingTool).toBeNull()
+    // 不产生块、不清 partial 之外的东西——下一次 tool_call_start/tool_pending 会重新设置。
+    expect(s.blocks).toHaveLength(0)
+  })
 })
 
 describe('reducer — message (assistant)', () => {
@@ -84,6 +92,47 @@ describe('reducer — message (assistant)', () => {
   it('role 非 assistant 不改 state', () => {
     const s = reducer(withPartial('assistant', '回答'), { type: 'message', role: 'tool', id: 't1' })
     expect(s).toEqual(withPartial('assistant', '回答'))
+  })
+})
+
+describe('reducer — message (user)：回声去重与实时插入', () => {
+  // 立法（reducer message 分支）：user message 事件携带 text 原文——末尾已是同文本 user 块
+  // 视为本端乐观插入（local_user）的回声，忽略；否则实时插入（invoke_skill 的用户轮次、
+  // 其它标签页看远端用户消息，否则要等下次 session_ready 才可见）。text 缺省维持忽略旧行为。
+  it('回声去重：本端乐观插入后，同文本 user 回声不重复插入', () => {
+    let s = reducer(initial, { type: 'local_user', text: '你好' })
+    s = reducer(s, { type: 'message', role: 'user', id: 'm1', text: '你好' })
+    expect(s.blocks).toHaveLength(1)
+    expect(s.blocks[0]).toMatchObject({ kind: 'user', color: 'accent', text: '你好' })
+  })
+
+  it('invoke_skill 场景：无乐观插入，用户轮次实时插入（不必等 session_ready 重建）', () => {
+    const s = reducer(initial, { type: 'message', role: 'user', id: 'm1', text: '/translate 展开后的正文' })
+    expect(s.blocks).toHaveLength(1)
+    expect(s.blocks[0]).toMatchObject({ kind: 'user', color: 'accent', text: '/translate 展开后的正文' })
+  })
+
+  it('末尾是不同文本的 user 块时不误吞（多标签：远端用户消息照常插入）', () => {
+    let s = reducer(initial, { type: 'local_user', text: '本端的提问' })
+    s = reducer(s, { type: 'message', role: 'user', id: 'm2', text: '另一标签的提问' })
+    expect(s.blocks).toHaveLength(2)
+    expect(s.blocks[0]).toMatchObject({ kind: 'user', text: '本端的提问' })
+    expect(s.blocks[1]).toMatchObject({ kind: 'user', text: '另一标签的提问' })
+  })
+
+  it('末尾是 assistant 等非 user 块时照常插入（flush 后的轮次间消息不丢）', () => {
+    let s = reducer(withPartial('assistant', '上一轮的回答'), { type: 'message', role: 'assistant', id: 'a1' })
+    expect(s.blocks).toHaveLength(1) // flush 落盘 assistant
+    s = reducer(s, { type: 'message', role: 'user', id: 'm1', text: '新一轮的提问' })
+    expect(s.blocks).toHaveLength(2)
+    expect(s.blocks[0]).toMatchObject({ kind: 'assistant', text: '上一轮的回答' })
+    expect(s.blocks[1]).toMatchObject({ kind: 'user', text: '新一轮的提问' })
+  })
+
+  it('text 缺省（旧发射点）维持忽略旧行为——不产生空文本块', () => {
+    let s = reducer(initial, { type: 'local_user', text: '你好' })
+    s = reducer(s, { type: 'message', role: 'user', id: 'm1' })
+    expect(s.blocks).toHaveLength(1)
   })
 })
 
@@ -254,7 +303,7 @@ describe('reducer — notice', () => {
 describe('reducer — session_ready', () => {
   it('重建 blocks + 清空 partial', () => {
     const s = reducer(withPartial('assistant', '残留'), {
-      type: 'session_ready', id: 's1', messages: [
+      type: 'session_ready', id: 's1', busy: false, messages: [
         { role: 'user', content: '你好' },
         { role: 'assistant', content: '你好！' },
       ],
@@ -268,7 +317,7 @@ describe('reducer — session_ready', () => {
 
   it('thinking 对齐：空字符串条目不显示思考块', () => {
     const s = reducer(initial, {
-      type: 'session_ready', id: 's1',
+      type: 'session_ready', id: 's1', busy: false,
       messages: [
         { role: 'user', content: '问' },
         { role: 'assistant', content: '答' },
@@ -281,7 +330,7 @@ describe('reducer — session_ready', () => {
 
   it('thinking 对齐：非空条目显示思考块', () => {
     const s = reducer(initial, {
-      type: 'session_ready', id: 's1',
+      type: 'session_ready', id: 's1', busy: false,
       messages: [
         { role: 'user', content: '问' },
         { role: 'assistant', content: '答' },
@@ -294,7 +343,7 @@ describe('reducer — session_ready', () => {
 
   it('thinking 对齐：混合会话（先空后非空）', () => {
     const s = reducer(initial, {
-      type: 'session_ready', id: 's1',
+      type: 'session_ready', id: 's1', busy: false,
       messages: [
         { role: 'user', content: '问1' },
         { role: 'assistant', content: '答1' },
@@ -311,7 +360,7 @@ describe('reducer — session_ready', () => {
 
   it('tool_calls 的 assistant 消息也消费 thinking 条目', () => {
     const s = reducer(initial, {
-      type: 'session_ready', id: 's1',
+      type: 'session_ready', id: 's1', busy: false,
       messages: [
         { role: 'user', content: '读文件' },
         { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read_file', arguments: '{"path":"a.txt"}' } }] },
@@ -331,7 +380,7 @@ describe('reducer — session_ready', () => {
 
   it('tool 块从 tool_calls + tool 消息配对重建', () => {
     const s = reducer(initial, {
-      type: 'session_ready', id: 's1',
+      type: 'session_ready', id: 's1', busy: false,
       messages: [
         { role: 'user', content: '读文件' },
         { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read_file', arguments: '{"path":"a.txt"}' } }] },
@@ -347,6 +396,27 @@ describe('reducer — session_ready', () => {
     })
     expect(tool?.text).toContain('a.txt')
     expect(tool?.toolBody).toEqual([{ text: '文件内容', no: 1, kind: 'plain' }])
+  })
+})
+
+describe('reducer — session_ready busy（运行中保真）', () => {
+  // 立法：恢复链快照不得把 UI 打回 idle——运行中刷新页面/新标签接入时，busy=true 的快照
+  // 先落到「运行中」形态（thinking），随后的 status_state 推送校正为真实 machine state。
+  it('busy=true：status 不落 idle（落 thinking——输入框不误启用），blocks 照常重建', () => {
+    const s = reducer(withPartial('assistant', '残留'), {
+      type: 'session_ready', id: 's1', busy: true,
+      messages: [{ role: 'user', content: '运行中的提问' }],
+    })
+    expect(s.status).toBe('thinking')
+    expect(s.partial).toBeNull()
+    expect(s.blocks).toHaveLength(1)
+    expect(s.blocks[0]).toMatchObject({ kind: 'user', text: '运行中的提问' })
+  })
+
+  it('busy=false：status 为 idle（与既有行为一致）', () => {
+    const s = reducer(initial, { type: 'session_ready', id: 's1', busy: false, messages: [] })
+    expect(s.status).toBe('idle')
+    expect(s.blocks).toHaveLength(0)
   })
 })
 

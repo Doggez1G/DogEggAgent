@@ -118,8 +118,23 @@ export function reducer(state: ChatState, msg: Action): ChatState {
     case 'stream_reset':
       // 立法：请求层重试从零重发增量，UI 的 partial 必须先清空——否则第 2 次尝试的
       // delta 追加在第 1 次残文后，展示与持久化分叉。不落盘、不产生新块（残文本就是该丢弃的半成品）。
-      return { ...state, partial: null }
+      // pendingTool 一并清空：重试前若已收到 tool_pending，「准备调用 X」会悬挂在动态区；
+      // 重试后模型可能改吐纯文本不再调用工具——悬挂提示会一直挂到轮末。清掉无副作用：
+      // 下一次 tool_pending / tool_start 会重新设置。
+      return { ...state, partial: null, pendingTool: null }
     case 'message':
+      // role='user'：去重插入（契约：message 事件 role='user' 时携带 text 原文）。
+      // - 本端 submit 已乐观插入 local_user，后端随后的 user message 事件是【回声】——
+      //   blocks 末尾已是同文本 user 块时忽略，避免重复；
+      // - 无乐观插入的场景（invoke_skill 的用户轮次、其它标签页看远端用户消息）末尾不是
+      //   同文本 user 块——实时插入 user 文本块，否则该用户轮次要到下次 session_ready 才可见；
+      // - text 缺省（发射点未带原文）无从展示也无从判重，维持旧行为忽略。
+      if (msg.role === 'user') {
+        if (msg.text === undefined) return state
+        const last = state.blocks[state.blocks.length - 1]
+        if (last?.kind === 'user' && last.text === msg.text) return state
+        return { ...state, blocks: [...state.blocks, { kind: 'user', color: 'accent', text: msg.text }] }
+      }
       return msg.role === 'assistant' ? flush(state) : state
     case 'tool_pending':
       // 模型正在生成工具调用参数——UI 显示准备中提示（tool_start 到达时清除）。
@@ -198,9 +213,12 @@ export function reducer(state: ChatState, msg: Action): ChatState {
       // rebuildBlocksFromHistory 按序一一对应 assistant 消息和 thinking 条目。
       // 空字符串的 thinking 条目被跳过——不显示思考气泡。
       // 清空 partial——否则切换会话时旧会话的流式文本残留显示。
+      // 运行中保真立法：busy=true（快照重发时 agent 在跑）不得把 UI 打回 idle——否则运行中
+      // 刷新页面/新标签接入会误启用输入框、显示与后端真实状态分叉。busy 只决定「不错误地显示
+      // idle」：先落到 thinking 形态，随后的 status_state 推送会校正为真实 machine state。
       return {
         ...state,
-        status: 'idle',
+        status: msg.busy ? 'thinking' : 'idle',
         partial: null,
         toolActive: false,
         pendingTool: null,

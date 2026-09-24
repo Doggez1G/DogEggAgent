@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
 import type { AgentToUiMessage, Config, ToolListItem, UiPort } from '@dogegg/bridge'
 import type { McpServerEntry, SkillEntry } from '../view-state'
-import type { View } from '../view-state'
+import { refreshPanelsDeep, type View } from '../view-state'
+import { filterSessionsByCwd } from '../features/sessions/filter'
 
 export interface StatusBarData {
   provider?: string
@@ -42,6 +43,26 @@ export interface AgentEventsDeps {
   setInfoScroll(updater: number | ((s: number) => number)): void
 }
 
+// status_state → 状态栏数据的合并纯函数（★ 可单测）。
+// 立法（2026-09-24）：必须合并而非整体替换——title（会话名）的生命周期归 session_list 分支
+// 管（/rename、自动标题、切换会话都从那里同步），status_state 此前的整体替换会把已同步的
+// title 冲掉，/status 之后状态栏会话名消失。这里只覆盖本消息负责的字段，其余字段保留 prev。
+export function mergeStatusBarData(
+  prev: StatusBarData,
+  msg: Extract<AgentToUiMessage, { type: 'status_state' }>,
+): StatusBarData {
+  return {
+    ...prev,
+    provider: msg.provider,
+    model: msg.model,
+    sessionId: msg.sessionId,
+    tokens: msg.estimatedTokens,
+    windowTokens: msg.windowTokens,
+    usage: msg.usage,
+    cwd: msg.cwd,
+  }
+}
+
 // agent 消息的 UI 视图侧效应订阅（chat 数据域归 use-chat——两个订阅域正交）。
 // actions 经 ref 读取：订阅只建立一次（重复建立会反复重发 config_request/status_request）。
 export function useAgentEvents(deps: AgentEventsDeps): void {
@@ -67,10 +88,16 @@ export function useAgentEvents(deps: AgentEventsDeps): void {
       // 错误恢复：error 时自动预填上次提交的文本到输入框，用户可直接改或重新提交。
       if (msg.type === 'error') d.onErrorRetry()
       if (msg.type === 'permission_request') {
-        d.setView({ kind: 'permission', id: msg.id, tool: msg.tool, input: msg.input, alwaysScope: msg.alwaysScope, cursor: 0 })
+        // 审批弹层是「插入」而非「替换」（2026-09-24）：当前已停在某个 overlay（/config 树、
+        // 表单、菜单等）上时，把它作为 returnView 快照挂进审批视图，决议/拒绝后恢复原视图；
+        // 无视图（none）时不挂（关闭即回 none），已在审批弹层（链式请求）时不嵌套挂载。
+        const cur = d.viewRef.current
+        const back = cur.kind !== 'none' && cur.kind !== 'permission' ? { returnView: cur } : {}
+        d.setView({ kind: 'permission', id: msg.id, tool: msg.tool, input: msg.input, alwaysScope: msg.alwaysScope, cursor: 0, ...back })
       } else if (msg.type === 'state' && msg.to !== 'waiting_permission' && d.viewRef.current.kind === 'permission') {
-        // 权限等待期间状态离开 waiting_permission（如 cancel）→ 关闭 permission overlay。
-        d.setView({ kind: 'none' })
+        // 权限等待期间状态离开 waiting_permission（如 cancel）→ 收起审批弹层；
+        // 挂有 returnView 时恢复原视图（与决议出口 keys.ts 同语义），否则关闭。
+        d.setView(d.viewRef.current.returnView ?? { kind: 'none' })
       } else if (msg.type === 'session_list') {
         // 当前会话名同步进状态栏——启动播种、/session 响应、重命名、自动标题、切换会话后的刷新都汇聚到此。
         const cur = msg.sessions.find((s) => s.id === sessionIdRef.current)
@@ -79,10 +106,9 @@ export function useAgentEvents(deps: AgentEventsDeps): void {
         // 重命名/自动标题等后端主动推送不带弹层语义——选择器未开时忽略（否则每次改名都蹦出列表）。
         if (d.viewRef.current.kind !== 'sessionPicker') return
         // 按 cwd 过滤：只显示当前工作目录下的会话（Claude 式——每个目录独立）。
-        // 路径归一化：统一为小写 + 正斜杠，兼容 Windows 反斜杠 + 大小写不敏感。
-        const normalize = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-        const cwd = normalize(d.currentCwdRef.current)
-        const filtered = msg.sessions.filter((s) => normalize(s.cwd ?? '') === cwd)
+        // 过滤逻辑（含旧存档兼容）抽为纯函数 filterSessionsByCwd——无 cwd 的
+        // ADR-0006 之前旧会话始终可见，详见其注释。
+        const filtered = filterSessionsByCwd(msg.sessions, d.currentCwdRef.current)
         d.setView({ ...d.viewRef.current, sessions: filtered.map((s) => ({ id: s.id, preview: s.preview || '（空会话）', title: s.title, updatedAt: s.updatedAt })) })
       } else if (msg.type === 'session_deleted') {
         // 会话删除后刷新列表——重新请求 session_list（会触发 sessionPicker 重建）。
@@ -108,13 +134,23 @@ export function useAgentEvents(deps: AgentEventsDeps): void {
           }) })
         }
       } else if (msg.type === 'skills_list') {
-        // 清单镜像（命令联想/路由）——/skills 面板开着时同步刷新其列表。
+        // 清单镜像（命令联想/路由）——skills 面板开着时同步刷新其列表。
+        // refreshPanelsDeep：除了当前视图，挂在 returnView 链上的 skills 面板快照
+        // （详情弹层/表单 esc 返回的目标）也一并刷新——否则返回后看到过期列表。
         d.setSkillsList(msg.skills)
-        if (d.viewRef.current.kind === 'skills') d.setView({ ...d.viewRef.current, skills: msg.skills, cursor: Math.min(d.viewRef.current.cursor, Math.max(0, msg.skills.length - 1)) })
+        d.setView(refreshPanelsDeep(d.viewRef.current, 'skills', (v) => {
+          if (v.kind !== 'skills') return v
+          const skills = msg.skills
+          return { ...v, skills, cursor: Math.min(v.cursor, Math.max(0, skills.length - 1)) }
+        }))
       } else if (msg.type === 'mcp_list') {
-        // 状态镜像（/mcp 面板开着时同步刷新——启停/错误信息实时可见）。
+        // 状态镜像（/mcp 面板开着时同步刷新——启停/错误信息实时可见）；returnView 链同上。
         d.setMcpList(msg.servers)
-        if (d.viewRef.current.kind === 'mcp') d.setView({ ...d.viewRef.current, servers: msg.servers, cursor: Math.min(d.viewRef.current.cursor, Math.max(0, msg.servers.length - 1)) })
+        d.setView(refreshPanelsDeep(d.viewRef.current, 'mcp', (v) => {
+          if (v.kind !== 'mcp') return v
+          const servers = msg.servers
+          return { ...v, servers, cursor: Math.min(v.cursor, Math.max(0, servers.length - 1)) }
+        }))
       } else if (msg.type === 'skill_content') {
         // 详情查看（skills 面板 Enter）——全文进 info 面板（可翻页）；esc 回 skills 面板而非关设置。
         d.setInfoScroll(0)
@@ -124,7 +160,9 @@ export function useAgentEvents(deps: AgentEventsDeps): void {
       } else if (msg.type === 'status_state') {
         sessionIdRef.current = msg.sessionId
         d.currentCwdRef.current = msg.cwd
-        d.setStatusBarData({ provider: msg.provider, model: msg.model, sessionId: msg.sessionId, tokens: msg.estimatedTokens, windowTokens: msg.windowTokens, usage: msg.usage, cwd: msg.cwd })
+        // 合并而非整体替换——保留 title 等由其他分支（session_list）维护的字段，
+        // 否则 /status 之后状态栏会话名被清空（见 mergeStatusBarData 注释）。
+        d.setStatusBarData((prev) => mergeStatusBarData(prev, msg))
         // 仅显式请求（/status）时打开 info overlay；启动时的自动请求静默更新。
         if (d.explicitInfoRef.current) {
           d.explicitInfoRef.current = false
@@ -164,7 +202,15 @@ export function useAgentEvents(deps: AgentEventsDeps): void {
           d.setInfoScroll(0); d.setView({ kind: 'info', title: '上下文', lines })
         }
       } else if (msg.type === 'system_state') {
-        d.setInfoScroll(0); d.setView({ kind: 'info', title: 'system prompt', lines: [`路径：${msg.path}`, '─'.repeat(40), msg.content] })
+        // intent 守卫（与上方 status_state/context_state 的 explicitInfoRef 模式一致）：
+        // system prompt 每次变更（skills 启停、systemPrompt/shellProgram/cwd 变更）都会主动推送，
+        // 不能无条件掀开 info 面板把用户从 skills 面板等当前视图里拽走；
+        // 仅显式请求（/system 命令置位 explicitInfoRef）时打开 overlay。TUI 没有常驻的
+        // system prompt 快照面板（信息按需拉取），静默时无需落数据。
+        if (d.explicitInfoRef.current) {
+          d.explicitInfoRef.current = false
+          d.setInfoScroll(0); d.setView({ kind: 'info', title: 'system prompt', lines: [`路径：${msg.path}`, '─'.repeat(40), msg.content] })
+        }
       } else if (msg.type === 'permissions_list') {
         // /permissions：按工具分组展示会话内提升——有模式者下钻逐条撤（撤光即整条移除），整工具者就地撤；
         // 每次撤销后 agent 重推 permissions_list，菜单刷新回顶层。

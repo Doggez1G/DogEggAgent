@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Plus, Trash2, Pencil } from 'lucide-react'
 import type { UiPort } from '@dogegg/bridge'
+import { safeSettingsPost } from './safe-post'
 import styles from './settings.module.css'
 
 // Skills 管理区（M4.1/M4.3）：项目级/用户级两组列表 + 创建表单 + 全文编辑 + 启停 + 删除确认。
@@ -45,20 +46,20 @@ export function SkillsSection({ port }: { port: UiPort }) {
 
   const requestEdit = (item: SkillItem): void => {
     pendingGetRef.current = item
-    port.post({ type: 'skills_manage', action: 'get', scope: item.scope, name: item.name })
+    safeSettingsPost(port, { type: 'skills_manage', action: 'get', scope: item.scope, name: item.name }, (e) => setInlineError(`读取失败：${e.message}`))
   }
 
   const create = (): void => {
     const name = form.name.trim()
     if (!name) return
-    port.post({ type: 'skills_manage', action: 'create', scope: form.scope, name, description: form.description.trim() })
+    safeSettingsPost(port, { type: 'skills_manage', action: 'create', scope: form.scope, name, description: form.description.trim() }, (e) => setInlineError(`创建失败：${e.message}`))
     setCreating(false)
     setForm({ scope: form.scope, name: '', description: '' })
   }
 
   const saveEdit = (): void => {
     if (!editing) return
-    port.post({ type: 'skills_manage', action: 'update', scope: editing.item.scope, name: editing.item.name, content: editing.content })
+    safeSettingsPost(port, { type: 'skills_manage', action: 'update', scope: editing.item.scope, name: editing.item.name, content: editing.content }, (e) => setInlineError(`保存失败：${e.message}`))
     setEditing(null)
   }
 
@@ -112,9 +113,9 @@ export function SkillsSection({ port }: { port: UiPort }) {
                   </div>
                 </div>
                 {s.missing ? (
-                  <button className={styles.actionBtn} title="移除这条孤儿记录" onClick={() => port.post({ type: 'skills_manage', action: 'toggle', scope: s.scope, name: s.name, enabled: true })}>清理</button>
+                  <button className={styles.actionBtn} title="移除这条孤儿记录" onClick={() => safeSettingsPost(port, { type: 'skills_manage', action: 'toggle', scope: s.scope, name: s.name, enabled: true }, (e) => setInlineError(`清理失败：${e.message}`))}>清理</button>
                 ) : (
-                  <button className={styles.actionBtn} onClick={() => port.post({ type: 'skills_manage', action: 'toggle', scope: s.scope, name: s.name, enabled: !s.enabled })}>{s.enabled ? '停用' : '启用'}</button>
+                  <button className={styles.actionBtn} onClick={() => safeSettingsPost(port, { type: 'skills_manage', action: 'toggle', scope: s.scope, name: s.name, enabled: !s.enabled }, (e) => setInlineError(`操作失败：${e.message}`))}>{s.enabled ? '停用' : '启用'}</button>
                 )}
                 {!s.missing && <button className={styles.permChipX} title="编辑" onClick={() => requestEdit(s)}><Pencil size={12} /></button>}
                 <button className={styles.permChipX} title="删除" onClick={() => setPendingDelete(s)}><Trash2 size={12} /></button>
@@ -127,7 +128,7 @@ export function SkillsSection({ port }: { port: UiPort }) {
       {pendingDelete && (
         <div className={styles.providerItem} style={{ borderColor: 'var(--color-danger)' }}>
           <div style={{ flex: 1 }}>{pendingDelete.missing ? `清理 skill「${pendingDelete.name}」（${pendingDelete.scope}）的残留记录？目录已不存在，仅移除停用名单。` : `确认删除 skill「${pendingDelete.name}」（${pendingDelete.scope}）？目录整体删除，不可恢复。`}</div>
-          <button className={styles.actionBtn} onClick={() => { port.post({ type: 'skills_manage', action: 'delete', scope: pendingDelete.scope, name: pendingDelete.name }); setPendingDelete(null) }}>确认</button>
+          <button className={styles.actionBtn} onClick={() => { safeSettingsPost(port, { type: 'skills_manage', action: 'delete', scope: pendingDelete.scope, name: pendingDelete.name }, (e) => setInlineError(`删除失败：${e.message}`)); setPendingDelete(null) }}>确认</button>
           <button className={styles.actionBtn} onClick={() => setPendingDelete(null)}>取消</button>
         </div>
       )}

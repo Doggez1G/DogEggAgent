@@ -9,12 +9,16 @@ import type { State } from '@dogegg/bridge'
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
 // 状态 → (Emoji, 中文描述) 映射（颜色主题相关，渲染时经 stateColor() 动态取）。
+// 文案立法与 shared/status.ts 的 STATUS_LABELS 同源对齐：tool_calling（模型还在生成调用参数）
+// 与 executing（工具已开跑）必须可区分，且不得用泛化的「执行中」与「思考中」混淆
+// （2026-09-24 运行中状态显示正确性）。此处的文案比 STATUS_LABELS 短——状态栏徽章宽度受限，
+// 但语义边界一致；emoji 维持原品牌风格（🐾 统一表示工具相关阶段）。
 const STATE_META: Record<string, { emoji: string; label: string }> = {
   idle: { emoji: '🥚', label: '空闲' },
   thinking: { emoji: '🐣', label: '思考中' },
   responding: { emoji: '🐶', label: '回答中' },
-  tool_calling: { emoji: '🐾', label: '工具调用' },
-  executing: { emoji: '🐾', label: '执行中' },
+  tool_calling: { emoji: '🐾', label: '生成工具调用' },
+  executing: { emoji: '🐾', label: '执行工具中' },
   waiting_permission: { emoji: '⚠', label: '等待审批' },
   finished: { emoji: '🐥', label: '完成' },
   cancelled: { emoji: '🥚', label: '已打断' },

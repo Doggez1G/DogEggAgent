@@ -40,6 +40,18 @@ export interface TurnInput {
   cwd: string
   shellProgram: string | undefined
   signal: AbortSignal
+  /**
+   * 轮次进行中回调（可选）：每条 assistant 消息 push 后与每个工具 step 完成后触发——
+   * 接收方据此实现轮中检查点落盘 / 中途标题触发 / 实时 token 估算。
+   * ⚠️ 传的是 loop 内部工作数组的【引用】（不拷贝——热路径上拷贝整个 context 不可接受），
+   * 接收方只读，不得改写；数组内容会在后续迭代继续演化。usage 为轮内已累计的真实用量。
+   */
+  onProgress?: (snap: {
+    context: Message[]
+    newMessages: Message[]
+    thinking: { text: string }[]
+    usage: { promptTokens: number; completionTokens: number }
+  }) => void
 }
 
 // loop 返回值：压缩后的 context + 本轮新增的 assistant/tool 消息。

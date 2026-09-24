@@ -42,3 +42,48 @@ describe('SessionStore title（会话标题往返）', () => {
     expect(store2.load('legacy').title).toBeUndefined()
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// preview 口径（P3 修复回归）：从尾部向前找首条非 tool 且 content 为非空 string 的消息——
+// 轮次收尾时 history 常以 tool 消息结尾（工具任务刚结束），只看末条会得到空 preview。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('SessionStore preview 口径', () => {
+  const dir3 = mkdtempSync(join(tmpdir(), 'dogegg-sess-p-'))
+  const store3 = new SessionStore(dir3)
+
+  it('history 以 tool 结尾时，preview 回退到末条非 tool 消息', () => {
+    store3.save({
+      id: 'p1',
+      history: [
+        { role: 'user', content: '帮我读文件' },
+        { role: 'assistant', content: '好的，我来读取' },
+        { role: 'tool', tool_call_id: 'c1', content: '文件内容……' },
+      ],
+      context: [],
+      sessionPermissions: [],
+      usage: { promptTokens: 0, completionTokens: 0, turns: 0 },
+      compactions: 0,
+      cwd: '',
+      thinking: [],
+    })
+    expect(store3.list().find((s) => s.id === 'p1')!.preview).toBe('好的，我来读取')
+  })
+
+  it('尾部非 tool 但 content 为空串的跳过；tool 后紧邻 assistant 正常命中', () => {
+    store3.save({
+      id: 'p2',
+      history: [
+        { role: 'user', content: '第一问' },
+        { role: 'assistant', content: '' },
+        { role: 'assistant', content: '最终回答' },
+      ],
+      context: [],
+      sessionPermissions: [],
+      usage: { promptTokens: 0, completionTokens: 0, turns: 0 },
+      compactions: 0,
+      cwd: '',
+      thinking: [],
+    })
+    expect(store3.list().find((s) => s.id === 'p2')!.preview).toBe('最终回答')
+  })
+})

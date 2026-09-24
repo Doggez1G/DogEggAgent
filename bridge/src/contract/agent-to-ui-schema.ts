@@ -15,12 +15,13 @@ export const agentToUiMessageSchema: z.ZodType<AgentToUiMessage> = z.discriminat
   z.object({ type: z.literal('text_delta'), delta: z.string() }),
   z.object({ type: z.literal('thought_delta'), delta: z.string() }),
   z.object({ type: z.literal('stream_reset') }), // 请求层重试从零重发增量——UI 先清空流式 partial（无载荷）
-  z.object({ type: z.literal('message'), role: z.enum(['user', 'assistant', 'tool']), id: z.string() }),
+  z.object({ type: z.literal('message'), role: z.enum(['user', 'assistant', 'tool']), id: z.string(), text: z.string().optional() }),
   z.object({ type: z.literal('tool_pending'), name: z.string() }),
   z.object({ type: z.literal('tool_start'), id: z.string(), name: z.string(), input: z.unknown() }),
   z.object({ type: z.literal('tool_end'), id: z.string(), name: z.string(), output: z.string(), error: z.string().optional() }),
   z.object({ type: z.literal('permission_request'), id: z.string(), tool: z.string(), input: z.unknown(), alwaysScope: z.object({ pattern: z.string() }).optional() }),
-  z.object({ type: z.literal('session_ready'), id: z.string(), messages: z.array(z.any()), thinking: z.array(z.object({ text: z.string() })).optional() }),
+  // busy 必填（与类型同步）：旧载荷缺 busy 在此被拒——运行中保真依赖该字段，宁可不降级也不静默失真。
+  z.object({ type: z.literal('session_ready'), id: z.string(), messages: z.array(z.any()), busy: z.boolean(), thinking: z.array(z.object({ text: z.string() })).optional() }),
   z.object({ type: z.literal('session_list'), sessions: z.array(z.object({ id: z.string(), updatedAt: z.string(), preview: z.string(),
       title: z.string().optional(), cwd: z.string().optional() })) }),
   z.object({ type: z.literal('session_deleted'), id: z.string() }),
@@ -59,7 +60,7 @@ export const agentToUiMessageSchema: z.ZodType<AgentToUiMessage> = z.discriminat
   z.object({ type: z.literal('status_state'), sessionId: z.string(), provider: z.string(), model: z.string(), cwd: z.string(), state: stateSchema, estimatedTokens: z.number(), windowTokens: z.number(), usage: z.object({ promptTokens: z.number(), completionTokens: z.number(), turns: z.number() }).optional() }),
   z.object({ type: z.literal('log_state'), path: z.string(), tail: z.string() }),
   z.object({ type: z.literal('history_cleared') }),
-  z.object({ type: z.literal('notice'), text: z.string(), channel: z.enum(['skills', 'mcp']).optional() }),
+  z.object({ type: z.literal('notice'), text: z.string(), channel: z.enum(['skills', 'mcp', 'config']).optional() }),
   z.object({
     type: z.literal('permissions_list'),
     permissions: z.array(z.object({ tool: z.string(), patterns: z.array(z.string()) })),

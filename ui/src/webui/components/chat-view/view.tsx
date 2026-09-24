@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Egg, Loader2, Wrench } from 'lucide-react'
 import { MessageBlock } from '../message-block'
 import { MarkdownRenderer } from '../markdown'
-import { type Block, type ChatState, pendingToolLabel } from '../../../shared'
+import { type Block, type ChatState, pendingToolLabel, STATUS_LABELS } from '../../../shared'
 import styles from './chat-view.module.css'
 
 // 聊天视口：消息列表 + 流式 partial 块 + 工具参数生成提示。自动滚动到底部。
@@ -83,6 +83,11 @@ export function ChatView({ chat, isRunning }: ChatViewProps) {
             </div>
           )}
 
+          {/* 运行中兜底指示行：partial 已冻结落盘、无 pendingTool、非压缩时的空窗期。
+              文案必须按真实状态显示（思考中/回复中/正在执行工具/等待审批…）——
+              此前无脑写「DogEgg is thinking...」，工具执行期间也显示思考中，
+              用户无法区分真思考与工具调用（2026-09-24 运行中状态显示正确性立法）。
+              pendingTool 与 compacting 各有专属指示行，不在本行职责内。 */}
           {isRunning && !chat.partial && chat.status !== 'compacting' && chat.pendingTool == null && (
             <div className={styles.streaming}>
               <div className={styles.assistantAvatar}>
@@ -93,7 +98,7 @@ export function ChatView({ chat, isRunning }: ChatViewProps) {
                 <span className={styles.streamingDot} />
                 <span className={styles.streamingDot} />
               </div>
-              <span className={styles.streamingText}>DogEgg is thinking...</span>
+              <span className={styles.streamingText}>{STATUS_LABELS[chat.status] ?? '处理中'}…</span>
             </div>
           )}
 

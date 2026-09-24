@@ -154,6 +154,11 @@ describe('Agent 轮次表征（重构行为基线）', () => {
     }
     const { events, post } = makeAgent({ client: fakeAdapter(script), cwd })
 
+    // 预置标题：轮次中途的自动标题触发（B2 修复）会用同一 client 发离线标题请求，
+    // 消耗脚本 call 槽位、干扰本用例的调用计数——本用例针对 scoped 权限语义，先命名排除干扰。
+    post({ type: 'rename_session', title: '预置标题' })
+    await waitFor(events, (e) => e.type === 'notice' && e.text.includes('会话已命名'), 'rename notice')
+
     post({ type: 'submit', text: '读 docs' })
     const request = await waitFor(events, (e) => e.type === 'permission_request', '第一次 permission_request')
     // alwaysScope 应随请求下发（docs 目录级）

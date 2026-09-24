@@ -15,12 +15,18 @@ interface ModalPortalProps {
 export function ModalPortal({ children, onClose, closeOnScrim = true, label, className }: ModalPortalProps) {
   const dialogRef = useRef<HTMLDivElement>(null)
 
-  // 首次聚焦 modal 内第一个可聚焦元素。
+  // 首次聚焦 modal 内第一个可聚焦元素；同时记录打开前聚焦的元素——关闭（卸载）时归还焦点，
+  // 键盘/读屏用户不会被丢到 body，焦点回到聊天输入框或触发按钮等原位置。
   useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const el = dialogRef.current
     if (!el) return
     const focusable = el.querySelector<HTMLElement>('button, input, textarea, select, [tabindex]:not([tabindex="-1"])')
     focusable?.focus()
+    return () => {
+      // 归还前提：元素仍在文档中（已被移除的旧节点 focus() 无效且无意义）。
+      if (previouslyFocused?.isConnected) previouslyFocused.focus()
+    }
   }, [])
 
   // focus trap：Tab 在 modal 内循环。

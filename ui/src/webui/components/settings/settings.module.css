@@ -178,6 +178,18 @@
   font-family: var(--font-mono);
 }
 
+/* 数值字段校验失败：输入框标红 + 旁注错误文案（前端即时反馈，与后端 zod 校验并存）。 */
+.inputError {
+  border-color: var(--color-danger);
+}
+.inputError:focus {
+  border-color: var(--color-danger);
+}
+.fieldError {
+  font-size: 11px;
+  color: var(--color-danger);
+}
+
 /* ── File picker ── */
 .filePicker {
   display: flex;

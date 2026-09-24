@@ -65,7 +65,12 @@ export function useUiChrome(connectionState: 'connected' | 'reconnecting' | 'dis
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
-        setModal((prev) => prev.kind === 'command-palette' ? { kind: 'none' } : { kind: 'command-palette' })
+        setModal((prev) => {
+          // 设置弹窗打开时不打开/不替换命令面板——替换会把正在编辑的设置页整个顶掉，
+          // 两层 modal 叠加也会让 Escape/focus trap 行为错乱；保持设置弹窗原样。
+          if (prev.kind === 'settings') return prev
+          return prev.kind === 'command-palette' ? { kind: 'none' } : { kind: 'command-palette' }
+        })
       }
     }
     window.addEventListener('keydown', handler)

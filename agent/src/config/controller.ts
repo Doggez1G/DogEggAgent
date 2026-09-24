@@ -38,10 +38,15 @@ export class ConfigController {
 
   // 配置编辑统一入口：委托 ConfigEditor，成功后同步运行时 + 落盘 + emit。
   private edit(fn: (e: ConfigEditor) => { ok: boolean; error?: string }): void {
-    if (this.deps.ctx.gate.busy) { this.deps.emit({ type: 'notice', text: '运行中，请稍候' }); return }
+    // busy/失败 notice 带 channel: 'config'——WebUI 设置面板 inline 可见（枚举由 WP2 扩 'config'，
+    // 此处先行接入；类型报错待 WP2 收口）。
+    if (this.deps.ctx.gate.busy) { this.deps.emit({ type: 'notice', text: '运行中，请稍候', channel: 'config' }); return }
     const result = fn(this.deps.editor)
     if (!result.ok) {
-      this.deps.emit({ type: 'notice', text: result.error ?? '配置编辑失败' })
+      this.deps.emit({ type: 'notice', text: result.error ?? '配置编辑失败', channel: 'config' })
+      // 失败补发 config_updated（回滚后的 lastGood 快照）：失败不广播的话，WebUI 表单里
+      // 已输入的非法值会继续显示，与内存/磁盘的真实值分叉——用户以为改成功了。
+      this.deps.emit({ type: 'config_updated', config: this.deps.editor.getConfig() })
       return
     }
     const config = this.deps.editor.getConfig()

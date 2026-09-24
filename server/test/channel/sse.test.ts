@@ -187,4 +187,69 @@ describe('SseChannel', () => {
 
     expect(calls).toBe(2)
   })
+
+  // ── 恢复链单播化（立法见 sse.ts onConnect 注释）──
+  // session_ready 是「新连接的私事」：广播会把其它在看客户端的聊天区整体重置（运行中流式
+  // 内容丢失），N 客户端一次重连退化为 O(N²) 消息。onConnect 必须拿到只写发起连接的单播 send。
+
+  it('onConnect 收到单播 send——恢复消息只写发起连接，其它连接不受影响', () => {
+    const channel = new SseChannel()
+    const sends: ((msg: AgentToUiMessage) => void)[] = []
+    channel.onConnect = (send) => { sends.push(send) }
+
+    const writtenA: string[] = []
+    const writtenB: string[] = []
+    const makeRes = (written: string[]) => ({
+      writeHead: () => {},
+      write: (data: string) => { written.push(data) },
+      on: () => {},
+    })
+    // 两个假连接（模拟两个标签页）——各自拿到自己的单播 send。
+    channel.sseHandler({} as never, makeRes(writtenA) as never)
+    channel.sseHandler({} as never, makeRes(writtenB) as never)
+
+    // 连接 A 触发的恢复重发：只有 A 收到 session_ready，B 的流不受影响。
+    const msg: AgentToUiMessage = { type: 'session_ready', id: 's1', messages: [], busy: false }
+    sends[0]!(msg)
+
+    const dataA = writtenA.find((w) => w.startsWith('data: '))
+    expect(dataA).toBeDefined()
+    expect(dataA!).toContain('"type":"session_ready"')
+    expect(writtenB.every((w) => !w.startsWith('data: '))).toBe(true)
+  })
+
+  it('单播 send 的写入格式与 post 一致（data: <JSON>\\n\\n）', () => {
+    const channel = new SseChannel()
+    let captured: ((msg: AgentToUiMessage) => void) | undefined
+    channel.onConnect = (send) => { captured = send }
+
+    const written: string[] = []
+    channel.sseHandler({} as never, {
+      writeHead: () => {},
+      write: (data: string) => { written.push(data) },
+      on: () => {},
+    } as never)
+
+    const msg: AgentToUiMessage = { type: 'notice', text: '单播' }
+    captured!(msg)
+    // 最后一行是单播写入（前面只有 ': connected\n\n'）——格式与 post 的 data 行逐字节一致。
+    expect(written[written.length - 1]).toBe(`data: ${JSON.stringify(msg)}\n\n`)
+  })
+
+  it('连接关闭后单播 send 写失败被忽略（不向恢复链抛异常）', () => {
+    const channel = new SseChannel()
+    let captured: ((msg: AgentToUiMessage) => void) | undefined
+    channel.onConnect = (send) => { captured = send }
+
+    // 连接建立阶段照常写入；sseHandler 返回后模拟连接销毁——此后 write 同步抛错。
+    let destroyed = false
+    channel.sseHandler({} as never, {
+      writeHead: () => {},
+      write: () => { if (destroyed) throw new Error('write after end') },
+      on: () => {},
+    } as never)
+    destroyed = true
+
+    expect(() => captured!({ type: 'notice', text: 'x' })).not.toThrow()
+  })
 })

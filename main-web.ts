@@ -32,7 +32,10 @@ const agent = new Agent(channel, config, process.cwd(), { logger })
 
 // SSE 重连/刷新后前端没有后端事件重放，新连接必须重发会话快照——兑现 sse-client 注释承诺。
 // （客户端侧另有断线重连后的播种请求补发，见 ui/src/webui/app/app.tsx，两者互补。）
-channel.onConnect = () => agent.resendSessionState()
+// 【立法】恢复是新连接的私事，必须单播：send 由 SseChannel 闭包捕获发起连接构造，快照只写
+// 这一个连接。若走无参广播（resendSessionState() → post），任一标签重连都会把其它正在看的
+// 客户端聊天区整体重置（运行中的流式内容丢失），且 N 客户端一次重连退化为 O(N²) 消息。
+channel.onConnect = (send) => agent.resendSessionState(send)
 
 // 启动 HTTP server。
 // 开发模式（VITE_DEV=1）：staticDir=null，非 API 路径返回 404（前端由 Vite dev server 代理）。

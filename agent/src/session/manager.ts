@@ -13,6 +13,13 @@ export class SessionManager {
     conversation: Conversation
     sessions: SessionStore
     emit: (m: AgentToUiMessage) => void
+    /**
+     * 会话切换成功钩子（cwd 确定后回调）：newSession 与 resume 换的不只是 cwd——
+     * 项目级 skills / 项目级 .mcp.json 都锚定在会话目录上，跨项目切换后若不重挂，
+     * skills 面板与系统提示段仍显示旧项目，toggle 还会写错项目的 .skills.json。
+     * 由门面装配联动集（与 set_cwd 分支同口径）：setProjectDir + 各显示刷新 + rebuildMcp。
+     */
+    onSessionSwitched?: (cwd: string) => void
   }) {}
 
   // R2：动工作集类命令运行中阻塞（发 notice 不静默丢弃）。
@@ -40,7 +47,10 @@ export class SessionManager {
     this.deps.ctx.permission.reset() // 会话隔离：allow_always 只对当前会话生效
     // 立即保存空会话——让 list_sessions 能返回新会话（侧栏即时显示）。
     if (opts?.persist !== false) { try { this.save() } catch { /* 磁盘错误忽略 */ } }
-    this.deps.emit({ type: 'session_ready', id: this.deps.conversation.getId(), messages: [] })
+    // busy 与 WP2 的 session_ready 契约同步（恢复链立法）：UI 据此落到「运行中」形态，不被快照打回 idle。
+    this.deps.emit({ type: 'session_ready', id: this.deps.conversation.getId(), messages: [], busy: this.deps.ctx.gate.busy })
+    // 成功路径（cwd 已确定——显式指定的新目录，或沿用当前目录）通知项目级资源重挂。
+    this.deps.onSessionSwitched?.(this.deps.conversation.getCwd())
   }
 
   resume(id: string): void {
@@ -56,8 +66,13 @@ export class SessionManager {
         type: 'session_ready',
         id: s.id,
         messages: [...this.deps.conversation.getHistory()],
+        // busy 与 WP2 的 session_ready 契约同步（恢复链立法，见 newSession 内注释）。
+        busy: this.deps.ctx.gate.busy,
         ...(thinking.length ? { thinking: [...thinking] } : {}),
       })
+      // 成功路径（cwd 已随存档恢复到 conversation）：跨项目 resume 后重挂项目级资源——
+      // cwd 必须取 conversation 的最终值（存档带 cwd 时为存档值，旧格式无 cwd 时保持原值）。
+      this.deps.onSessionSwitched?.(this.deps.conversation.getCwd())
     } catch {
       this.deps.emit({ type: 'notice', text: `会话 ${id} 加载失败（文件不存在或已损坏）` })
     }

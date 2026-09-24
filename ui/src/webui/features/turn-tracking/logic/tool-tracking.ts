@@ -1,10 +1,19 @@
-import type { AgentToUiMessage } from '@dogegg/bridge'
+import type { AgentToUiMessage, State } from '@dogegg/bridge'
+import { isStateRunning } from '../../../../shared'
 import type { FileTouched } from '../../../view-state'
 
 // 工具调用追踪的纯逻辑（无 React 依赖，可单测）。
 // permission_request.id 与 tool_start.id 不同（后端分别生成），决策按 toolName 关联。
 
 export type ToolDecision = 'allow_once' | 'allow_always' | 'allow_always_scoped' | 'reject'
+
+// pendingTool（「调用中…」占位行）的清理判定：状态迁移到非 running 态
+//（idle/finished/cancelled/error）即清。正常路径 tool_pending → tool_start 由 tool_start 分支
+// 清除；本判定覆盖 error / finished / state 中断场景——否则占位行在右栏永久残留。
+// 抽成纯函数以便单测（hook 的消息分支无 React 测试设施）。
+export function shouldClearPendingTool(to: State): boolean {
+  return !isStateRunning(to)
+}
 
 export interface ToolCallEntry {
   id: string

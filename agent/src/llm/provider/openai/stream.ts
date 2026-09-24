@@ -4,12 +4,32 @@ import { createOpenAiStreamParser } from './parser'
 import { buildRequest } from './request'
 import { HttpError, NetworkError, StreamTimeoutError } from './errors'
 
-// 超时模型（两级，均不含总时长上限——持续出字节的流是健康的，生成长度由 maxOutput 决定）：
+// 超时模型（连接超时 + 两级空闲超时，均不含总时长上限——持续出字节的流是健康的，生成长度由 maxOutput 决定）：
 // 1. 连接超时 CONNECT_TIMEOUT_MS：fetch 发起 → 响应头返回（含 DNS/TLS/服务端处理首响）。
-// 2. 空闲超时 IDLE_TIMEOUT_MS：相邻 chunk 的最大间隔（首个 chunk 前的 body 等待同样受它约束）。
-// 两级超时统一抛 StreamTimeoutError（retry 层可重试）；用户取消走 AbortError，互不混淆。
+// 2. 空闲超时（按流是否已建立分段）：相邻 chunk 的最大间隔。
+//    - 首 chunk 前（响应头已回、body 尚无字节）IDLE_FIRST_CHUNK_TIMEOUT_MS：保持较紧——端点
+//      已接受请求却迟迟不给任何字节，多半是网关/负载异常，快速失败进重试比干等划算。
+//    - 首 chunk 后 IDLE_STREAMING_TIMEOUT_MS：放宽——见下方立法注释。
+// 各级超时统一抛 StreamTimeoutError（retry 层可重试）；用户取消走 AbortError，互不混淆。
 const CONNECT_TIMEOUT_MS = 60_000
-const IDLE_TIMEOUT_MS = 60_000
+const IDLE_FIRST_CHUNK_TIMEOUT_MS = 60_000
+// 立法（流建立后的空闲阈值 = 180 秒）：推理模型的合法生成节奏包含整分钟级静默——思考段内部的
+// 长停顿、思考流结束到首个正文 delta 之间，provider 可能完全不发任何字节（用户实测 P2：thought_delta
+// 陆续到达后仍被 60s 阈值误杀）。这是「服务器仍在生成、只是暂时不吐字节」的等待上限，不是死连接
+// 检测：死连接由 TCP 层（重传超时/连接复位）与连接超时兜底。旧值 60s 对推理模型过紧。
+const IDLE_STREAMING_TIMEOUT_MS = 180_000
+
+// 空闲阈值的可变副本——真实运行固定为上面的立法值；测试经 setIdleTimeoutForTest 调短毫秒级完成
+//（真实分钟级静默无法在测试里等待，用缩比阈值验证两级分发逻辑本身）。
+let idleFirstChunkMs = IDLE_FIRST_CHUNK_TIMEOUT_MS
+let idleStreamingMs = IDLE_STREAMING_TIMEOUT_MS
+
+// 测试专用：调短两级空闲阈值（对齐 setKillWatchdogForTest 先例），不落入用户配置。
+// 首参管「首 chunk 前」、次参管「首 chunk 后」；调用方负责在 afterEach 还原立法值，防泄漏到其他用例。
+export function setIdleTimeoutForTest(firstChunkMs: number, streamingMs: number): void {
+  idleFirstChunkMs = firstChunkMs
+  idleStreamingMs = streamingMs
+}
 // SSE 行缓冲上限：畸形端点（无换行地持续输出）会让 buf 无界增长，且每个 chunk 都有字节
 // 到达使空闲超时永不触发——超过上限判为畸形流，直接失败（普通 Error，不可重试）。
 // buf.length 是 UTF-16 码元数，ASCII 场景下与字节数一致，作为字节上限的近似足够。
@@ -75,15 +95,19 @@ export async function streamOnce(conn: LlmClientConn, req: ChatRequest, signal: 
   let finalMessage: Message | null = null
   let finalReasoning: string | undefined
   let finalUsage: LlmUsage | undefined
+  // 流是否已建立（至少一个 chunk 到达）——决定空闲超时用哪一级阈值。
+  // 空 chunk 也算建立：字节真的到了，就证明服务器在活跃发送，值得放宽等待。
+  let receivedChunk = false
 
 
   try {
     for (;;) {
-      // 空闲超时：每次 read 最多等 IDLE_TIMEOUT_MS，超时则中止。
+      // 空闲超时：每次 read 最多等对应级别的空闲阈值，超时则中止。
+      // 首 chunk 前用较紧阈值快速失败；流建立后放宽到立法值，容忍推理模型的思考静默。
       const idleTimer = setTimeout(() => {
         timeout = new StreamTimeoutError('idle')
         reader.cancel(timeout)
-      }, IDLE_TIMEOUT_MS)
+      }, receivedChunk ? idleStreamingMs : idleFirstChunkMs)
 
       let done: boolean
       let value: Uint8Array | undefined
@@ -101,6 +125,7 @@ export async function streamOnce(conn: LlmClientConn, req: ChatRequest, signal: 
       }
 
       if (done) break
+      receivedChunk = true // 非 done 即有字节到达——流已建立，后续空闲按放宽阈值计
       buf += decoder.decode(value, { stream: true })
       // SSE 以换行分隔，逐行喂 parser；行可能跨 chunk，用 buf 缓冲未完整的尾行。
       let nl: number

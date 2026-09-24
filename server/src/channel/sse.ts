@@ -11,16 +11,21 @@ const MAX_BODY_SIZE = 1024 * 1024
 // agent 侧把本实例直接当作 agentPort（收 UI 消息经 postHandler 触发、发 UI 消息写 SSE 流）；
 // Router 把 GET /api/events 与 POST /api/message 接到 sseHandler/postHandler。
 // UI 侧直接消费 SSE 流（浏览器 EventSource）+ POST 上行（fetch），不需要 UiPort。
-// 多个浏览器标签页可同时连 SSE——它们都是同一 Agent 的观察者，共享同一事件流。
+// 多个浏览器标签页可同时连 SSE——它们都是同一 Agent 的观察者，**常规事件**（post）共享
+// 同一广播流；唯【恢复链】例外：新连接的会话快照重发走 per-client 单播（见 onConnect/send）。
 export class SseChannel implements AgentPort {
   // UI→agent 消息回调（由 postHandler 触发）。
   private readonly agentListeners = new Set<(m: UiToAgentMessage) => void>()
   // 活跃的 SSE 连接——agent→UI 消息会写入所有连接。
   private readonly sseClients = new Set<ServerResponse>()
   // 可选回调：新 SSE 连接建立时触发（含断线自动重连、页面刷新后的重新连接）。
-  // 组合根（main-web.ts / bin/dogegg.ts）用它调 agent.resendSessionState() 重发会话快照——
-  // SSE 重连/刷新后前端没有后端事件重放，新连接必须重发快照，兑现 sse-client 的注释承诺。
-  onConnect?: () => void
+  // 参数 send 是捕获了【该连接】res 的单播发送器（构造见 sseHandler）——组合根
+  //（main-web.ts / bin/dogegg.ts）用它调 agent.resendSessionState(send) 向新连接单播重发会话快照。
+  // 【立法】恢复是新连接的私事，必须单播、绝不广播：session_ready 一旦经 post() 广播，会把
+  // 其它正在看的客户端聊天区整体重置（运行中的流式内容随 blocks 重建而丢失），且 N 个客户端
+  // 时一次重连退化为 O(N²) 消息。SSE 重连/刷新后前端没有后端事件重放，新连接必须重发快照，
+  // 兑现 sse-client 的注释承诺。
+  onConnect?: (send: (msg: AgentToUiMessage) => void) => void
 
   /** 订阅来自 UI 的消息，返回退订函数。 */
   onMessage(cb: (m: UiToAgentMessage) => void): () => void {
@@ -48,7 +53,13 @@ export class SseChannel implements AgentPort {
     this.sseClients.add(res)
     res.on('close', () => { this.sseClients.delete(res) })
     // 连接已登记——此刻重发快照能送达新连接（先登记再触发，避免消息写入时新连接缺席）。
-    this.onConnect?.()
+    // 单播 send：闭包捕获本连接的 res，写入格式与 post() 完全一致（data: <JSON>\n\n）。
+    // 连接关闭后该 send 自然失效——res.write 对已销毁的连接可能抛错，try/catch 吞掉即可
+    //（连接清理在 close 事件里做，这里不重复负责）。
+    const send = (msg: AgentToUiMessage): void => {
+      try { res.write(`data: ${JSON.stringify(msg)}\n\n`) } catch { /* 连接已断开，write 失败忽略 */ }
+    }
+    this.onConnect?.(send)
   }
 
   /** POST /api/message 的 HTTP handler——读取 body，zod 校验，触发 agentPort 回调。 */

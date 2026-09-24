@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { applyToolStart, applyToolEnd, extractFilesTouched, type ToolCallEntry } from '../../src/webui/features/turn-tracking/logic/tool-tracking'
+import { applyToolStart, applyToolEnd, extractFilesTouched, shouldClearPendingTool, type ToolCallEntry } from '../../src/webui/features/turn-tracking/logic/tool-tracking'
 import { effectivePerm, displayPerm } from '../../src/shared/permission'
 import type { AgentToUiMessage } from '@dogegg/bridge'
 
@@ -55,6 +55,25 @@ describe('extractFilesTouched', () => {
   it('其它工具 / 无路径返回 null', () => {
     expect(extractFilesTouched(startMsg({ name: 'shell', input: { command: 'ls' } }))).toBeNull()
     expect(extractFilesTouched(startMsg({ input: {} }))).toBeNull()
+  })
+})
+
+describe('shouldClearPendingTool', () => {
+  // 回归「调用中…」占位残留：error/finished/state 到非 running 态时必须清 pendingTool，
+  // 否则 tool_pending 设置的占位行在右栏永久残留（原先只有 tool_start/session_ready 清除）。
+  it('非 running 态清除占位（idle/finished/cancelled/error）', () => {
+    expect(shouldClearPendingTool('idle')).toBe(true)
+    expect(shouldClearPendingTool('finished')).toBe(true)
+    expect(shouldClearPendingTool('cancelled')).toBe(true)
+    expect(shouldClearPendingTool('error')).toBe(true)
+  })
+  it('running 态保留占位（tool_pending 尚未落到 tool_start 的正常窗口）', () => {
+    expect(shouldClearPendingTool('thinking')).toBe(false)
+    expect(shouldClearPendingTool('responding')).toBe(false)
+    expect(shouldClearPendingTool('tool_calling')).toBe(false)
+    expect(shouldClearPendingTool('executing')).toBe(false)
+    // 等待权限不是终止——占位行保留到决策后 tool_start。
+    expect(shouldClearPendingTool('waiting_permission')).toBe(false)
   })
 })
 

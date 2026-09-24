@@ -11,12 +11,19 @@ export type AgentToUiMessage =
   // LLM 请求层重试从零重发增量：UI 须先清空当前流式 partial（text/thinking），再接收新尝试的
   // delta——否则第 2 次尝试的 delta 追加在第 1 次残文后，展示与持久化分叉。不落盘、不产生新块。
   | { type: 'stream_reset' }
-  | { type: 'message'; role: 'user' | 'assistant' | 'tool'; id: string } // id 为真值（非空串），与 tool_start 的 id 同源，供 UI 定位/折叠/滚动
+  // id 为真值（非空串），与 tool_start 的 id 同源，供 UI 定位/折叠/滚动。
+  // role='user' 时应携带消息原文（发射点：turn-runner runTurn，会话历史里的同一条 user 消息）——
+  // UI 靠 text 做回声去重（本端乐观插入 local_user 后忽略同文本回声）与无乐观插入场景
+  //（invoke_skill 的用户轮次、其它标签页看远端用户消息）的实时插入。assistant/tool 不带 text。
+  | { type: 'message'; role: 'user' | 'assistant' | 'tool'; id: string; text?: string }
   | { type: 'tool_pending'; name: string } // 模型正在流式生成工具调用参数（tool_call_start → tool_start 之间）——大参数期间 UI 需有可见反馈
   | { type: 'tool_start'; id: string; name: string; input: unknown }
   | { type: 'tool_end'; id: string; name: string; output: string; error?: string } // 拒绝/失败工具也发 tool_end（error 标明原因），不再静默塞消息
   | { type: 'permission_request'; id: string; tool: string; input: unknown; alwaysScope?: { pattern: string } } // alwaysScope = agent 推导的范围模式（存在时 UI 渲染第四档「对此范围不再询问」）；措辞由各 UI 自组
-  | { type: 'session_ready'; id: string; messages: Message[]; thinking?: { text: string }[] }
+  // busy = 快照重发时 agent 是否在跑（gate.busy）。恢复链立法：运行中刷新页面/新标签接入时，
+  // session_ready 快照不得把 UI 打回 idle（否则输入框误启用、显示与后端真实状态分叉）——
+  // UI 据 busy 先落到「运行中」形态，随后的 status_state 会校正为真实 machine state。
+  | { type: 'session_ready'; id: string; messages: Message[]; busy: boolean; thinking?: { text: string }[] }
   | { type: 'session_list'; sessions: { id: string; updatedAt: string; preview: string; cwd?: string; title?: string }[] }
   | { type: 'session_deleted'; id: string } // 会话已删除——UI 据此刷新侧栏列表
   | { type: 'config_state'; config: Config }
@@ -39,7 +46,7 @@ export type AgentToUiMessage =
   | { type: 'status_state'; sessionId: string; provider: string; model: string; cwd: string; state: State; estimatedTokens: number; windowTokens: number; usage?: { promptTokens: number; completionTokens: number; turns: number } }
   | { type: 'log_state'; path: string; tail: string }
   | { type: 'history_cleared' }
-  | { type: 'notice'; text: string; channel?: 'skills' | 'mcp' } // channel：管理面板内联错误定位（skills/mcp 的 CRUD 失败），普通提示不带
+  | { type: 'notice'; text: string; channel?: 'skills' | 'mcp' | 'config' } // channel：管理面板内联错误定位（skills/mcp/config 的 CRUD 失败与 busy 拒绝），普通提示不带
   | { type: 'permissions_list'; permissions: ToolPermission[] } // /permissions 命令响应：当前会话的 allow_always 授权工具列表
   | { type: 'skills_list'; skills: { name: string; description: string; scope: 'project' | 'user'; path: string; enabled: boolean; missing: boolean }[] } // 当前 skills（项目级覆盖同名用户级时不省略；missing = 停用名单在案但目录已消失的孤儿条目）
   | { type: 'skill_content'; scope: 'project' | 'user'; name: string; content: string } // skills_manage get 的响应：SKILL.md 全文

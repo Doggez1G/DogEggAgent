@@ -41,6 +41,7 @@ export function App({ port, connectionState }: AppProps) {
       port.post({ type: 'config_request' })
       port.post({ type: 'status_request' })
       port.post({ type: 'skills_request' })
+      port.post({ type: 'mcp_request' })
       port.post({ type: 'list_sessions' })
     })
   }, [port])
@@ -182,6 +183,33 @@ export function App({ port, connectionState }: AppProps) {
         />
       </ErrorBoundary>
       <div className={styles.inputArea}>
+        {/* 空态首用引导：尚未配置 provider 时在输入栏上方给出显式入口（welcome 区在 chat-view，
+            归 WP3 所有不可改动——本处是 app 层现有结构里最小侵入的提示位，按钮直开设置弹窗）。 */}
+        {panel.config && panel.config.providers.length === 0 && (
+          <div
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 'var(--sp-2)',
+              margin: '0 var(--sp-2) var(--sp-2)', padding: 'var(--sp-2) var(--sp-3)',
+              border: '1px solid var(--color-warning-soft-border, var(--color-border))',
+              borderRadius: 'var(--radius-md)',
+              background: 'var(--color-warning-soft-bg, var(--color-surface-elevated))',
+              color: 'var(--color-warning)', fontSize: 'var(--fs-xs)',
+            }}
+          >
+            <span>尚未配置 provider——在设置中添加 API 提供方后即可开始对话。</span>
+            <button
+              onClick={() => setModal({ kind: 'settings' })}
+              style={{
+                flexShrink: 0, cursor: 'pointer', padding: '2px var(--sp-2)',
+                border: '1px solid var(--color-warning-soft-border, var(--color-border))',
+                borderRadius: 'var(--radius-sm)', background: 'transparent',
+                color: 'var(--color-warning)', fontSize: 'var(--fs-xs)',
+              }}
+            >
+              打开设置
+            </button>
+          </div>
+        )}
         {tracking.pendingPermission && (
           <PermissionBanner
             tool={tracking.pendingPermission.tool}

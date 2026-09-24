@@ -27,7 +27,8 @@ export class ConfigEditor {
   add(path: string, value: unknown): { ok: boolean; error?: string } {
     const op = parseConfigAdd(path, value)
     if (!op) return { ok: false, error: `无效的配置路径：${path}` }
-    applyAdd(this.config, op)
+    const applied = applyAdd(this.config, op)
+    if (!applied.ok) return applied // 越界/无匹配：不进入校验链（config 未被改动），错误直透
     return this.afterEdit()
   }
 
@@ -39,7 +40,8 @@ export class ConfigEditor {
 
   remove(path: string, index: number, providerIndex?: number): { ok: boolean; error?: string } {
     if (path !== 'providers' && path !== 'models') return { ok: false, error: `无效的删除路径：${path}` }
-    applyRemove(this.config, path, index, providerIndex)
+    const applied = applyRemove(this.config, path, index, providerIndex)
+    if (!applied.ok) return applied // 越界：config 未被改动，错误直透（不再静默 no-op 判 ok）
     return this.afterEdit()
   }
 

@@ -82,8 +82,10 @@ export class SessionStore {
   }
 
   // 会话列表 + preview + cwd，按 updatedAt 降序排序（最新在最前，方便查找）。
-  // preview 取 history（完整原文）最后一条非 tool 消息——
+  // preview 取 history（完整原文）最后一条非 tool 且 content 非空字符串的消息（从尾部向前找）——
   // 用 history 而非 context，因为 history 是用户可见的完整历史，preview 要反映用户真实对话。
+  // 从尾部向前扫而非只看末条：轮次收尾时 history 常以 tool 消息结尾（工具任务刚结束），
+  // 只看末条会得到空 preview，侧栏全是无摘要条目。
   // cwd 用于前端按项目（工作目录）分组会话。
   list(): SessionSummary[] {
     if (!existsSync(this.baseDir)) return []
@@ -94,8 +96,14 @@ export class SessionStore {
         try {
           const raw = JSON.parse(readFileSync(join(this.baseDir, f), 'utf8'))
           const history: Message[] = raw.history ?? raw.messages ?? []
-          const last: Message | undefined = history[history.length - 1]
-          const preview = last && last.role !== 'tool' && typeof last.content === 'string' ? last.content.slice(0, 40) : ''
+          let preview = ''
+          for (let i = history.length - 1; i >= 0; i--) {
+            const m = history[i]!
+            if (m.role !== 'tool' && typeof m.content === 'string' && m.content.length > 0) {
+              preview = m.content.slice(0, 40)
+              break
+            }
+          }
           const cwd: string = raw.cwd ?? ''
           const title: string | undefined = typeof raw.title === 'string' ? raw.title : undefined
           return { id: raw.id ?? f.replace('.json', ''), updatedAt: raw.updatedAt ?? '', preview, cwd, title }

@@ -114,10 +114,13 @@ export class Conversation {
     this.context = context
   }
 
-  // /clear：清空对话消息（thinking 不动，与旧行为一致）。
+  // /clear：清空对话消息。thinking 一并清空——/clear 的语义是「全新对话」，思考块随对话消失；
+  // 若只清消息而保留 thinking，resume 恢复链 rebuildBlocksFromHistory 会按序消费思考条目，
+  // 旧对话的思考块会错位挂到新对话的 assistant 消息上（思考张冠李戴）。
   clearMessages(): void {
     this.history = []
     this.context = []
+    this.thinking = []
   }
 
   // 新会话：全新 id + 空工作集（含 thinking）。
@@ -148,5 +151,30 @@ export class Conversation {
   // 落盘快照——组装的唯一入口（三个落盘调用点共用；sessionPermissions/usage 归各自提供方传入）。
   snapshotFull(sessionPermissions: ToolPermission[], usage: SessionUsage, compactions: number): SessionSnapshot {
     return { id: this.sessionId, history: this.history, context: this.context, sessionPermissions, cwd: this.cwdValue, thinking: this.thinking, usage, compactions, title: this.title }
+  }
+
+  // 轮次中途检查点快照（B：长任务崩溃/断电保护）——与 snapshotFull 同形的落盘对象，但【不改内存】：
+  // - history' = 现有 history + 轮内已完成的 newMessages（轮末 applyTurnResult 前它们只在 loop 手里）；
+  // - context' = loop 的实时 context 引用（压缩后的最新口径；save 时同步序列化当时内容，接收方只读）；
+  // - thinking' = 现有 thinking + 轮内已产生的 thinking；
+  // - usage' = 会话累计 + 轮内已累计的真实用量（turns 不 +1——轮未完成，不计轮次）。
+  // 轮末正常 saveOrNotice 会以内存真相覆盖同一会话文件，检查点无残留风险；lastTurn 不写（中途无「上一轮」）。
+  checkpoint(
+    live: { context: Message[]; newMessages: Message[]; thinking: { text: string }[]; usage: { promptTokens: number; completionTokens: number } },
+    sessionPermissions: ToolPermission[],
+    compactions: number,
+  ): SessionSnapshot {
+    const cumulative = this.getUsage()
+    return {
+      id: this.sessionId,
+      history: [...this.history, ...live.newMessages],
+      context: live.context,
+      sessionPermissions,
+      cwd: this.cwdValue,
+      thinking: [...this.thinking, ...live.thinking],
+      usage: { promptTokens: cumulative.promptTokens + live.usage.promptTokens, completionTokens: cumulative.completionTokens + live.usage.completionTokens, turns: cumulative.turns },
+      compactions,
+      title: this.title,
+    }
   }
 }

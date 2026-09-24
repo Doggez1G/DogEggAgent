@@ -7,7 +7,8 @@ import { z } from 'zod'
 export const modelSchema = z.object({
   name: z.string(),
   contextWindow: z.number().int().positive().default(128000),
-  maxOutput: z.number().int().positive().default(16384),
+  // maxOutput：-1 = 不设限（交给 provider 默认上限）；其余须为正整数。0 与其它负值非法。
+  maxOutput: z.number().int().refine((n) => n === -1 || n >= 1).default(16384),
   reasoning: z.boolean().default(false),
 })
 
@@ -155,6 +156,23 @@ export const configSchema = z.object({
           ctx.addIssue({
             code: 'custom',
             message: `权限键 "${key}" 是 MCP 服务名——服务键必须写为 "mcp:${key}"（见 docs/config.md 的 MCP 服务键章节）`,
+          })
+        }
+      }
+    }
+  })
+  // maxOutput ≤ contextWindow 交叉校验（独立 superRefine：不受上一条的空名单早退影响）：
+  // 单次回复的输出预算超过整个上下文窗口没有意义——真实 API 会因输出挤占上下文而报错或被
+  // 静默截断，且编辑器里两个数字相距很远，用户极易填反。maxOutput = -1 表示不设限
+  // （跟随 provider 默认），跳过本校验。
+  .superRefine((cfg, ctx) => {
+    for (const p of cfg.providers) {
+      for (const m of p.models) {
+        if (m.maxOutput === -1) continue
+        if (m.maxOutput > m.contextWindow) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `模型「${p.name}/${m.name}」的 maxOutput（${m.maxOutput}）不能大于 contextWindow（${m.contextWindow}）——单次回复的输出上限超过整个上下文窗口会被 provider 拒绝；不设限请填 -1`,
           })
         }
       }

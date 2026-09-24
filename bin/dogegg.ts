@@ -47,7 +47,10 @@ if (isWeb) {
   const channel = new SseChannel()
   const agent = new Agent(channel, config, process.cwd(), { logger })
   // SSE 重连/刷新后前端没有后端事件重放，新连接必须重发会话快照——兑现 sse-client 注释承诺。
-  channel.onConnect = () => agent.resendSessionState()
+  // 【立法】恢复是新连接的私事，必须单播：send 由 SseChannel 闭包捕获发起连接构造，快照只写
+  // 这一个连接。若走无参广播（resendSessionState() → post），任一标签重连都会把其它正在看的
+  // 客户端聊天区整体重置（运行中的流式内容丢失），且 N 客户端一次重连退化为 O(N²) 消息。
+  channel.onConnect = (send) => agent.resendSessionState(send)
 
   // 静态资源目录：与 dist/dogegg.js 同级的 web/ 目录。
   const staticDir = join(import.meta.dirname, 'web')

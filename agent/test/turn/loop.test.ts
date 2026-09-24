@@ -145,6 +145,23 @@ describe('AgentLoop', () => {
     expect(result.context[0]).toMatchObject({ role: 'user', content: '帮我修 bug' })
   })
 
+  it('thinking 与 assistant 严格对齐：正常轮每 assistant 一条；非 assistant 返回不产生 thinking 条目', async () => {
+    // 正常路径：reasoning 开启 → 每条 assistant 对应一条 thinking。
+    const okClient = fakeClient(() => [{ type: 'done', message: { role: 'assistant', content: 'ok' }, reasoning: '我想一下' }])
+    const okLoop = new AgentLoop(baseServices({}))
+    const ok = await okLoop.run(baseTurn({ client: okClient, reasoning: true }))
+    expect(ok.error).toBeUndefined()
+    expect(ok.thinking).toEqual([{ text: '我想一下' }])
+
+    // 对齐缺口回归：模型返回非 assistant 消息 → 角色断言抛错。thinking.push 在断言【之后】，
+    // 不会先多 push 一条造成「thinking 有而 history 无对应 assistant」的错位（resume 恢复链按序消费会张冠李戴）。
+    const badClient = fakeClient(() => [{ type: 'done', message: { role: 'user', content: '异常返回' }, reasoning: '思考了' }])
+    const badLoop = new AgentLoop(baseServices({}))
+    const bad = await badLoop.run(baseTurn({ client: badClient, reasoning: true }))
+    expect(bad.error).toContain('assistant')
+    expect(bad.thinking).toHaveLength(0)
+  })
+
   it('自动压缩中取消：AbortError 归一为 cancel（不误报 error、不卡死 compacting）', async () => {
     // 压缩器挂起直到 signal abort——模拟「压缩期间用户取消」（AbortError 从 compactor 直抛到 loop 顶层 catch）。
     const compactor = new Compactor((_messages, signal) => {

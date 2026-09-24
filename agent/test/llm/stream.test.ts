@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { OpenAiClient } from '../../src/llm'
-import { streamOnce } from '../../src/llm/provider/openai/stream'
+import { streamOnce, setIdleTimeoutForTest } from '../../src/llm/provider/openai/stream'
+import { StreamTimeoutError } from '../../src/llm/provider/openai/errors'
 import type { LlmStreamEvent, ChatRequest, LlmClientConn } from '../../src/llm'
 
 // streamOnce / OpenAiClient 的网络层单测：stub 全局 fetch，用 ReadableStream 构造 SSE 响应。
@@ -18,6 +19,29 @@ function sseResponse(chunks: Uint8Array[]): Response {
   })
   return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } })
 }
+
+// 手动控制进度的 SSE 流：用例按需 push/close，构造带真实时间静默间隔的 chunk 节奏
+//（sseResponse 是一次性的，做不了「先吐一段 → 停顿 → 再吐」的时序）。
+function manualSseResponse(): { res: Response; push: (line: string) => void; close: () => void } {
+  let controller!: ReadableStreamDefaultController<Uint8Array>
+  const body = new ReadableStream<Uint8Array>({ start(c) { controller = c } })
+  const enc = new TextEncoder()
+  return {
+    res: new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } }),
+    push: (line) => controller.enqueue(enc.encode(line)),
+    close: () => controller.close(),
+  }
+}
+
+// 永不进数据也永不关闭的 200 响应体：body 阶段挂死，等空闲定时器掐断。
+function hangingResponse(): Response {
+  return new Response(new ReadableStream<Uint8Array>({ start() { /* 故意什么都不做 */ } }), {
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
+  })
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 afterEach(() => { vi.unstubAllGlobals() })
 
@@ -92,5 +116,57 @@ describe('streamOnce — SSE 缓冲与解码', () => {
     vi.stubGlobal('fetch', async () => sseResponse([all.slice(0, cut), all.slice(cut)]))
     const result = await streamOnce(conn, req, new AbortController().signal, () => {})
     expect(result.message.content).toBe('你好')
+  })
+})
+
+describe('streamOnce — 两级空闲超时（首字节前紧 / 流建立后放宽）', () => {
+  // 立法阈值（首 chunk 前 60s / 首 chunk 后 180s）在测试里缩比成毫秒级：真实的分钟级思考静默
+  // 无法等待，验证的是「两级阈值按流是否建立正确分发」这一机制本身。用例级还原，防泄漏到其他 describe。
+  afterEach(() => setIdleTimeoutForTest(60_000, 180_000))
+
+  it('回归：首 chunk 后的思考静默超过「首字节级」阈值但小于「流建立级」阈值 → 不误杀，正常完成', async () => {
+    // 缩比复现用户实测场景（thought_delta 陆续到达后长静默被旧单级阈值误杀）：
+    // 首字节级 80ms 扮演旧 60s 的角色，流建立级 800ms 扮演新 180s 的角色；
+    // 静默 300ms——超过首字节级（旧逻辑会在此掐断），落在流建立级的容忍范围内。
+    setIdleTimeoutForTest(80, 800)
+    const stream = manualSseResponse()
+    vi.stubGlobal('fetch', async () => stream.res)
+    const pending = streamOnce(conn, req, new AbortController().signal, () => {})
+    stream.push('data: {"choices":[{"delta":{"content":"思考结束前的一段"}}]}\n\n')
+    await sleep(300) // 思考静默：provider 整段时间不发任何字节，属合法生成节奏
+    stream.push('data: {"choices":[{"delta":{"content":"，静默后的正文"}}]}\n\n')
+    stream.push('data: [DONE]\n\n')
+    const result = await pending
+    expect(result.message.content).toBe('思考结束前的一段，静默后的正文')
+  })
+
+  it('首字节前静默超过首字节级阈值 → 空闲超时仍触发（快速失败未被放宽冲掉）', async () => {
+    // 流建立级故意设得很大，隔离出「首 chunk 前」这一级的判定。
+    setIdleTimeoutForTest(80, 10 * 60_000)
+    vi.stubGlobal('fetch', async () => hangingResponse())
+    const err = await streamOnce(conn, req, new AbortController().signal, () => {}).then(() => null, (e) => e)
+    expect(err).toBeInstanceOf(StreamTimeoutError)
+    expect((err as StreamTimeoutError).kind).toBe('idle')
+    expect((err as StreamTimeoutError).retryable).toBe(true)
+  })
+
+  it('流建立后静默超过流建立级阈值 → 空闲超时仍触发（放宽不是取消上限）', async () => {
+    // 首字节级故意设得很大，隔离出「首 chunk 后」这一级的判定；之后永不 push、永不 close——
+    // 静默超过流建立级阈值必须被掐断，而非永久挂死。
+    setIdleTimeoutForTest(10 * 60_000, 80)
+    const stream = manualSseResponse()
+    vi.stubGlobal('fetch', async () => stream.res)
+    const pending = streamOnce(conn, req, new AbortController().signal, () => {})
+    stream.push('data: {"choices":[{"delta":{"content":"先吐一段"}}]}\n\n')
+    const err = await pending.then(() => null, (e) => e)
+    expect(err).toBeInstanceOf(StreamTimeoutError)
+    expect((err as StreamTimeoutError).kind).toBe('idle')
+  })
+
+  it('空闲超时文案不暗示连接死亡（体现「停止等待服务器数据」）', async () => {
+    setIdleTimeoutForTest(50, 10 * 60_000)
+    vi.stubGlobal('fetch', async () => hangingResponse())
+    const err = await streamOnce(conn, req, new AbortController().signal, () => {}).then(() => null, (e) => e)
+    expect((err as Error).message).toBe('流式空闲超时（长时间未收到服务器新数据，已停止等待）')
   })
 })

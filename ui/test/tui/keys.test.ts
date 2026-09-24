@@ -11,7 +11,7 @@ import { handleConfigKeys } from '../../src/tui/features/config/keys'
 import { handleSuggestionKeys, handleHistoryKeys, handlePathSuggestKeys } from '../../src/tui/features/input/keys'
 import { handleBrowseKeys } from '../../src/tui/features/browse/keys'
 import { handleInfoKeys } from '../../src/tui/features/info/keys'
-import { filterSessions } from '../../src/tui/features/sessions/filter'
+import { filterSessions, filterSessionsByCwd } from '../../src/tui/features/sessions/filter'
 import { buildEntries } from '../../src/tui/features/config'
 
 // key-routing 单测：每个特征的按键处理器注入 spy api，逐条验证「按键 → 副作用」。
@@ -40,6 +40,31 @@ describe('handlePermissionKeys', () => {
   it('esc 视为拒绝', () => {
     handlePermissionKeys(permissionView, key({ escape: true }), api)
     expect(post).toHaveBeenCalledWith({ type: 'permission_decision', id: 'p1', decision: 'reject' })
+  })
+})
+
+describe('handlePermissionKeys — returnView 恢复（审批弹层不顶掉当前视图）', () => {
+  // 打开审批前用户停在 /config 树（深层游标 3）——决议后必须原样恢复。
+  const back = { kind: 'config' as const, path: { kind: 'root' as const }, cursor: 3, preview: null }
+  const viewWithBack = { kind: 'permission' as const, id: 'p1', tool: 'shell', input: null, cursor: 0, returnView: back }
+
+  it('回车决议后恢复来源视图（游标等快照字段不丢）', () => {
+    handlePermissionKeys(viewWithBack, key({ return: true }), api)
+    expect(post).toHaveBeenCalledWith({ type: 'permission_decision', id: 'p1', decision: 'allow_once' })
+    expect(setView).toHaveBeenCalledWith(back)
+  })
+  it('esc 拒绝后同样恢复来源视图', () => {
+    handlePermissionKeys(viewWithBack, key({ escape: true }), api)
+    expect(post).toHaveBeenCalledWith({ type: 'permission_decision', id: 'p1', decision: 'reject' })
+    expect(setView).toHaveBeenCalledWith(back)
+  })
+  it('未挂 returnView（打开前无视图）维持旧行为：关闭到 none', () => {
+    handlePermissionKeys(permissionView, key({ return: true }), api)
+    expect(setView).toHaveBeenCalledWith({ kind: 'none' })
+  })
+  it('↑↓ 移动游标不丢失 returnView', () => {
+    handlePermissionKeys(viewWithBack, key({ downArrow: true }), api)
+    expect(setView).toHaveBeenCalledWith(expect.objectContaining({ cursor: 1, returnView: back }))
   })
 })
 
@@ -241,6 +266,27 @@ describe('filterSessions', () => {
     expect(filterSessions(sessions, '登录')).toHaveLength(1)
     expect(filterSessions(sessions, 'B2').map((s) => s.id)).toEqual(['b2'])
     expect(filterSessions(sessions, '不存在的词')).toHaveLength(0)
+  })
+})
+
+describe('filterSessionsByCwd（/session 选择器按工作目录过滤）', () => {
+  const sessions = [
+    { id: 'cur', preview: '当前目录会话', updatedAt: 'x', cwd: 'D:\\Project\\DogEggAgent' },
+    { id: 'other', preview: '其他目录会话', updatedAt: 'x', cwd: '/home/user/other' },
+    { id: 'legacy', preview: '旧存档会话', updatedAt: 'x', cwd: undefined },
+    { id: 'legacy2', preview: '空 cwd 旧存档', updatedAt: 'x', cwd: '' },
+  ]
+  it('当前 cwd（归一化：反斜杠→正斜杠、大小写不敏感、尾斜杠）内的会话可见', () => {
+    // 无 cwd 旧存档始终可见，故每个 cwd 查询结果都附带 legacy/legacy2。
+    expect(filterSessionsByCwd(sessions, 'd:/project/dogeggagent/').map((s) => s.id)).toEqual(['cur', 'legacy', 'legacy2'])
+  })
+  it('无 cwd / 空 cwd 的旧存档始终可见（兼容 ADR-0006 之前的会话）', () => {
+    const out = filterSessionsByCwd(sessions, 'D:/Project/DogEggAgent')
+    expect(out.map((s) => s.id)).toEqual(['cur', 'legacy', 'legacy2'])
+  })
+  it('其他 cwd 的会话被过滤', () => {
+    const out = filterSessionsByCwd(sessions, '/home/user/other')
+    expect(out.map((s) => s.id)).toEqual(['other', 'legacy', 'legacy2'])
   })
 })
 

@@ -15,7 +15,20 @@
   overflow-y: auto;
   overflow-x: hidden;
   padding: var(--sp-2);
+  /* 预留纵向滚动条槽位（scrollbar-gutter: stable）——展开 Available Tools 出现滚动条的瞬间
+     内容不再整体变窄（消除宽度跳动）；gutter 只占位不渲染滚动条本身。 */
+  scrollbar-gutter: stable;
 }
+
+/* 面板滚动条窄样式：thumb 用主题色（CSS 变量随 data-theme 切换），hover 加深；
+   作用域限定在面板内——不影响聊天区等其它滚动容器的全局样式。 */
+.scrollArea::-webkit-scrollbar { width: 8px; }
+.scrollArea::-webkit-scrollbar-track { background: transparent; }
+.scrollArea::-webkit-scrollbar-thumb {
+  background: var(--color-accent-soft);
+  border-radius: var(--radius-sm);
+}
+.scrollArea::-webkit-scrollbar-thumb:hover { background: var(--color-accent); }
 
 .expandBtn {
   grid-area: info;
@@ -188,7 +201,9 @@
 .contextPercent[data-overload='true'] { color: var(--color-danger); }
 
 /* ── 工具调用 ── */
-.toolList { display: flex; flex-direction: column; gap: var(--sp-1); max-height: 200px; overflow-y: auto; }
+/* 卡片内的内嵌滚动容器（.toolList / .miniPre）同样预留 gutter——条目增减触发滚动条出现/消失时
+   行宽不再抖动（与面板级 .scrollArea 同理）。 */
+.toolList { display: flex; flex-direction: column; gap: var(--sp-1); max-height: 200px; overflow-y: auto; scrollbar-gutter: stable; }
 .toolCallItem {
   display: flex;
   align-items: center;
@@ -299,6 +314,46 @@
 }
 .permRevokeBtn:hover { color: var(--color-danger); }
 
+/* ── Session Permissions 逐模式 chips ──
+   每条会话提升模式一个 chip + ×（permission_revoke 带 pattern 撤单条），整工具撤销按钮保留。
+   chips 容器可换行（flex-wrap）——模式多时纵向堆叠而非横向溢出。 */
+.sessionPermChips {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}
+.sessionPermChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-text);
+}
+.sessionPermChip code {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 整工具提升（patterns 为空）的占位文案。 */
+.sessionPermWhole {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-subtext);
+}
+
 /* ── Files Touched ── */
 .fileItem {
   display: flex;
@@ -342,6 +397,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Available Tools 行的工具名：允许换行（word-break: break-all）——名称是行的主内容，
+   完整可读优先于单行省略；MCP 长名（如 mcp__playwright__browser_console_messages）
+   逐字折行展示，权限徽章 flex-shrink:0（.toolPerm 自带）不被挤压。 */
+.miniNameWrap {
+  white-space: normal;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 /* 分组（系统工具 / MCP 服务）：组头 chevron + 标签 + 徽章 + 计数，可展开收起 */
@@ -399,6 +463,7 @@
   word-break: break-word;
   max-height: 200px;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   color: var(--color-subtext);
   margin: 0;
 }

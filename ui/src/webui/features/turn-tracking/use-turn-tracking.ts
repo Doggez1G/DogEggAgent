@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentToUiMessage, Config, ToolIdentity, UiPort } from '@dogegg/bridge'
 import { effectivePerm } from '../../../shared'
-import { applyToolStart, applyToolEnd, extractFilesTouched, type ToolCallEntry, type ToolDecision } from './logic/tool-tracking'
+import { applyToolStart, applyToolEnd, extractFilesTouched, shouldClearPendingTool, type ToolCallEntry, type ToolDecision } from './logic/tool-tracking'
 import type { FileTouched } from '../../view-state'
 
 // 工具执行与审批生命周期：toolCalls 追踪、filesTouched 提取、权限挂起与决策关联。
@@ -51,14 +51,21 @@ export function useTurnTracking(port: UiPort): {
       } else if (msg.type === 'permission_request') {
         pendingRef.current = { id: msg.id, tool: msg.tool, input: msg.input, alwaysScope: msg.alwaysScope }
         setPendingPermission(pendingRef.current)
-      } else if (msg.type === 'state' && msg.to !== 'waiting_permission' && pendingRef.current) {
+      } else if (msg.type === 'state') {
         // 权限等待期间状态离开 waiting_permission（如 cancel）→ 关闭审批横幅。
-        pendingRef.current = null
-        setPendingPermission(null)
+        if (msg.to !== 'waiting_permission' && pendingRef.current) {
+          pendingRef.current = null
+          setPendingPermission(null)
+        }
+        // 状态迁移到非 running 态（idle/finished/cancelled/error）时清「调用中…」占位——
+        // pendingTool 原先只在 tool_start/session_ready 清除，中断/出错后右栏会永久残留转圈行。
+        if (shouldClearPendingTool(msg.to)) setPendingTool(null)
       } else if (msg.type === 'session_ready') {
         setFilesTouched([])
         toolSeqRef.current = 0
         setPendingTool(null)
+        // 会话隔离：retryText 是上一轮 error 的回填文本，跨会话残留会在新会话首帧误回填——一并清空。
+        setRetryText(null)
         // 会话隔离：提升集随会话存档恢复——先清空镜像，再从后端重新播种。
         sessionRules.current.clear()
         port.post({ type: 'permissions_request' })
@@ -88,13 +95,26 @@ export function useTurnTracking(port: UiPort): {
       } else if (msg.type === 'error') {
         // 出错时自动回填上次提交的文本到输入框，方便重试（与 TUI 行为一致）。
         if (lastSubmitText.current) setRetryText(lastSubmitText.current)
+        // 出错即本轮终止——清「调用中…」占位，避免右栏残留转圈行（与 state 非 running 分支同理）。
+        setPendingTool(null)
+      } else if (msg.type === 'finished') {
+        // 正常收尾——同样清「调用中…」占位（finished 不带 state 迁移消息的传输时序下兜底）。
+        setPendingTool(null)
       }
     })
     return off
     // pendingPermission 通过 ref 闭包读取——用 state 会在 effect deps 中失效。
   }, [port])
 
+  // 决议提交的序号——迟到的 Promise 失败（期间用户已重试成功）据此判断是否还该回滚。
+  const resolveSeqRef = useRef(0)
+
   const resolve = useCallback((id: string, tool: string, decision: ToolDecision, scopePattern?: string) => {
+    const seq = ++resolveSeqRef.current
+    // 快照决议前的可变状态——提交失败时按原样回滚（横幅重现可重试、镜像还原、决策标签还原）。
+    const prevRules = new Map(sessionRules.current)
+    const prevDecision = permissionDecisions.current.get(tool)
+    const pending = pendingRef.current
     permissionDecisions.current.set(tool, decision)
     // 乐观更新提升镜像——提升在 permission.apply 即刻生效，不等 permissions_list 往返，
     // 同轮内后续同范围工具的 tool_start 就能按 always/scoped 展示（随后端广播校正）。
@@ -105,7 +125,31 @@ export function useTurnTracking(port: UiPort): {
     }
     if (decision === 'allow_always' || decision === 'allow_always_scoped') port.post({ type: 'permissions_request' })
     pendingRef.current = null
-    port.post({ type: 'permission_decision', id, decision })
+    // 失败回滚（与 app 层 safePost 同款安全提交语义）：先清横幅再裸 post 的旧时序下，POST 失败
+    // 会导致横幅消失而后端永久等待 decision——这里恢复原请求对象让横幅重现、用户可重试。
+    const rollback = (e: unknown): void => {
+      // 迟到的失败：期间已有更新的决议提交（seq 变化）则不再回滚，避免复活过期的横幅。
+      if (resolveSeqRef.current !== seq) {
+        console.warn('[turn-tracking] permission_decision 提交失败（已有更新的提交，跳过回滚）', e)
+        return
+      }
+      console.warn('[turn-tracking] permission_decision 提交失败，已恢复审批横幅可重试', e)
+      sessionRules.current = prevRules
+      if (prevDecision === undefined) {
+        if (permissionDecisions.current.get(tool) === decision) permissionDecisions.current.delete(tool)
+      } else {
+        permissionDecisions.current.set(tool, prevDecision)
+      }
+      pendingRef.current = pending
+      setPendingPermission(pending)
+    }
+    try {
+      const posted = port.post({ type: 'permission_decision', id, decision })
+      if (posted instanceof Promise) posted.catch(rollback)
+    } catch (e) {
+      rollback(e)
+      return
+    }
     setPendingPermission(null)
   }, [port])
 

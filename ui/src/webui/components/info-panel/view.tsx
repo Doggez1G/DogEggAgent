@@ -182,7 +182,7 @@ export function InfoPanel(props: InfoPanelProps) {
             <div className={styles.toolList}>
               {/* 模型正在生成工具调用参数——排在已完成条目之前的准备中占位行 */}
               {props.pendingTool != null && (
-                <div key='pending' className={styles.toolCallItem}>
+                <div key='pending' className={styles.toolCallItem} title={props.pendingTool || '工具'}>
                   <span className={styles.toolCallSeq}>…</span>
                   <span className={styles.toolCallIcon}>
                     <span className="spin" style={{ display: 'inline-block' }}>↻</span>
@@ -204,7 +204,8 @@ export function InfoPanel(props: InfoPanelProps) {
                       {tc.status === 'error' && '✕'}
                       {tc.status === 'rejected' && '⊘'}
                     </span>
-                    <span className={styles.toolCallName}>{tc.name}</span>
+                    {/* 行保持单行省略——完整名 + 状态 + 权限放 title 悬停可看（长 MCP 名截断兜底）。 */}
+                    <span className={styles.toolCallName} title={`${tc.name} · ${tc.status} · ${actualPerm}`}>{tc.name}</span>
                     <span className={styles.toolPerm} data-perm={actualPerm}>{actualPerm}</span>
                   </div>
                 )
@@ -223,7 +224,8 @@ export function InfoPanel(props: InfoPanelProps) {
                   <span className={styles.fileIcon}>
                     {f.action === 'edit' ? <FileEdit size={12} strokeWidth={1.5} /> : <FilePlus size={12} strokeWidth={1.5} />}
                   </span>
-                  <span className={styles.fileName}>{basename(f.path)}</span>
+                  {/* 行内只显 basename（单行省略）——完整路径放 title 悬停可看（深层路径截断兜底）。 */}
+                  <span className={styles.fileName} title={f.path}>{basename(f.path)}</span>
                   <Badge variant={f.action === 'edit' ? 'warning' : 'success'}>{f.action}</Badge>
                 </div>
               ))}
@@ -245,11 +247,33 @@ export function InfoPanel(props: InfoPanelProps) {
             <div className={styles.toolList}>
               {props.permissionsList.map(({ tool, patterns }) => (
                 <div key={tool} className={styles.fileItem}>
-                  <code className={styles.miniName}>{tool}{patterns.length > 0 ? ' — ' + patterns.join('  ') : ' — whole tool'}</code>
+                  <code className={styles.miniName} title={tool}>{tool}</code>
+                  {patterns.length > 0 ? (
+                    /* 逐模式撤销（对齐 TUI 粒度）：patterns 非空时每条模式一个 chip + ×，
+                       permission_revoke 带 pattern 撤单条（撤光后端自动移除整条提升）。 */
+                    <div className={styles.sessionPermChips}>
+                      {patterns.map((p) => (
+                        <span key={p} className={styles.sessionPermChip}>
+                          <code title={p}>{p}</code>
+                          <button
+                            className={styles.permRevokeBtn}
+                            onClick={() => props.port.post({ type: 'permission_revoke', tool, pattern: p })}
+                            aria-label={`Revoke ${p} on ${tool}`}
+                          >
+                            <X size={9} strokeWidth={2} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className={styles.sessionPermWhole}>whole tool</span>
+                  )}
+                  {/* 整工具撤销按钮保留——一键清掉该工具的全部会话提升。 */}
                   <button
                     className={styles.permRevokeBtn}
                     onClick={() => props.port.post({ type: 'permission_revoke', tool })}
                     aria-label={`Revoke ${tool}`}
+                    title="撤销该工具的全部会话提升"
                   >
                     <X size={10} strokeWidth={2} />
                   </button>
@@ -341,6 +365,8 @@ function AvailableTools({ tools, config }: { tools: ToolListItem[]; config: Conf
 }
 
 // 单行：显示名 + 权限徽章（徽章永远按完整注册名 + 身份镜像从配置求值）。
+// 工具名允许换行（.miniNameWrap 的 break-all）——名称是行的主内容，完整可读优先于单行省略；
+// 权限徽章 flex-shrink:0（.toolPerm 自带）不被长名挤压。
 function ToolRow({ item, label, config, identities }: {
   item: ToolListItem
   label: string
@@ -350,7 +376,7 @@ function ToolRow({ item, label, config, identities }: {
   const perm = getToolPermission(item.name, config, identities)
   return (
     <div className={styles.miniItem}>
-      <code className={styles.miniName} title={item.name}>{label}</code>
+      <code className={`${styles.miniName} ${styles.miniNameWrap}`} title={item.name}>{label}</code>
       <span className={styles.toolPerm} data-perm={perm}>{perm}</span>
     </div>
   )
@@ -369,7 +395,8 @@ function ToolGroup({ label, count, mcp = false, defaultOpen = false, children }:
     <div className={styles.toolGroup}>
       <button className={styles.toolGroupHeader} onClick={() => setOpen(!open)} aria-expanded={open}>
         <ChevronDown size={11} strokeWidth={2} className={styles.toolGroupChevron} data-open={open} />
-        <span className={styles.toolGroupLabel}>{label}</span>
+        {/* 分组标签（MCP 服务名）超长单行省略——全名放 title 悬停可看。 */}
+        <span className={styles.toolGroupLabel} title={label}>{label}</span>
         {mcp && <span className={styles.toolGroupBadge}>MCP</span>}
         <span className={styles.toolGroupCount}>{count}</span>
       </button>

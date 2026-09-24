@@ -62,18 +62,22 @@
   display: flex;
   gap: 4px;
 }
+/* 三小点进行中动画：纯 opacity 正弦式脉动（0.25 → 1 → 0.25，1.4s 交错）。
+   此前的 streaming-bounce 带 transform: scale 缩放，小圆点在亚像素渲染下抖动、
+   观感生硬（2026-09-24 动画优化立法：进行中动画用平滑透明度脉动，不动几何）。
+   颜色沿用主题 token（--color-accent），不写死色值。 */
 .streamingDot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--color-accent);
-  animation: streaming-bounce 1s ease-in-out infinite;
+  animation: streaming-pulse 1.4s ease-in-out infinite;
 }
-.streamingDot:nth-child(2) { animation-delay: 0.15s; }
-.streamingDot:nth-child(3) { animation-delay: 0.3s; }
-@keyframes streaming-bounce {
-  0%, 100% { transform: scale(0.8); opacity: 0.5; }
-  50% { transform: scale(1.2); opacity: 1; }
+.streamingDot:nth-child(2) { animation-delay: 0.2s; }
+.streamingDot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes streaming-pulse {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
 }
 .streamingText {
   font-size: 12px;
