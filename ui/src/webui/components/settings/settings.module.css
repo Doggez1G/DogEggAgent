@@ -881,6 +881,12 @@
   border-color: transparent;
   color: var(--color-success, #22c55e);
 }
+/* Skills 启停徽章复用 mcpBadge：enabled 是正常态但同样要「看得见」——用与 running 同款的成功色。 */
+.mcpBadge[data-status='on'] {
+  background: var(--color-success-soft, rgba(34, 197, 94, 0.12));
+  border-color: transparent;
+  color: var(--color-success, #22c55e);
+}
 .mcpBadge[data-status='error'] {
   background: var(--color-danger-soft, rgba(239, 68, 68, 0.12));
   border-color: transparent;

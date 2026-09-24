@@ -97,12 +97,15 @@ export function SkillsSection({ port }: { port: UiPort }) {
             <div className={styles.sectionTitle} style={{ fontSize: 12, opacity: 0.7 }}>{g.label}</div>
             {items.length === 0 && <div style={{ opacity: 0.5, fontSize: 12 }}>（无）</div>}
             {items.map((s) => (
-              <div key={`${s.scope}/${s.name}`} className={styles.providerItem} style={s.missing ? { opacity: 0.55 } : undefined}>
+              <div key={`${s.scope}/${s.name}`} className={styles.providerItem} style={s.missing ? { opacity: 0.55 } : !s.enabled ? { opacity: 0.7 } : undefined}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 500 }}>
-                    /{s.name}
-                    {s.missing && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--color-warning, #eab308)' }}>文件不存在</span>}
-                    {!s.enabled && !s.missing && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--color-subtext)' }}>已停用</span>}
+                  <div className={styles.mcpCardTitle}>
+                    <span className={styles.mcpCardName}>/{s.name}</span>
+                    {/* 启停状态徽章对齐 MCP 卡片——toggle 的数据流（skills_list 广播）本就即时，
+                        此前的反馈只有标题旁 11px 小字，用户感知不到；徽章 + 行降透明度给足反馈。 */}
+                    <span className={styles.mcpBadge} data-status={s.missing ? 'error' : s.enabled ? 'on' : undefined}>
+                      {s.missing ? '文件缺失' : s.enabled ? '已启用' : '已停用'}
+                    </span>
                   </div>
                   <div style={{ opacity: 0.6, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {s.missing ? '（目录已不存在——清理后可重新创建同名 skill）' : (s.description || '（无描述）')}
