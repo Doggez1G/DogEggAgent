@@ -110,7 +110,12 @@ export class Agent {
       emit: (m) => this.emit(m),
       onConfigChanged: (config) => this.onConfigChanged(config),
     })
-    this.mcp = new McpManager({ registry: this.registry, emit: (m) => this.emit(m) })
+    this.mcp = new McpManager({
+      registry: this.registry,
+      // MCP 工具集变化（生命周期广播的 tools_list）直接改变工具 schema 占用——
+      // 联动刷新状态栏与 Context 卡的 token 数字（见 refreshTokenDisplays 立法）。
+      emit: (m) => { this.emit(m); if (m.type === 'tools_list') this.refreshTokenDisplays() },
+    })
     // 启动即拉起已配置的 MCP server（异步——不阻塞消息循环；失败在 mcp_list 里可见）。
     void this.rebuildMcp().catch(() => {})
     // 自订阅：UI 发来的消息都经 port 路由到 send。
@@ -199,6 +204,33 @@ export class Agent {
   private emitSystemState(): void {
     try { this.emit(this.systemStateMessage()) }
     catch { /* 保持上一帧快照 */ }
+  }
+
+  // context_state 消息构造——context_request 拉取与 token 显示刷新共用同一形状与同一估算口径。
+  private contextStateMessage() {
+    const m = this.current()
+    const tokens = this.estimateCurrentTokens()
+    return {
+      type: 'context_state' as const,
+      estimatedTokens: tokens,
+      windowTokens: m.contextWindow,
+      percent: m.contextWindow ? Math.round((tokens / m.contextWindow) * 100) : 0,
+      breakdown: breakdownContextTokens(this.ctx.assembler.systemPrompt(), this.conversation.getContext(), this.registry.schemas()),
+      lastTurn: this.conversation.getLastTurn(),
+      sessionUsage: this.conversation.getUsage(),
+      compactions: this.conversation.getCompactions(),
+    }
+  }
+
+  // token 显示刷新推送。assembler.estimate = system prompt + context 消息 + 工具 schema——
+  // skills 增删启停 / 配置变更 / cwd 切换改 system prompt，MCP 工具集变化改 schema，
+  // 都会改变真实占用；但这些事件不经过状态机（无 state 广播），状态栏与 Context 卡的
+  // 数字若不主动推送就停留在旧值，同样误导「设置没生效」。触发点都是空闲期事件
+  // （运行中相关管理命令被 R2 阻塞），推送即当前真实占用。未配置 provider 无估算口径，跳过。
+  private refreshTokenDisplays(): void {
+    if (!isConfigured(this.ctx.config)) return
+    try { this.emitStatusState(); this.emit(this.contextStateMessage()) }
+    catch { /* 估算失败保持上一帧 */ }
   }
 
   // MCP 工具清单广播（tools_request 与 MCP 生命周期变化共用同一形状；身份随行供 UI 分组）。
@@ -332,8 +364,10 @@ export class Agent {
           return // get 的响应是 skill_content，不需要重播清单
       }
       this.emitSkillsList()
-      // skills 增删启停改变系统提示的技能清单段——主动推送新快照（见 emitSystemState 立法）。
+      // skills 增删启停改变系统提示的技能清单段——主动推送新快照（见 emitSystemState 立法），
+      // 同时刷新状态栏与 Context 卡的 token 数字（见 refreshTokenDisplays 立法）。
       this.emitSystemState()
+      this.refreshTokenDisplays()
     } catch (e) {
       this.emit({ type: 'notice', text: (e as Error).message, channel: 'skills' })
     }
@@ -407,10 +441,10 @@ export class Agent {
     this.ctx.assembler = new ContextAssembler(config.systemPrompt, this.registry, () => this.skills.promptSection() + shellGuidance(resolveShell(config.shellProgram)))
     // mcpServers 可能随配置变化——diff 重建（无变化时幂等空转，不广播）。
     void this.rebuildMcp().catch(() => {})
-    // provider/model 变更即时推送到状态栏与右侧面板——否则要等下一轮问答的状态机变化才刷新。
-    if (isConfigured(this.ctx.config)) { this.emitStatusState() }
     // systemPrompt/shellProgram 配置变更即时推送系统提示词快照（同上，不等下一次拉取）。
     this.emitSystemState()
+    // provider/model/systemPrompt/shellProgram 变更都改变 token 估算口径——状态栏与 Context 卡一并刷新。
+    this.refreshTokenDisplays()
   }
 
   // 命令分发：动工作集类在 running 时发 notice 不静默丢弃；纯查询类始终放行。
@@ -500,20 +534,8 @@ export class Agent {
         break
       case 'context_request': {
         if (!isConfigured(this.ctx.config)) { this.emit({ type: 'notice', text: '尚未配置 provider，请先 /config' }); break }
-        try {
-          const m = this.current()
-          const tokens = this.estimateCurrentTokens()
-          this.emit({
-            type: 'context_state',
-            estimatedTokens: tokens,
-            windowTokens: m.contextWindow,
-            percent: m.contextWindow ? Math.round((tokens / m.contextWindow) * 100) : 0,
-            breakdown: breakdownContextTokens(this.ctx.assembler.systemPrompt(), this.conversation.getContext(), this.registry.schemas()),
-            lastTurn: this.conversation.getLastTurn(),
-            sessionUsage: this.conversation.getUsage(),
-            compactions: this.conversation.getCompactions(),
-          })
-        } catch { this.emit({ type: 'notice', text: '上下文状态读取失败' }) }
+        try { this.emit(this.contextStateMessage()) }
+        catch { this.emit({ type: 'notice', text: '上下文状态读取失败' }) }
         break
       }
       case 'status_request': {
@@ -574,6 +596,7 @@ export class Agent {
           this.skills.setProjectDir(resolved)
           this.emitSkillsList()
           this.emitSystemState()
+          this.refreshTokenDisplays()
           void this.rebuildMcp().catch(() => {})
           this.emit({ type: 'notice', text: `工作目录已切换到 ${resolved}` })
           // 立即落盘 + 重推会话列表：会话文件携带 cwd，WebUI 侧栏按 cwd 分组项目树——

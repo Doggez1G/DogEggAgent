@@ -43,6 +43,17 @@ async function waitSystemState(events: AgentToUiMessage[], n: number): Promise<E
   }
 }
 
+// 轮询等待第 n 条 context_state 到达（skills 增删启停会联动推送 token 显示刷新）。
+async function waitContextState(events: AgentToUiMessage[], n: number): Promise<Extract<AgentToUiMessage, { type: 'context_state' }>> {
+  const deadline = Date.now() + 2000
+  for (;;) {
+    const states = events.filter((e): e is Extract<AgentToUiMessage, { type: 'context_state' }> => e.type === 'context_state')
+    if (states.length >= n) return states[n - 1]!
+    if (Date.now() > deadline) throw new Error(`等待第 ${n} 条 context_state 超时；已收到: ${events.map((e) => e.type).join(',')}`)
+    await new Promise((r) => setTimeout(r, 20))
+  }
+}
+
 describe('系统提示词变更主动推送', () => {
   it('禁用 skill 后推送的 system_state 不再包含该技能段；恢复启用后重新包含', async () => {
     const { events, post } = makeAgentWithSkill()
@@ -58,5 +69,22 @@ describe('系统提示词变更主动推送', () => {
     post({ type: 'skills_manage', action: 'toggle', scope: 'project', name: 'alpha', enabled: true })
     const third = await waitSystemState(events, 3)
     expect(third.content).toContain('ALPHA-SKILL-MARKER-7Q')
+  })
+
+  it('禁用 skill 后推送的 context_state 中 system 段与总估算同步下降，恢复后回升', async () => {
+    const { events, post } = makeAgentWithSkill()
+    // 基线拉取：估算含技能清单段的 system prompt。
+    post({ type: 'context_request' })
+    const first = await waitContextState(events, 1)
+    // 禁用 → 联动推送的刷新快照：system 段变短、总估算变小（估算器是确定性的纯字数折算）。
+    post({ type: 'skills_manage', action: 'toggle', scope: 'project', name: 'alpha', enabled: false })
+    const second = await waitContextState(events, 2)
+    expect(second.breakdown!.system).toBeLessThan(first.breakdown!.system)
+    expect(second.estimatedTokens).toBeLessThan(first.estimatedTokens)
+    // 恢复启用 → 回到基线值。
+    post({ type: 'skills_manage', action: 'toggle', scope: 'project', name: 'alpha', enabled: true })
+    const third = await waitContextState(events, 3)
+    expect(third.breakdown!.system).toBe(first.breakdown!.system)
+    expect(third.estimatedTokens).toBe(first.estimatedTokens)
   })
 })

@@ -142,6 +142,10 @@ describe('MCP 端到端（假 stdio server）', () => {
     // mcp_list 快照携带 transport 明细（面板编辑预填的数据源）。
     const list = [...events].reverse().find((e) => e.type === 'mcp_list') as Extract<AgentToUiMessage, { type: 'mcp_list' }>
     expect(list.servers[0]?.transport).toMatchObject({ type: 'stdio', command: process.execPath })
+    // MCP 工具集注册联动 token 显示刷新：本用例从未 post 过 context_request——
+    // 注册完成的 tools_list 广播伴随的 context_state 出现即证明刷新链路生效。
+    const ctxState = await waitFor(events, (e) => e.type === 'context_state', 'context_state') as Extract<AgentToUiMessage, { type: 'context_state' }>
+    expect(ctxState.breakdown!.tools).toBeGreaterThan(0)
     // 工具注册进注册表：tools_list 出现命名空间化的 mcp 工具。
     post({ type: 'tools_request' })
     const tools = await waitFor(events, (e) => e.type === 'tools_list', 'tools_list')
