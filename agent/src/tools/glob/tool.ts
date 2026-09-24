@@ -32,11 +32,12 @@ export class GlobTool implements Tool {
     // 但整个根都不存在必须显式报错——否则「模式写错」和「路径写错」在模型侧不可区分。
     const rootStat = await stat(root).catch(() => null)
     if (!rootStat) return { error: `路径不存在：${path ?? '.'}` }
-    // .gitignore（会话 cwd 根）参与过滤（M2.5）。
+    // .gitignore（会话 cwd 根）参与过滤（M2.5）；cwd 交给 walker 换算坐标——
+    // 规则按 cwd 锚定，子根扫描（path 传入子目录）时必须按 cwd 相对路径判定。
     const gitignore = loadGitIgnore(ctx.cwd)
     const matches: string[] = []
     try {
-      for await (const rel of walkFiles(root, { signal: ctx.signal, gitignore })) {
+      for await (const rel of walkFiles(root, { signal: ctx.signal, gitignore, cwd: ctx.cwd })) {
         if (re.test(rel)) {
           matches.push(rel)
           if (matches.length > MAX_MATCHES) break // 只为「知道总数之外还有更多」，总数在此场景不重要

@@ -29,7 +29,8 @@ export function applyToolStart(
   return [...prev, { id: msg.id, name: msg.name, status: 'running', seq, decision, perm }]
 }
 
-// tool_end：有 tool_start 的正常更新状态；孤儿 end（被拒绝/未知工具）创建 rejected 条目。
+// tool_end：有 tool_start 的正常更新状态；孤儿 end（无配对 tool_start，R3 拒绝路径只发 end）
+// 兜底建条目——denied 标 rejected，其他错误标 error（见 applyToolEnd 尾部分支）。
 export function applyToolEnd(
   prev: ToolCallEntry[],
   msg: Extract<AgentToUiMessage, { type: 'tool_end' }>,
@@ -54,7 +55,18 @@ export function applyToolEnd(
     }
     return updated
   }
-  return [...prev, { id: msg.id, name: msg.name, status: 'rejected', output: msg.output, decision: 'reject', perm, seq }]
+  // 孤儿 end（无前置 tool_start）：R3——拒绝也发 tool_end，让 UI 能渲染 denied。
+  // denied → rejected（决策记 reject）；其他错误 → error（并非用户决策，不标 decision，
+  // 展示层回落 perm 快照）；无 error 的孤儿兜底 done。
+  return [...prev, {
+    id: msg.id,
+    name: msg.name,
+    status: isRejected ? 'rejected' : msg.error ? 'error' : 'done',
+    output: msg.output,
+    ...(isRejected ? { decision: 'reject' as const } : {}),
+    perm,
+    seq,
+  }]
 }
 
 // Files Touched：从 tool_start 的 input 提取文件路径（仅 edit_file / write_file）。

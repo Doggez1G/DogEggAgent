@@ -197,6 +197,24 @@ export class Agent {
     return mergeMcpServers(this.ctx.config.mcpServers, readProjectMcp(this.conversation.getCwd()))
   }
 
+  // 裸服务名权限键运行时告警：config 的 superRefine 只校验全局 mcpServers 名单（加载期拒绝），
+  // 项目级 .mcp.json 服务的裸键（如 "playwright" 而非 "mcp:playwright"）静默失效——前缀立法下
+  // 不作为服务键匹配，用户的 allow/reject 意图丢失（回落默认 ask）。MCP 重建完成后用生效服务
+  // 名单（全局 ⊕ 项目）复查 permission 三桶键，让失配在运行时可见（错误可见立法）。
+  // 已警告键去重：重建链触发频繁（启动/config 变更/set_cwd/面板 manage），同键重复弹 notice 是噪音。
+  private readonly warnedBareMcpKeys = new Set<string>()
+  private warnBareMcpPermissionKeys(): void {
+    const names = new Set(this.mergeMcp().map((e) => e.server.name))
+    if (names.size === 0) return
+    for (const bucket of [this.ctx.config.permission.allow, this.ctx.config.permission.reject, this.ctx.config.permission.ask]) {
+      for (const key of Object.keys(bucket)) {
+        if (key.startsWith('mcp:') || !names.has(key) || this.warnedBareMcpKeys.has(key)) continue
+        this.warnedBareMcpKeys.add(key)
+        this.emit({ type: 'notice', text: `权限键 "${key}" 应写作 "mcp:${key}"，当前不生效（裸服务名键不匹配 MCP 工具）`, channel: 'mcp' })
+      }
+    }
+  }
+
   // diff 重建 MCP server（异步；变化后自动广播 mcp_list + tools_list）。
   // 串行化：触发源多（启动/config_updated/set_cwd/面板 manage），链式排队防交错重入——
   // 交错会让同一 server 被起两个进程、旧 client 变孤儿泄漏。merge 在执行时刻取值（总是最新配置）。
@@ -204,8 +222,20 @@ export class Agent {
   private rebuildMcp(): Promise<void> {
     this.mcpRebuildChain = this.mcpRebuildChain
       .then(() => this.mcp.rebuild(this.mergeMcp()))
+      // 重建完成后再查裸服务名权限键：此刻生效服务名单（含项目级）才是权威事实。
+      .then(() => this.warnBareMcpPermissionKeys())
       .catch(() => { /* 重建失败不中断后续重建——状态在 mcp_list 可见 */ })
     return this.mcpRebuildChain
+  }
+
+  // 项目级 .mcp.json 落盘（失败发 notice 不静默）：磁盘只读/权限问题时面板状态与磁盘事实分叉，
+  // 用户必须可见（错误可见立法；notice 形态与 skills 面板一致，channel 定位到 mcp 面板）。
+  private writeProjectMcpOrNotice(cwd: string, servers: McpServerConfig[]): void {
+    try {
+      writeProjectMcp(cwd, servers)
+    } catch (e) {
+      this.emit({ type: 'notice', text: `项目级 MCP 配置写入失败：${(e as Error).message}`, channel: 'mcp' })
+    }
   }
 
   private emitMcpList(): void {
@@ -239,21 +269,21 @@ export class Agent {
       }
       return
     }
-    // ── 项目级：直写 .dogegg/.mcp.json ──
+    // ── 项目级：直写 .dogegg/.mcp.json（落盘失败发 notice，不静默——见 writeProjectMcpOrNotice）──
     const cwd = this.conversation.getCwd()
     const list = readProjectMcp(cwd)
     if (cmd.action === 'save') {
       if (!cmd.server) { this.emit({ type: 'notice', text: '缺少 server 配置', channel: 'mcp' }); return }
       const i = list.findIndex((s) => s.name === cmd.server!.name)
       if (i >= 0) list[i] = cmd.server; else list.push(cmd.server)
-      writeProjectMcp(cwd, list)
+      this.writeProjectMcpOrNotice(cwd, list)
     } else if (cmd.action === 'delete') {
-      writeProjectMcp(cwd, list.filter((s) => s.name !== cmd.name))
+      this.writeProjectMcpOrNotice(cwd, list.filter((s) => s.name !== cmd.name))
     } else if (cmd.action === 'toggle') {
       const i = list.findIndex((s) => s.name === cmd.name)
       if (i < 0) { this.emit({ type: 'notice', text: `未找到 server：${cmd.name}`, channel: 'mcp' }); return }
       list[i] = { ...list[i]!, enabled: cmd.enabled ?? !list[i]!.enabled }
-      writeProjectMcp(cwd, list)
+      this.writeProjectMcpOrNotice(cwd, list)
     }
     void this.rebuildMcp().catch(() => {})
     this.emitMcpList()
@@ -299,10 +329,33 @@ export class Agent {
     return new Promise((resolve, reject) => {
       const id = newId()
       // 推导「对此范围不再询问」的模式（deriveAlwaysScope）随请求下发；推导不出时 UI 维持三档。
+      // tool/input 一并存入挂起项——snapshot 重发挂起审批时按原 id 还原 permission_request 载荷。
       const scopePattern = deriveAlwaysScope(tool, input, this.conversation.getCwd())
-      this.pending.add(id, { resolve, reject, scopePattern })
+      this.pending.add(id, { resolve, reject, scopePattern, tool, input })
       this.emit({ type: 'permission_request', id, tool, input, ...(scopePattern ? { alwaysScope: { pattern: scopePattern } } : {}) })
     })
+  }
+
+  // 挂起权限重发（恢复链的一部分）：刷新页面/断线重连后前端丢失挂起中的审批，
+  // 按【原 id】重发 permission_request——同 id 幂等，UI 按 id 关联，决议照常送达。
+  private resendPendingPermissions(): void {
+    for (const p of this.pending.snapshot()) {
+      this.emit({ type: 'permission_request', id: p.id, tool: p.tool, input: p.input, ...(p.alwaysScope ? { alwaysScope: p.alwaysScope } : {}) })
+    }
+  }
+
+  // 重发当前会话的状态快照：session_ready（消息历史 + thinking）+ 挂起中的 permission_request。
+  // 【立法】SSE 重连/刷新后前端无后端重放——唯一恢复源是重发快照。server 在新 SSE 连接建立时
+  // 调用此方法；不重发的话消息流空白、挂起审批永久失联。
+  resendSessionState(): void {
+    const thinking = this.conversation.getThinking()
+    this.emit({
+      type: 'session_ready',
+      id: this.conversation.getId(),
+      messages: [...this.conversation.getHistory()],
+      ...(thinking.length ? { thinking: [...thinking] } : {}),
+    })
+    this.resendPendingPermissions()
   }
 
   // 压缩回调：闭合在 ctx 上（调用时读当前 config 解析 provider/model）。
@@ -462,6 +515,8 @@ export class Agent {
       case 'permissions_request':
         // /permissions：返回当前会话的提升清单（按工具分组；patterns 空 = 整工具）。
         this.emit({ type: 'permissions_list', permissions: this.ctx.permission.snapshotPermissions() })
+        // 顺带重发挂起中的审批（恢复链）：权限面板重开/重连时，挂起请求借此恢复可见可决议。
+        this.resendPendingPermissions()
         break
       case 'rename_session': {
         // /rename：手动命名当前会话（手动命名优先于自动标题）。notice 让两端对话流都有可见回执。

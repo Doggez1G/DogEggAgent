@@ -54,6 +54,20 @@ describe('loadGitIgnore（.gitignore 核心子集）', () => {
     expect(files.sort()).toEqual(['.gitignore', 'docs/README.md'])
   })
 
+  it('walker cwd 参数：子根扫描时按 cwd 相对路径判定（坐标换算由 walker 负责）', async () => {
+    // 子根扫描（root≠cwd）时，谓词必须收到相对 cwd 的路径——否则锚定规则双向失真：
+    // `docs/internal.md` 变成 internal.md 匹配不上、`/README.md` 反而误杀子根同名文件。
+    const d = fresh()
+    writeFileSync(join(d, '.gitignore'), 'docs/internal.md\n/top.md\n')
+    mkdirSync(join(d, 'docs'), { recursive: true })
+    writeFileSync(join(d, 'docs', 'internal.md'), 'x')
+    writeFileSync(join(d, 'docs', 'README.md'), 'x')
+    const gi = loadGitIgnore(d)
+    const out: string[] = []
+    for await (const rel of walkFiles(join(d, 'docs'), { gitignore: gi, cwd: d })) out.push(rel)
+    expect(out).toEqual(['README.md'])
+  })
+
   it('! 取反：后匹配优先（被忽略目录内的例外文件）', async () => {
     const d = fresh()
     writeFileSync(join(d, '.gitignore'), 'logs/**\n!logs/keep.log\n')

@@ -3,15 +3,23 @@ import { agentToUiMessageSchema } from '@dogegg/bridge'
 
 export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected'
 
+// 带「重连回调注册」的 UiPort——SSE 传输的特有能力：EventSource 断线自动重连成功后，
+// 上层需要重新播种（自动重连不会重跑 React effect），通过 setOnReconnect 注册回调。
+export type SseUiPort = UiPort & { setOnReconnect(cb: () => void): void }
+
 // SSE UiPort：把浏览器的 EventSource + fetch POST 封装为 UiPort 接口。
 // 下行（agent → UI）：EventSource 监听 /api/events，收到 data 事件 → JSON.parse → onMessage 回调。
 // 上行（UI → agent）：fetch POST /api/message，body 为 JSON.stringify(msg)。
 // EventSource 断开后浏览器自动重连——重连时 server 推 session_ready 恢复完整状态。
 // 连接状态通过 onConnectionChange 回调通知 UI（顶栏指示器 + 首次断连 toast）。
-export function createSseUiPort(onConnectionChange?: (state: ConnectionState) => void): UiPort {
+export function createSseUiPort(onConnectionChange?: (state: ConnectionState) => void): SseUiPort {
   const listeners = new Set<(msg: AgentToUiMessage) => void>()
   let currentState: ConnectionState = 'reconnecting'
   let hasConnectedOnce = false
+  // 是否经历过断线（onerror）——onopen 时据此区分「首连」与「断线后的自动重连」。
+  let hasErrored = false
+  // 重连回调：断线后重连成功时调用一次（首连不调）。由上层（app.tsx）注册播种逻辑。
+  let onReconnect: (() => void) | null = null
 
   const setState = (s: ConnectionState) => {
     if (s === currentState) return
@@ -22,8 +30,13 @@ export function createSseUiPort(onConnectionChange?: (state: ConnectionState) =>
   const es = new EventSource('/api/events')
 
   es.onopen = () => {
+    const isReconnect = hasErrored
     hasConnectedOnce = true
+    hasErrored = false
     setState('connected')
+    // EventSource 自动重连不会重跑 effect——重连成功必须显式通知上层重新播种，
+    // 否则重连后各数据域停留在断线前的旧状态（或因服务端重启而全空）。
+    if (isReconnect) onReconnect?.()
   }
 
   es.onmessage = (e: MessageEvent) => {
@@ -40,6 +53,8 @@ export function createSseUiPort(onConnectionChange?: (state: ConnectionState) =>
   }
 
   es.onerror = () => {
+    // 记录断线事实——下次 onopen 即视为重连（而非首连）。
+    hasErrored = true
     // EventSource readyState: 0=connecting, 1=open, 2=closed
     if (es.readyState === EventSource.CLOSED) {
       setState('disconnected')
@@ -64,5 +79,6 @@ export function createSseUiPort(onConnectionChange?: (state: ConnectionState) =>
         throw new Error(`POST failed: ${res.status}`)
       }
     },
+    setOnReconnect(cb: () => void): void { onReconnect = cb },
   }
 }

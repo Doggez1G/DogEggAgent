@@ -16,6 +16,9 @@ export function createOpenAiStreamParser() {
   let content = ''
   let reasoning = ''
   let usage: LlmUsage | undefined
+  // 最近一次 finish_reason（choices[].finish_reason 随最后一个 delta chunk 到达）——
+  // 供 [DONE] 组装时判断 length 截断。
+  let finishReason: string | undefined
   const calls = new Map<number, PendingToolCall>()
 
   // [DONE] 时组装最终 assistant 消息：content（可能为 null）+ tool_calls（按 index 排序）。
@@ -32,6 +35,16 @@ export function createOpenAiStreamParser() {
       if (!line.startsWith('data:')) return events
       const data = line.slice(5).trim()
       if (data === '[DONE]') {
+        // finish_reason=length（maxOutput 掐断）：有正文且无 tool_calls 时在 content 末尾追加截断标记——
+        // 让模型与用户都感知输出不完整（而非当作完整回答收尾）。有 tool_calls 时不追加：
+        // 截断的参数 JSON 交由 tool-executor 的参数校验失败路径兜底，标记反而会污染调用语义。
+        // 标记同步以 text_delta 下发——UI 的 live partial 是 delta 累积产物（message 事件 flush 的
+        // 就是它），不同步则 live 展示与持久化的 content 分叉。
+        if (finishReason === 'length' && content && calls.size === 0) {
+          const marker = '\n\n[输出已因 maxOutput 截断]'
+          content += marker
+          events.push({ type: 'text_delta', text: marker })
+        }
         for (const [idx, c] of [...calls.entries()].sort((a, b) => a[0] - b[0])) {
           events.push({ type: 'tool_call_end', index: idx, id: c.id, name: c.name, arguments: c.args })
         }
@@ -44,6 +57,13 @@ export function createOpenAiStreamParser() {
       } catch {
         return events // 非 JSON 行（如注释/心跳）静默跳过
       }
+      // 部分兼容端点/网关在 200 的 SSE 流中推送 error 负载（而非以 HTTP 状态码报错）——
+      // 静默吞掉会让最坏情况组装出空 assistant 消息并按成功收尾，必须显式抛错
+      // （普通 Error 经 isRetryable 判为不可重试，fail-fast）。
+      if (json.error != null) {
+        throw new Error(`服务端流中返回错误：${extractSseErrorMessage(json.error)}`)
+      }
+      if (json.choices?.[0]?.finish_reason) finishReason = json.choices[0]!.finish_reason
       // usage 随 stream_options.include_usage 在流末尾的独立 chunk 返回（choices 为空数组）。
       if (json.usage) {
         usage = {
@@ -83,4 +103,14 @@ export function createOpenAiStreamParser() {
       return events
     },
   }
+}
+
+// 流中 error 负载的 message 提取容错：裸字符串或 {message} 形状；其余形状 JSON 序列化兜底
+//（负载来自 JSON.parse，无环引用，序列化安全）。
+function extractSseErrorMessage(err: unknown): string {
+  if (typeof err === 'string') return err
+  if (err && typeof err === 'object' && typeof (err as { message?: unknown }).message === 'string') {
+    return (err as { message: string }).message
+  }
+  return JSON.stringify(err)
 }

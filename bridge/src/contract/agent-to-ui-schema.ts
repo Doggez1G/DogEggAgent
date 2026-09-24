@@ -14,6 +14,7 @@ export const agentToUiMessageSchema: z.ZodType<AgentToUiMessage> = z.discriminat
   z.object({ type: z.literal('state'), from: stateSchema, to: stateSchema }),
   z.object({ type: z.literal('text_delta'), delta: z.string() }),
   z.object({ type: z.literal('thought_delta'), delta: z.string() }),
+  z.object({ type: z.literal('stream_reset') }), // 请求层重试从零重发增量——UI 先清空流式 partial（无载荷）
   z.object({ type: z.literal('message'), role: z.enum(['user', 'assistant', 'tool']), id: z.string() }),
   z.object({ type: z.literal('tool_pending'), name: z.string() }),
   z.object({ type: z.literal('tool_start'), id: z.string(), name: z.string(), input: z.unknown() }),

@@ -9,6 +9,17 @@ export class OpenAiClient implements LlmClient {
   constructor(private readonly conn: LlmClientConn) {}
 
   async chat(req: ChatRequest, signal: AbortSignal, emit: (e: LlmStreamEvent) => void): Promise<ChatResult> {
-    return withRetry(req.maxRetries + 1, () => streamOnce(this.conn, req, signal, emit), signal)
+    // 立法：请求层重试从零重发增量——第 2 次及以后的尝试开始前先发一次 stream_reset，
+    // 让 UI 清空上次尝试残留的 partial（第 1 次不发，无可清之残文）。
+    // 否则第 2 次尝试的 delta 追加在第 1 次残文后，展示与持久化分叉。
+    let attempt = 0
+    return withRetry(
+      req.maxRetries + 1,
+      () => {
+        if (attempt++ > 0) emit({ type: 'stream_reset' })
+        return streamOnce(this.conn, req, signal, emit)
+      },
+      signal,
+    )
   }
 }

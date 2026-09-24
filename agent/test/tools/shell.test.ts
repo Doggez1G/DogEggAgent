@@ -1,7 +1,11 @@
-import { describe, it, expect } from 'vitest'
-import { resolveShell, defaultShell } from '../../src/tools/shell'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { describe, it, expect, afterAll } from 'vitest'
+import { resolveShell, defaultShell, ShellTool } from '../../src/tools/shell'
 import type { ShellKind } from '../../src/tools/shell'
 import { shellGuidance } from '../../src/tools/shell'
+import type { ToolContext } from '../../src/tools'
 
 // shell 解释器解析测试：kind 标注、本机扫描过滤（配置未扫描到 → 回退平台默认）、
 // powershell 5.1 与 pwsh 7 的区分、未知解释器立法、模型可见的语法引导段。
@@ -60,5 +64,49 @@ describe('shellGuidance（模型可见的语法引导）', () => {
     const g = shellGuidance({ program: 'pwsh', flag: '-Command', kind: 'pwsh' }, 'win32')
     expect(g).toContain('PowerShell 7')
     expect(g).toContain('支持 && 与 ||')
+  })
+})
+
+// 以下为真实子进程用例：命令用 node 运行临时 .js 文件（vitest 本身跑在 node 上，PATH 恒有
+// node）。刻意走「脚本文件」而非 node -e "..."——cmd 的引号拼接会弄花内嵌双引号脚本，
+// 且无引号命令跨 cmd/bash 写法一致。
+describe('shell tool（真实子进程）', () => {
+  const workdir = mkdtempSync(join(tmpdir(), 'dogegg-shell-'))
+  writeFileSync(join(workdir, 'gen-big.js'), "process.stdout.write('a'.repeat(2 * 1024 * 1024))")
+  writeFileSync(join(workdir, 'gen-cjk.js'), "process.stdout.write('中'.repeat(300000))")
+  writeFileSync(join(workdir, 'sleep.js'), 'setTimeout(() => {}, 10000)')
+  afterAll(() => rmSync(workdir, { recursive: true, force: true }))
+  const tool = new ShellTool()
+  const ctx = (signal: AbortSignal, shellTimeoutMs?: number): ToolContext => ({
+    cwd: workdir,
+    signal,
+    shellTimeoutMs,
+  })
+
+  it('输出超采集上限：停止累积且回执注明丢弃字节数', { timeout: 20_000 }, async () => {
+    // 2MB 单字节输出 > 1MB 采集上限（SHELL_OUTPUT_CAP）——失控命令不能把 agent 拖向 OOM。
+    const r = await tool.execute({ command: 'node gen-big.js' }, ctx(new AbortController().signal)) as { content: string }
+    expect(r.content).toContain('[输出超过采集上限，已丢弃')
+    // 采集体封顶在 1MB：回执整体必然远小于 2MB 原始输出
+    expect(r.content.length).toBeLessThan(1024 * 1024 + 200)
+  })
+
+  it('多字节字符跨 chunk 不再截成乱码（Buffer 级拼接 + 统一解码）', { timeout: 20_000 }, async () => {
+    // 900KB（< 1MB cap）的多字节输出：旧实现逐 chunk toString，chunk 边界切断三字节
+    // 字符会产出 U+FFFD；新实现 Buffer.concat 后一次解码，内容必须逐字无损。
+    const r = await tool.execute({ command: 'node gen-cjk.js' }, ctx(new AbortController().signal)) as { content: string }
+    expect(r.content.startsWith('exit=0\n')).toBe(true)
+    expect(r.content).not.toContain('\uFFFD')
+    expect(r.content).not.toContain('已丢弃') // 未超上限：无丢弃说明
+  })
+
+  it('abort 中止长驻命令：杀树后按已有输出收场（close 先到，看门狗不触发）', { timeout: 15_000 }, async () => {
+    const ac = new AbortController()
+    const p = tool.execute({ command: 'node sleep.js' }, ctx(ac.signal, 30_000)) as Promise<{ content: string }>
+    setTimeout(() => ac.abort(), 400) // 命令起来后再取消——走 abort → killTree → close 路径
+    const r = await p
+    // 10s 长驻进程在 400ms 即被杀：exit code 必非 0（若是 0 说明命令提前自行退出，用例失真）
+    expect(r.content.startsWith('exit=0')).toBe(false)
+    expect(r.content).not.toContain('进程未正常退出') // close 先到：看门狗被清理，不兜底
   })
 })

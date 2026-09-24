@@ -10,6 +10,10 @@ import { HttpError, NetworkError, StreamTimeoutError } from './errors'
 // 两级超时统一抛 StreamTimeoutError（retry 层可重试）；用户取消走 AbortError，互不混淆。
 const CONNECT_TIMEOUT_MS = 60_000
 const IDLE_TIMEOUT_MS = 60_000
+// SSE 行缓冲上限：畸形端点（无换行地持续输出）会让 buf 无界增长，且每个 chunk 都有字节
+// 到达使空闲超时永不触发——超过上限判为畸形流，直接失败（普通 Error，不可重试）。
+// buf.length 是 UTF-16 码元数，ASCII 场景下与字节数一致，作为字节上限的近似足够。
+const MAX_SSE_BUF = 8 * 1024 * 1024
 
 // 单次流式请求：fetch → 逐行读 SSE 流 → 喂 parser → 累积最终 message + reasoning。
 // 不做重试（重试在 OpenAiClient 层）。HTTP 错误 / 流中断 / 超时 / 无最终消息均抛错。
@@ -38,10 +42,25 @@ export async function streamOnce(conn: LlmClientConn, req: ChatRequest, signal: 
   // 注意：onUserAbort 监听保留——body 阶段用户 abort 仍需中断（fetch body 绑定 connectCtrl.signal）。
 
   if (!res.ok || !res.body) {
+    // 401/404 是最高频的配置错误（key 无效 / 模型名不存在）——裸状态码让用户无从自查，
+    // 尽力读取响应体里的服务端错误说明拼进 message（上限 2048 字节，防超大响应撑爆错误展示）。
+    let detail = ''
+    try {
+      detail = (await res.text()).slice(0, 2048)
+      // OpenAI 形状的错误体是 {error:{message}}——提取纯 message；非 JSON / 其他形状用原文截断。
+      try {
+        const parsed = JSON.parse(detail) as { error?: { message?: string } }
+        if (parsed?.error?.message) detail = parsed.error.message
+      } catch { /* 非 JSON 错误体：保留原文截断 */ }
+    } catch { /* body 读取失败（如用户已 abort）：退回裸状态码 */ }
+    // throw 前清理资源：移除 abort 监听 + cancel 未读完的响应体——keep-alive 连接上悬空的
+    // 响应体会占住 socket，造成连接泄漏。
+    signal.removeEventListener('abort', onUserAbort)
+    try { await res.body?.cancel() } catch { /* cancel 失败不影响错误上抛 */ }
     const retryAfter = res.headers.get('retry-after')
     throw new HttpError(
       res.status,
-      `HTTP ${res.status}`,
+      detail ? `HTTP ${res.status}: ${detail}` : `HTTP ${res.status}`,
       retryAfter ? parseRetryAfter(retryAfter) : undefined,
     )
   }
@@ -93,9 +112,15 @@ export async function streamOnce(conn: LlmClientConn, req: ChatRequest, signal: 
           else emit(e)
         }
       }
+      // 缓冲上限检查放在整行抽取之后——此时 buf 只剩未完整的尾行，正常流远够不到上限。
+      if (buf.length > MAX_SSE_BUF) {
+        throw new Error(`SSE 缓冲超过 ${MAX_SSE_BUF / 1024 / 1024}MB 上限——端点未按换行分隔输出，疑似非 SSE 流`)
+      }
     }
 
     // 处理残余行：连接关闭时最后一批字节可能没有尾随换行。
+    // 先 flush 解码器尾字节——多字节 UTF-8 字符可能被截在 chunk 边界，不 flush 会丢字/乱码。
+    buf += decoder.decode()
     if (buf.trim()) {
       for (const e of parser.feed(buf.trim())) {
         if (e.type === 'done') { finalMessage = e.message; finalReasoning = e.reasoning; finalUsage = e.usage }

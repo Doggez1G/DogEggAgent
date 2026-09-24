@@ -1,5 +1,5 @@
 import { readdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { IGNORED_DIRS } from './ignore'
 
 // 递归文件遍历器：glob / grep 的共用底座（能力文件夹，≥2 消费方故成立）。
@@ -18,9 +18,25 @@ export async function* walkFiles(
     ignored?: ReadonlySet<string>
     /** 额外的路径谓词（如 .gitignore 匹配，见 ignore-gitignore.ts）——返回 true 则跳过该文件/目录。 */
     gitignore?: (relPath: string, isDir: boolean) => boolean
+    /**
+     * 会话 cwd（.gitignore 的编译根）。gitignore 规则按 cwd 根锚定，而 walker 产出的是
+     * 相对 rootDir 的路径——path 传子目录时两个坐标系错位（锚定规则双向失真）。提供 cwd
+     * 时谓词收到「相对 cwd 的 posix 路径」，换算由 walker 统一负责；root===cwd 时两者相等
+     * （前缀为空），全根扫描行为不变。
+     */
+    cwd?: string
   } = {},
 ): AsyncGenerator<string> {
   const ignored = opts.ignored ?? IGNORED_DIRS
+  // gitignore 判定坐标前缀：rootDir 相对 cwd 的 posix 路径（root===cwd 时为空串；Windows
+  // 反斜杠归一为 /）。未提供 cwd 或无 gitignore 谓词时前缀不参与，坐标保持相对 rootDir。
+  const gitignorePrefix =
+    opts.gitignore && opts.cwd ? relative(opts.cwd, rootDir).replace(/\\/g, '/') : ''
+  // 统一入口：谓词恒按 cwd 相对路径判定（gitignore 规则的锚定坐标系）。
+  const ignoreHit = (rel: string, isDir: boolean): boolean => {
+    if (!opts.gitignore) return false
+    return opts.gitignore(gitignorePrefix ? `${gitignorePrefix}/${rel}` : rel, isDir)
+  }
   // 迭代式 DFS：递归生成器在深层树上调用栈更浅，且中断检查点更规整。
   const stack: string[] = ['']
   while (stack.length > 0) {
@@ -42,10 +58,10 @@ export async function* walkFiles(
       const rel = relDir === '' ? e.name : `${relDir}/${e.name}`
       if (e.isDirectory()) {
         if (ignored.has(e.name)) continue
-        if (opts.gitignore?.(rel, true)) continue
+        if (ignoreHit(rel, true)) continue
         childDirs.push(rel)
       } else if (e.isFile()) {
-        if (opts.gitignore?.(rel, false)) continue
+        if (ignoreHit(rel, false)) continue
         yield rel
       }
     }

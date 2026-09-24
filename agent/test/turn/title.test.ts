@@ -104,4 +104,24 @@ describe('会话标题（自动生成 + 手动命名竞态）', () => {
     await new Promise((r) => setTimeout(r, 100))
     expect(savedTitle(sessionsDir)).toBe('手动命名')
   })
+
+  it('跨会话竞态守卫：标题生成期间 /new 切换会话 → 自动标题不写入新会话', async () => {
+    const { client, releaseTitle } = deferredTitleAdapter('写好了')
+    const { events, post, sessionsDir } = makeAgent(client)
+    post({ type: 'submit', text: '帮我写个快排' })
+    await waitFor(events, (e) => e.type === 'finished', 'finished')
+    // 标题请求已在飞——此刻 /new 切到新会话（会话 id 已变）。
+    post({ type: 'new_session' })
+    await waitFor(events, (e) => e.type === 'session_ready', '新会话 session_ready')
+    // 放行自动标题——写回前的跨会话守卫（生成前捕获的 id vs 当前 id）应丢弃结果：
+    // 旧会话的标题绝不落进新会话（标题存在性守卫拦不住它——新会话标题恰为空）。
+    releaseTitle()
+    await new Promise((r) => setTimeout(r, 100))
+    for (const file of readdirSync(sessionsDir).filter((n) => n.endsWith('.json'))) {
+      const raw = JSON.parse(readFileSync(join(sessionsDir, file), 'utf8')) as { title?: string }
+      expect(raw.title).toBeUndefined()
+    }
+    // 且不广播「已自动生成会话标题」回执与 session_list（丢弃即无副作用）。
+    expect(events.some((e) => e.type === 'notice' && e.text.includes('已自动生成会话标题'))).toBe(false)
+  })
 })

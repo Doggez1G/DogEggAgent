@@ -55,6 +55,9 @@ export class TurnRunner {
     const assistant = history.find((m) => m.role === 'assistant')
     if (!user || !assistant || typeof user.content !== 'string') return
     this.titleGenerating = true
+    // 生成前捕获会话 id：LLM 返回后写回前比对——生成期间 /new 或 resume 过（id 已变）直接丢弃，
+    // 否则旧会话的标题会写进新会话（跨会话竞态；标题存在性守卫拦不住它——新会话标题恰为空）。
+    const sessionId = this.deps.conversation.getId()
     void (async () => {
       try {
         const title = await generateTitle(
@@ -62,7 +65,8 @@ export class TurnRunner {
           user.content,
           String(assistant.content ?? ''),
         )
-        if (!title || this.deps.conversation.getTitle()) return
+        // 写回前双守卫：会话 id 未变（跨会话竞态）+ 标题仍为空（同会话 /rename 竞态，保留不动）。
+        if (!title || this.deps.conversation.getId() !== sessionId || this.deps.conversation.getTitle()) return
         this.deps.conversation.setTitle(title)
         try {
           this.deps.sessions.save(
@@ -152,13 +156,19 @@ export class TurnRunner {
       if (result.compacted) {
         this.deps.conversation.replaceContext(result.context)
         this.deps.conversation.incrementCompaction() // 手动压缩的计数入口（自动压缩走 LoopResult.compactions）
-        this.deps.sessions.save(
-        this.deps.conversation.snapshotFull(
-          this.deps.ctx.permission.snapshotPermissions(),
-          this.deps.conversation.getUsage(),
-          this.deps.conversation.getCompactions(),
-        ),
-      )
+        // 落盘单独 try/catch：压缩成功但保存失败是两个独立故障——保存失败应报「会话保存失败」
+        //（与 saveOrNotice 口径一致），误报「压缩失败」会误导用户去重试压缩。
+        try {
+          this.deps.sessions.save(
+            this.deps.conversation.snapshotFull(
+              this.deps.ctx.permission.snapshotPermissions(),
+              this.deps.conversation.getUsage(),
+              this.deps.conversation.getCompactions(),
+            ),
+          )
+        } catch {
+          this.deps.emit({ type: 'notice', text: '会话保存失败（磁盘空间不足或权限问题）' })
+        }
         this.deps.emit({ type: 'compaction', before_tokens: result.before, after_tokens: result.after, source: 'manual' })
       } else {
         // context 为空，或摘要不比原文短（非劣原则）——都没有压缩的意义。

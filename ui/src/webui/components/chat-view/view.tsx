@@ -12,16 +12,27 @@ interface ChatViewProps {
 }
 
 export function ChatView({ chat, isRunning }: ChatViewProps) {
+  // 滚动容器（.chatView 的 overflow-y:auto）+ 贴底标记：onScroll 时记录用户是否贴底
+  //（距底 < 80px 视为贴底）。上滚阅读历史 → 暂停自动滚动；滚回底部 → 自动恢复。
+  const viewRef = useRef<HTMLElement>(null)
+  const stickToBottomRef = useRef(true)
   const endRef = useRef<HTMLDivElement>(null)
 
+  const handleScroll = () => {
+    const el = viewRef.current
+    if (!el) return
+    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+  }
+
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' })
+    // 仅贴底时才自动滚动——无条件 scrollIntoView 会持续抢走阅读位置，导致无法上滚看历史。
+    if (stickToBottomRef.current) endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chat.blocks, chat.partial, chat.pendingTool])
 
   const empty = chat.blocks.length === 0 && !chat.partial && chat.pendingTool == null
 
   return (
-    <main className={styles.chatView}>
+    <main ref={viewRef} onScroll={handleScroll} className={styles.chatView}>
       {empty ? (
         <div className={styles.welcome}>
           <div className={styles.welcomeMark}>

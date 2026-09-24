@@ -28,8 +28,11 @@ const channel = new SseChannel()
 const logger = new Logger(join(homedir(), '.dogegg', 'logs'))
 
 // 构造 Agent——它构造时自订阅 port 消息，后续一切由 port 驱动。
-// eslint-disable-next-line no-new
-new Agent(channel, config, process.cwd(), { logger })
+const agent = new Agent(channel, config, process.cwd(), { logger })
+
+// SSE 重连/刷新后前端没有后端事件重放，新连接必须重发会话快照——兑现 sse-client 注释承诺。
+// （客户端侧另有断线重连后的播种请求补发，见 ui/src/webui/app/app.tsx，两者互补。）
+channel.onConnect = () => agent.resendSessionState()
 
 // 启动 HTTP server。
 // 开发模式（VITE_DEV=1）：staticDir=null，非 API 路径返回 404（前端由 Vite dev server 代理）。

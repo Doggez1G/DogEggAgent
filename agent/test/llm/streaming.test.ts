@@ -78,3 +78,59 @@ describe('usage 捕获（stream_options.include_usage）', () => {
     expect(done && 'usage' in done).toBe(false)
   })
 })
+
+describe('流中 error 负载（200 的 SSE 流里报错）', () => {
+  it('data 行携带 {error:{message}} → 抛错且 message 含服务端 message', () => {
+    const p = createOpenAiStreamParser()
+    expect(() => p.feed('data: {"error":{"message":"boom"}}')).toThrow('服务端流中返回错误：boom')
+  })
+
+  it('error 负载为裸字符串也能提取（message 容错）', () => {
+    const p = createOpenAiStreamParser()
+    expect(() => p.feed('data: {"error":"直接字符串错误"}')).toThrow('直接字符串错误')
+  })
+
+  it('error 为 null 不误判（正常 delta chunk 不受影响）', () => {
+    const p = createOpenAiStreamParser()
+    const events = [...p.feed('data: {"error":null,"choices":[{"delta":{"content":"ok"}}]}'), ...p.feed(done)]
+    expect(events.some((e) => e.type === 'text_delta')).toBe(true)
+  })
+})
+
+describe('finish_reason=length 截断标记', () => {
+  it('正文被 maxOutput 截断（无 tool_calls）→ done content 末尾含截断标记，且以 text_delta 同步', () => {
+    const p = createOpenAiStreamParser()
+    const events = [
+      ...p.feed('data: ' + JSON.stringify({ choices: [{ delta: { content: '回答前半' }, finish_reason: null }] })),
+      ...p.feed('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'length' }] })),
+      ...p.feed(done),
+    ]
+    const last = events.find((e) => e.type === 'done') as { message: { content: string } }
+    expect(last.message.content).toContain('回答前半')
+    expect(last.message.content).toContain('[输出已因 maxOutput 截断]')
+    // 标记同步下发 text_delta——UI 的 live partial（message 事件 flush 的对象）与持久化 content 一致。
+    const deltas = events.filter((e) => e.type === 'text_delta').map((e) => (e as { text: string }).text)
+    expect(deltas).toContain('\n\n[输出已因 maxOutput 截断]')
+  })
+
+  it('有 tool_calls 时不追加标记（截断的参数 JSON 由参数校验失败路径兜底）', () => {
+    const p = createOpenAiStreamParser()
+    const events = [
+      ...p.feed(sse({ tool_calls: [{ index: 0, id: 'c1', function: { name: 'shell', arguments: '{"com' } }] })),
+      ...p.feed('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'length' }] })),
+      ...p.feed(done),
+    ]
+    const last = events.find((e) => e.type === 'done') as { message: { content: string | null } }
+    expect(last.message.content ?? '').not.toContain('截断')
+  })
+
+  it('无正文时截断不追加标记（content 保持 null）', () => {
+    const p = createOpenAiStreamParser()
+    const events = [
+      ...p.feed('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'length' }] })),
+      ...p.feed(done),
+    ]
+    const last = events.find((e) => e.type === 'done') as { message: { content: string | null } }
+    expect(last.message.content).toBeNull()
+  })
+})

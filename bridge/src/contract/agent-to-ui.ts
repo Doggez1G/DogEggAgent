@@ -8,6 +8,9 @@ export type AgentToUiMessage =
   | { type: 'state'; from: State; to: State }
   | { type: 'text_delta'; delta: string }
   | { type: 'thought_delta'; delta: string }
+  // LLM 请求层重试从零重发增量：UI 须先清空当前流式 partial（text/thinking），再接收新尝试的
+  // delta——否则第 2 次尝试的 delta 追加在第 1 次残文后，展示与持久化分叉。不落盘、不产生新块。
+  | { type: 'stream_reset' }
   | { type: 'message'; role: 'user' | 'assistant' | 'tool'; id: string } // id 为真值（非空串），与 tool_start 的 id 同源，供 UI 定位/折叠/滚动
   | { type: 'tool_pending'; name: string } // 模型正在流式生成工具调用参数（tool_call_start → tool_start 之间）——大参数期间 UI 需有可见反馈
   | { type: 'tool_start'; id: string; name: string; input: unknown }

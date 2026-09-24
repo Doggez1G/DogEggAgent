@@ -17,7 +17,10 @@ export function parseSkillMd(raw: string): ParsedSkillMd {
   const end = normalized.indexOf('\n---', 4)
   if (end < 0) return { description: '', body: normalized.trim() }
   const head = normalized.slice(4, end)
-  const body = normalized.slice(normalized.indexOf('\n', end + 1) + 1).trim()
+  // 无尾换行：闭合 --- 是文件最后一行时其后没有 \n，indexOf 返回 -1——body 应为空串，
+  // 而非旧实现 slice(0) 把整个文件（frontmatter 混入正文）当 body。
+  const nl = normalized.indexOf('\n', end + 1)
+  const body = (nl < 0 ? '' : normalized.slice(nl + 1)).trim()
   let description = ''
   for (const line of head.split('\n')) {
     const m = /^description:\s*(.*)$/.exec(line)

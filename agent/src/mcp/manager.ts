@@ -55,7 +55,7 @@ export class McpManager {
     // 停止：被移除 / 停用 / 配置变化的现有 server（被移除的顺带清出 map）。
     for (const [name, rt] of [...this.servers]) {
       const next = desired.find((d) => d.server.name === name)
-      if (!next || !next.server.enabled || JSON.stringify(next.server.transport) !== JSON.stringify(rt.config.transport)) {
+      if (!next || !next.server.enabled || stableStringify(next.server.transport) !== stableStringify(rt.config.transport)) {
         this.stopOne(name) // 同步落状态 + 后台关连接——广播不被 close 时序阻塞
         if (!next) this.servers.delete(name)
         else { rt.config = next.server; rt.scope = next.scope } // 保留壳体让 listStatus 反映最新配置
@@ -66,7 +66,14 @@ export class McpManager {
     for (const entry of desired) {
       if (!entry.server.enabled) continue
       const existing = this.servers.get(entry.server.name)
-      if (existing?.status === 'running' && JSON.stringify(existing.config.transport) === JSON.stringify(entry.server.transport)) continue
+      if (existing?.status === 'running' && stableStringify(existing.config.transport) === stableStringify(entry.server.transport)) {
+        // 迁移不改传输也要刷新归属（global↔project 同名覆盖）：scope 停留旧值会让面板的
+        // 删除/启停写回错误层。归属真的变了才置 changed——静态刷新无需重播广播。
+        if (existing.scope !== entry.scope) changed = true
+        existing.config = entry.server
+        existing.scope = entry.scope
+        continue
+      }
       await this.startOne(entry)
       changed = true
     }
@@ -84,19 +91,21 @@ export class McpManager {
     this.broadcast()
     try {
       const client = new Client({ name: 'dogegg-agent', version: '0.2.0' })
+      rt.client = client // 先挂到 rt——catch 兜底统一经 closeQuietly 关闭（listTools 失败时连接已建立）
       const transport = cfg.transport.type === 'stdio'
         ? new StdioClientTransport({ command: cfg.transport.command, args: cfg.transport.args, env: toEnvMap(cfg.transport.env) })
         : new StreamableHTTPClientTransport(new URL(cfg.transport.url), { requestInit: { headers: cfg.transport.headers } })
       await client.connect(transport)
       const { tools } = await client.listTools()
-      rt.client = client
       rt.tools = tools.map((t) => ({ name: t.name, description: t.description ?? '', inputSchema: (t.inputSchema ?? {}) as Record<string, unknown> }))
       rt.status = 'running'
       rt.error = undefined
     } catch (e) {
       rt.status = 'error'
       rt.error = (e as Error).message
-      rt.client = undefined
+      // 立法：connect 成功后任何失败路径都必须关闭连接，否则 stdio 子进程泄漏
+      //（SDK 只在 connect 自身失败时自关；此后连接与子进程永久存活）。
+      this.closeQuietly(rt)
       rt.tools = []
     }
   }
@@ -107,11 +116,18 @@ export class McpManager {
   private stopOne(name: string): void {
     const rt = this.servers.get(name)
     if (!rt) return
-    const client = rt.client
-    rt.client = undefined
     rt.status = 'stopped'
     rt.tools = []
     this.unregisterServerTools(name)
+    this.closeQuietly(rt)
+  }
+
+  // 尽力而为关闭连接（fire-and-forget，1s 竞速上限）：startOne 失败兜底 / syncRegistry 判死 / stopOne 共用。
+  // close 抛错（已断开/SDK connect 失败路径已自关）静默吞掉；关不动的连接放弃等待，
+  // close 本身仍在后台推进（SDK close 内部会升级到强杀子进程）。
+  private closeQuietly(rt: McpServerRuntime): void {
+    const client = rt.client
+    rt.client = undefined
     if (client) {
       void Promise.race([
         client.close().catch(() => { /* 已断开则忽略 */ }),
@@ -136,6 +152,9 @@ export class McpManager {
         rt.error = (e as Error).message
         rt.tools = []
         this.unregisterServerTools(serverName) // 清掉半挂状态：冲突前已注册的本服务工具一并摘除
+        // 服务判死即断连（error 态不再持连接）：连接若留着，下次 rebuild 走 startOne 顶替
+        // map 条目时旧 client 无人关闭——stdio 子进程泄漏。连接已建立，关闭必须兜底。
+        this.closeQuietly(rt)
       }
     }
   }
@@ -197,4 +216,16 @@ export class McpManager {
 // env 数组语义：undefined → 继承父进程环境（SDK 默认行为）；显式对象 → 仅提供指定变量。
 function toEnvMap(env: Record<string, string> | undefined): Record<string, string> | undefined {
   return env
+}
+
+// 稳定序列化：对象键排序后再 stringify（递归生效；数组保持原序——args/headers 数组的顺序本身是语义）。
+// 立法：传输等价比较必须键序不敏感——手编配置文件键序不同（如 command/args 互换书写）不该被
+// 误判为传输变化而触发无谓重启。
+function stableStringify(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) => {
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      return Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+    }
+    return v
+  })
 }

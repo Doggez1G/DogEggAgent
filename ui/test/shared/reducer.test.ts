@@ -53,6 +53,27 @@ describe('reducer — thought_delta', () => {
   })
 })
 
+describe('reducer — stream_reset', () => {
+  it('清空 assistant partial 且不落盘、不产生新块', () => {
+    const s = reducer(withPartial('assistant', '第一次尝试的残文'), { type: 'stream_reset' })
+    expect(s.partial).toBeNull()
+    expect(s.blocks).toHaveLength(0)
+    expect(s.status).toBe('responding') // 不动 status（cancelled/idle 的强制 flush 立法不受影响）
+  })
+
+  it('清空 thinking partial 且不落盘', () => {
+    const s = reducer(withPartial('thinking', '残思'), { type: 'stream_reset' })
+    expect(s.partial).toBeNull()
+    expect(s.blocks).toHaveLength(0)
+  })
+
+  it('reset 后的新 delta 从零累积（不拼接残文——展示与持久化不分叉）', () => {
+    let s = reducer(withPartial('assistant', '残文'), { type: 'stream_reset' })
+    s = reducer(s, { type: 'text_delta', delta: '新' })
+    expect(s.partial).toEqual({ kind: 'assistant', text: '新' })
+  })
+})
+
 describe('reducer — message (assistant)', () => {
   it('flush partial 为 block', () => {
     const s = reducer(withPartial('assistant', '完整回答'), { type: 'message', role: 'assistant', id: 'm1' })
@@ -142,11 +163,42 @@ describe('reducer — tool_end', () => {
     ])
     expect(tool?.text).toContain('+1 -1')
   })
+})
 
-  it('未找到匹配 toolId 时不改 state', () => {
-    const s1 = reducer(initial, { type: 'tool_start', id: 'tc1', name: 'read_file', input: {} })
-    const s2 = reducer(s1, { type: 'tool_end', id: 'unknown', name: 'read_file', output: 'x' })
-    expect(s2).toEqual(s1)
+describe('reducer — tool_end（孤儿，无配对 tool_start）', () => {
+  // R3 立法：拒绝也发 tool_end（无 tool_start）——reducer 兜底生成完整 tool 块，
+  // 不再静默丢弃（旧行为：聊天区零反馈 + pendingTool 悬挂）。
+  it('tool_pending 状态下收到孤儿 denied tool_end → 新增 rejected 块且 pendingTool 清空', () => {
+    let s = reducer(initial, { type: 'tool_pending', name: 'shell' })
+    s = reducer(s, { type: 'tool_end', id: 'tc9', name: 'shell', output: '', error: 'denied' })
+    expect(s.pendingTool).toBeNull()
+    expect(s.blocks).toHaveLength(1)
+    const tool = s.blocks[0]!
+    expect(tool).toMatchObject({
+      kind: 'tool', toolId: 'tc9', toolName: 'shell',
+      toolStatus: 'rejected', toolError: 'denied', toolOutput: '',
+    })
+    expect(tool.text).toContain('已拒绝')
+    expect(tool.toolBody?.[0]).toEqual({ text: '✕ denied', kind: 'plain' })
+  })
+
+  it('非 denied 孤儿 → error 块（区别于用户拒绝）', () => {
+    const s = reducer(initial, { type: 'tool_end', id: 'tc9', name: 'shell', output: '', error: '执行超时' })
+    expect(s.blocks).toHaveLength(1)
+    expect(s.blocks[0]).toMatchObject({ kind: 'tool', toolId: 'tc9', toolStatus: 'error', toolError: '执行超时' })
+  })
+
+  it('tool_end 不带名时回退 pendingTool 标签', () => {
+    let s = reducer(initial, { type: 'tool_pending', name: 'read_file' })
+    s = reducer(s, { type: 'tool_end', id: 'tc9', name: '', output: '', error: 'denied' })
+    expect(s.blocks[0]).toMatchObject({ kind: 'tool', toolName: 'read_file', toolStatus: 'rejected' })
+  })
+
+  it('孤儿到达时未落盘的 partial 先 flush（助手文本在工具块之前）', () => {
+    const s = reducer(withPartial('assistant', '半句话'), { type: 'tool_end', id: 'tc9', name: 'shell', output: '', error: 'denied' })
+    expect(s.blocks).toHaveLength(2)
+    expect(s.blocks[0]).toMatchObject({ kind: 'assistant', text: '半句话' })
+    expect(s.blocks[1]).toMatchObject({ kind: 'tool', toolStatus: 'rejected' })
   })
 })
 

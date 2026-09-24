@@ -16,14 +16,20 @@ const EXE_NAME: Record<ShellKind, string> = {
   sh: 'sh',
 }
 
-// PATH 扫描：Windows 按 PATHEXT 补扩展名，其余平台直接找。
+// PATH 扫描：EXE_NAME 自带扩展名（powershell.exe 等），PATHEXT 是补充而非替代——
+// 先按裸名找，再按 PATHEXT 补扩展名找。若只做「exe+ext」拼接，检查的会是
+// powershell.exe.EXE（永不存在），powershell/pwsh/bash 在 Windows 上恒扫描不到。
+// Unix 下 exts=['']，等价于只按裸名找（行为不变）。
 function findOnPath(exe: string, platform: NodeJS.Platform): boolean {
   const dirs = (process.env.PATH ?? '').split(platform === 'win32' ? ';' : ':')
   const exts = platform === 'win32' ? (process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';') : ['']
   for (const dir of dirs) {
     if (!dir) continue
+    const base = dir.trim()
+    if (existsSync(join(base, exe))) return true
     for (const ext of exts) {
-      if (existsSync(join(dir.trim(), exe + ext))) return true
+      if (!ext) continue // 裸名已查过；空扩展名（含 PATHEXT 尾分号产生的空段）无需重复
+      if (existsSync(join(base, exe + ext))) return true
     }
   }
   return false

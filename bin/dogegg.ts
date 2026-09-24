@@ -45,8 +45,9 @@ if (isWeb) {
   // ── WebUI 模式 ──
   // SSE 通道：本身就是 AgentPort，agent 与 HTTP 路由共享同一实例。
   const channel = new SseChannel()
-  // eslint-disable-next-line no-new
-  new Agent(channel, config, process.cwd(), { logger })
+  const agent = new Agent(channel, config, process.cwd(), { logger })
+  // SSE 重连/刷新后前端没有后端事件重放，新连接必须重发会话快照——兑现 sse-client 注释承诺。
+  channel.onConnect = () => agent.resendSessionState()
 
   // 静态资源目录：与 dist/dogegg.js 同级的 web/ 目录。
   const staticDir = join(import.meta.dirname, 'web')

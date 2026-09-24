@@ -6,6 +6,9 @@ import { editFileSchema, editFileParameters } from './schema'
 
 // edit_file 工具：精准替换文件中首次出现的 old_string → new_string。
 // old_string 必须逐字符匹配（含缩进/空白）——这是 code agent 的核心约束，防止误替换。
+// 边界立法：old_string 为空一律拒绝——空串会命中文件开头（index 0），把 new_string 静默
+// 插到文件头（schema 层 .min(1) 是第一道关口，这里对绕过 schema 的直调路径双保险）；
+// new_string 为空则合法，语义是「删除 old_string 片段」。
 export class EditFileTool implements Tool {
   readonly name = 'edit_file'
   readonly description = '将文件中首次出现的 old_string 精准替换为 new_string'
@@ -14,6 +17,7 @@ export class EditFileTool implements Tool {
 
   async execute(args: unknown, ctx: ToolContext): Promise<ToolResult> {
     const { path, old_string, new_string } = args as z.infer<typeof editFileSchema>
+    if (!old_string) return { error: 'old_string 不能为空' }
     try {
       const p = join(ctx.cwd, path)
       const text = await readFile(p, 'utf8')

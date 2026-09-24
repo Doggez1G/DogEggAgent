@@ -267,6 +267,8 @@ export function InputBar({ port, isRunning, cwd, skills, onCommandNav, onClearHi
       return
     }
     if (e.key === 'Enter' && !e.ctrlKey && !e.shiftKey) {
+      // 中文输入法组词确认的 Enter（isComposing）不提交——否则选字回车会误发消息。
+      if (e.nativeEvent.isComposing) return
       e.preventDefault()
       handleSubmit()
     }

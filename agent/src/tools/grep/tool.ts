@@ -53,11 +53,12 @@ export class GrepTool implements Tool {
     if (!rootStat) return { error: `路径不存在：${path ?? '.'}` }
 
     // 单文件模式（path 指向文件）：产出一个空 rel，读 root 本身；目录模式：walkFiles 递归。
-    // .gitignore（会话 cwd 根）参与过滤——用户项目的忽略意愿就是搜索的忽略意愿（M2.5）。
+    // .gitignore（会话 cwd 根）参与过滤——用户项目的忽略意愿就是搜索的忽略意愿（M2.5）；
+    // cwd 交给 walker 换算坐标，子根扫描时锚定规则才不双向失真（见 walker.ts 的 cwd 参数）。
     const gitignore = loadGitIgnore(ctx.cwd)
     const targets: AsyncIterable<string> = rootStat.isFile()
       ? (async function* singleFile() { yield '' })()
-      : walkFiles(root, { signal: ctx.signal, gitignore })
+      : walkFiles(root, { signal: ctx.signal, gitignore, cwd: ctx.cwd })
 
     const mode = output_mode ?? 'content'
     const lines: string[] = []
@@ -97,7 +98,9 @@ export class GrepTool implements Tool {
       } catch {
         continue // 竞态删除/权限：单文件失败不致命
       }
-      if (globRe && !globRe.test(rel) && !globRe.test(basename(rel))) continue
+      // glob 过滤只对遍历产物生效；path 指向具体文件时（rel === ''）glob 不参与过滤——
+      // 显式点名即授权，否则 globRe.test('') 必败，点名文件恒被误过滤。
+      if (globRe && rel !== '' && !globRe.test(rel) && !globRe.test(basename(rel))) continue
 
       // 逐行正则（\r 归一掉，Windows 行尾不影响命中与行号）。
       const fileLines = text.split('\n').map((l) => l.replace(/\r$/, ''))

@@ -4,6 +4,9 @@ import type { Message } from '@dogegg/bridge'
 export type LlmStreamEvent =
   | { type: 'text_delta'; text: string }
   | { type: 'thought_delta'; text: string }
+  // 立法：请求层重试从零重发增量，UI 的 partial 必须先清空——否则第 2 次尝试的
+  // delta 追加在第 1 次残文后，展示与持久化分叉。在重试的第 2 次及以后尝试开始前发出（第 1 次不发）。
+  | { type: 'stream_reset' }
   | { type: 'tool_call_start'; index: number; id: string; name: string }
   | { type: 'tool_call_delta'; index: number; argsJsonDelta: string }
   | { type: 'tool_call_end'; index: number; id: string; name: string; arguments: string }

@@ -19,6 +19,9 @@ export interface SseUsage {
   total_tokens?: number
 }
 export interface SseChunk {
-  choices?: { delta?: SseChoiceDelta }[]
+  choices?: { delta?: SseChoiceDelta; finish_reason?: string }[]
   usage?: SseUsage
+  // 部分兼容端点/网关在 200 的 SSE 流中推送 error 负载（而非以 HTTP 状态码报错）——
+  // 形状容错：裸字符串或 {message}（OpenAI 风格 {error:{message}} 由 parser 提取内层）。
+  error?: unknown
 }

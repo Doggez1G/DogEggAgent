@@ -11,6 +11,9 @@ import { globToRegExp } from '@dogegg/bridge'
 // - `!` 取反：**后匹配优先**（gitignore 顺序语义——最后一条命中的规则决定去留）。
 // 不支持（立法，v1 从简）：嵌套 .gitignore、字符组 []、`\#` 转义、`**` 与 `/` 的复杂组合边界。
 // 匹配大小写敏感（对齐 git）。
+// 谓词入参坐标系：相对 rootDir（即 .gitignore 所在根 = 会话 cwd）的 posix 路径。
+// 锚定规则（`/x`、`a/b`）按此根编译，所以判定也必须喂同坐标系——遍历子根（path 传子目录）
+// 时由 walker 的 cwd 参数负责把「相对子根」的路径换算回来（见 walker.ts）。
 export interface GitIgnoreMatcher {
   (relPath: string, isDir: boolean): boolean
 }

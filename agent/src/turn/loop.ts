@@ -135,6 +135,9 @@ export class AgentLoop {
                 this.services.emit({ type: 'text_delta', delta: e.text })
               } else if (e.type === 'thought_delta' && turn.reasoning) {
                 this.services.emit({ type: 'thought_delta', delta: e.text })
+              } else if (e.type === 'stream_reset') {
+                // 请求层重试从零重发增量：UI 必须先清空流式 partial，否则第 2 次尝试的 delta 会追加在第 1 次残文后（展示与持久化分叉）。
+                this.services.emit({ type: 'stream_reset' })
               } else if (e.type === 'tool_call_start') {
                 // 模型开始生成工具调用参数——立即告知 UI（大参数的流式生成期间界面原本无任何反馈）。
                 this.services.emit({ type: 'tool_pending', name: e.name })
@@ -203,7 +206,15 @@ export class AgentLoop {
       // 打断或错误：补全未配对的 tool_calls，返回部分结果（含已完成的 assistant/tool 消息）。
       // 之前错误路径直接 throw 导致 newMessages 丢失——现在统一返回部分结果，agent 保存已完成的工具执行。
       patchUnpairedToolCalls(context)
-      if (e instanceof CancelledError) {
+      // 兜底状态迁移：try 内的检查点不覆盖所有抛出点——挂起权限被 cancel 时，CancelledError 从
+      // requestPermission 的 reject（pending.rejectAll）绕过所有检查点直抛到这里；自动压缩中的 abort
+      // 同理（AbortError 从 compactor 直抛）。catch 不补迁移的话状态机永久卡死在 waiting_permission /
+      // compacting（reset 与 submit 的 VALID_FROM 都不含它们，下一轮 submit 也进不去）。
+      // 迁移幂等：try 内已 fire 过 cancel/error 时这里是同态非法组合、原地不动，不会重复发射。
+      // AbortError 归一为 cancel（与主请求路径的 catch 同口径）——用户取消不该被误报为 error。
+      const cancelled = e instanceof CancelledError || (e as Error).name === 'AbortError'
+      trans(cancelled ? { kind: 'cancel' } : { kind: 'error' })
+      if (cancelled) {
         return { context, newMessages, thinking, usage: { ...turnUsage }, compactions: turnCompactions, cancelled: true }
       }
       return { context, newMessages, thinking, usage: { ...turnUsage }, compactions: turnCompactions, error: (e as Error).message }

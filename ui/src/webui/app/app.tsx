@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react'
+import React, { useCallback, useEffect } from 'react'
 import type { UiPort, UiToAgentMessage } from '@dogegg/bridge'
 import { Sidebar, TopBar, ChatView, InputBar, InfoPanel, CommandPalette, ErrorBoundary, SettingsModal, ConfirmModal, HelpModal, FsBrowserModal, PromptModal, PermissionBanner } from '../components'
 import { useChatState } from '../features/chat/use-chat-state'
@@ -15,7 +15,8 @@ import styles from './app.module.css'
 // 职责边界：本组件只做「特征装配 + 布局」；数据域在各 feature 的 hook 里
 // （chat / sessions / info-panel / turn-tracking / chrome），各自独立订阅 port。
 interface AppProps {
-  port: UiPort
+  // port 可携带 SSE 特有的 setOnReconnect（见 createSseUiPort）——本组件用它注册重连播种。
+  port: UiPort & { setOnReconnect?: (cb: () => void) => void }
   connectionState?: 'connected' | 'reconnecting' | 'disconnected'
 }
 
@@ -29,6 +30,20 @@ export function App({ port, connectionState }: AppProps) {
   const { modal, setModal, theme, sidebarCollapsed, setSidebarCollapsed, infoCollapsed, setInfoCollapsed, toast, showToast, highlightSection, highlightInfoSection } = chrome
 
   const isRunning = isStateRunning(chat.status)
+
+  // 断线重连后的重新播种：EventSource 自动重连只恢复传输层，不会重跑各 feature hook 的
+  // 挂载 effect——挂载批播种请求（config/status/skills/sessions）不会自动重发，必须显式补发，
+  // 否则重连后右栏配置、状态栏、skills 联想、侧栏会话列表全部停留在旧状态或全空。
+  // 服务端侧另有新连接重发 session_ready（SseChannel.onConnect → agent.resendSessionState），
+  // 面板六类数据由 use-panel-data 的 session_ready 分支补齐；此处补 session_ready 不覆盖的挂载批。
+  useEffect(() => {
+    port.setOnReconnect?.(() => {
+      port.post({ type: 'config_request' })
+      port.post({ type: 'status_request' })
+      port.post({ type: 'skills_request' })
+      port.post({ type: 'list_sessions' })
+    })
+  }, [port])
 
   // 安全 POST——捕获网络错误 + HTTP 错误，用户操作（submit/new/resume 等）失败时 toast 提示。
   const safePost = useCallback((msg: UiToAgentMessage, isUserAction = false) => {

@@ -144,4 +144,36 @@ describe('AgentLoop', () => {
     // context 保留 user 消息 + 新增 assistant
     expect(result.context[0]).toMatchObject({ role: 'user', content: '帮我修 bug' })
   })
+
+  it('自动压缩中取消：AbortError 归一为 cancel（不误报 error、不卡死 compacting）', async () => {
+    // 压缩器挂起直到 signal abort——模拟「压缩期间用户取消」（AbortError 从 compactor 直抛到 loop 顶层 catch）。
+    const compactor = new Compactor((_messages, signal) => {
+      return new Promise<string>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+      })
+    })
+    const machine = new StateMachine('idle')
+    const events: unknown[] = []
+    const loop = new AgentLoop(baseServices({ machine, compactor, emit: (e) => events.push(e) }))
+    // windowTokens=1 + 非空 context：必达压缩阈值。⚠️ context 不能为空——Compactor 对空 context
+    // 短路返回（不走 summarize），压缩器挂不起来，abort 就打不中压缩在飞窗口。
+    const controller = new AbortController()
+    const running = loop.run(baseTurn({
+      context: [{ role: 'user', content: '这是一段足够长的上下文内容用于触发自动压缩' }],
+      windowTokens: 1,
+      signal: controller.signal,
+    }))
+    const deadline = Date.now() + 2000
+    while (machine.state !== 'compacting' && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5))
+    expect(machine.state).toBe('compacting') // 前置确认：确实卡在压缩态
+    controller.abort()
+
+    const result = await running
+    // catch 补迁移：compacting → cancelled（旧实现无迁移，机卡死在 compacting）。
+    expect(result.cancelled).toBe(true)
+    expect(result.error).toBeUndefined() // 取消不被误报为 error
+    expect(machine.state).toBe('cancelled')
+    expect(events.some((e) => (e as { type: string }).type === 'state'
+      && (e as { from: string }).from === 'compacting' && (e as { to: string }).to === 'cancelled')).toBe(true)
+  })
 })

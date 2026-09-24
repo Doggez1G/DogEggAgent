@@ -256,4 +256,25 @@ describe('Agent 轮次表征（重构行为基线）', () => {
     const perms = await waitFor(second.events, (e) => e.type === 'permissions_list', 'permissions_list')
     expect((perms as { permissions: { tool: string; patterns: string[] }[] }).permissions.some((p) => p.tool === 'read_file')).toBe(true)
   })
+
+  it('压缩成功但落盘失败：报「会话保存失败」而非误报「压缩失败」', async () => {
+    // sessionsDir 的父目录是一个文件——SessionStore.save 的 mkdirSync 必然失败，构造落盘故障。
+    // （故障只影响 save：list() 走 existsSync 短路返回空，不牵连 session_list 等旁路。）
+    const blocker = join(mkdtempSync(join(tmpdir(), 'dogegg-bad-')), 'blocker')
+    writeFileSync(blocker, 'x')
+    const { events, post } = makeAgent({
+      client: fakeAdapter(() => [{ type: 'done', message: { role: 'assistant', content: 'ok' } }]),
+      sessionsDir: join(blocker, 'sessions'),
+    })
+
+    post({ type: 'submit', text: '第一轮 '.repeat(300) }) // 长对话：压缩才有意义（非劣原则）
+    await waitFor(events, (e) => e.type === 'finished', 'finished')
+    post({ type: 'compact_request' })
+    // 压缩本身成功：compaction 事件照常发出（保存失败不影响压缩成功的事实）。
+    const compaction = await waitFor(events, (e) => e.type === 'compaction', 'compaction')
+    expect(compaction).toMatchObject({ source: 'manual' })
+    // 保存失败有独立回执（saveOrNotice 口径），且不被误报为压缩失败。
+    await waitFor(events, (e) => e.type === 'notice' && e.text.includes('会话保存失败'), '保存失败 notice')
+    expect(events.some((e) => e.type === 'error' && (e as { error: { message: string } }).error.message.includes('压缩失败'))).toBe(false)
+  })
 })

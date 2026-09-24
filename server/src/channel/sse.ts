@@ -17,6 +17,10 @@ export class SseChannel implements AgentPort {
   private readonly agentListeners = new Set<(m: UiToAgentMessage) => void>()
   // 活跃的 SSE 连接——agent→UI 消息会写入所有连接。
   private readonly sseClients = new Set<ServerResponse>()
+  // 可选回调：新 SSE 连接建立时触发（含断线自动重连、页面刷新后的重新连接）。
+  // 组合根（main-web.ts / bin/dogegg.ts）用它调 agent.resendSessionState() 重发会话快照——
+  // SSE 重连/刷新后前端没有后端事件重放，新连接必须重发快照，兑现 sse-client 的注释承诺。
+  onConnect?: () => void
 
   /** 订阅来自 UI 的消息，返回退订函数。 */
   onMessage(cb: (m: UiToAgentMessage) => void): () => void {
@@ -43,10 +47,21 @@ export class SseChannel implements AgentPort {
     res.write(': connected\n\n')
     this.sseClients.add(res)
     res.on('close', () => { this.sseClients.delete(res) })
+    // 连接已登记——此刻重发快照能送达新连接（先登记再触发，避免消息写入时新连接缺席）。
+    this.onConnect?.()
   }
 
   /** POST /api/message 的 HTTP handler——读取 body，zod 校验，触发 agentPort 回调。 */
   postHandler(req: IncomingMessage, res: ServerResponse): void {
+    // Content-Type 必须是 application/json（带 charset 等后缀也算命中）——simple request
+    // 无法伪造该头（text/plain 表单 POST 与 no-cors fetch 都改不了它），是本地来源校验
+    //（http-server 的 host/origin 检查）之外服务端可独立自证的第二道防线；否则 415 拒绝。
+    const contentType = req.headers['content-type']
+    if (typeof contentType !== 'string' || !contentType.includes('application/json')) {
+      res.writeHead(415, { 'Content-Type': 'text/plain' })
+      res.end('Unsupported Media Type: Content-Type must be application/json')
+      return
+    }
     let body = ''
     let tooLarge = false
     req.on('data', (chunk: Buffer) => {

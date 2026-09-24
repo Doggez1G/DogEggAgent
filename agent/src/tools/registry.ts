@@ -57,7 +57,15 @@ export class ToolRegistry {
     if (this.tools.has(label)) {
       throw new Error(`工具注册名冲突：${label}（原名 ${tool.name}）已被占用——请调整来源命名（如 /mcp 中的服务名）`)
     }
-    this.tools.set(label, label === tool.name ? tool : { ...tool, name: label })
+    // 哈希改写保留原型：class 实现的 Tool（GrepTool 等）方法在原型上，{...tool} 浅拷贝只搬
+    // 自有字段会把 execute/schema 一起丢掉（哈希档工具一执行就崩）——用 Object.create 挂
+    // 原原型再覆盖自有字段，只改 name 一个字。
+    this.tools.set(
+      label,
+      label === tool.name
+        ? tool
+        : Object.assign(Object.create(Object.getPrototypeOf(tool)), tool, { name: label }),
+    )
     this.identityById.set(label, identity)
     return label
   }

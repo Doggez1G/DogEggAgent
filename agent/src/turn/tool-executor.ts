@@ -6,6 +6,7 @@ import type { ToolRegistry } from '../tools'
 import type { PermissionManager } from '../permission'
 import type { TransitionInput } from './state'
 import { truncate } from '../context'
+import { ZodError } from 'zod'
 
 // 单个工具的执行结果：要回填的 tool 消息 + 状态迁移输入。
 // isLast 决定迁移到 tool_done（继续下一个）还是 result_back/reject（重新请求模型）。
@@ -48,11 +49,15 @@ export class ToolExecutor {
     }
 
     // 参数解析校验：LLM 给的 arguments 是 JSON 字符串，先解析再用 zod schema 校验。
+    // ZodError 时把 issues 摘要（前 2 条 path+message）拼进回执——模型靠细节自纠参数，
+    // 只回「参数校验失败」模型无从得知错在哪、只会盲目重试。JSON 损坏（SyntaxError）无 path 可言，维持原文案。
     let args: unknown
     try {
       args = tool.schema.parse(JSON.parse(call.function.arguments || '{}'))
-    } catch {
-      const content = '参数校验失败'
+    } catch (e) {
+      const content = e instanceof ZodError
+        ? truncate('参数校验失败：' + e.issues.slice(0, 2).map((i) => `${i.path.join('.')}: ${i.message}`).join('；'))
+        : '参数校验失败'
       this.services.emit({ type: 'tool_end', id: call.id, name: tool.name, output: content, error: content })
       return { toolMessage: { role: 'tool', tool_call_id: call.id, content }, transitionInput: rejectOrDone() }
     }
@@ -107,11 +112,14 @@ export class ToolExecutor {
     try {
       result = await tool.execute(args, ctx)
     } catch (e) {
-      const errMsg = String(e)
+      // 异常文本同样过 truncate：错误文本长度不可控（MCP server 抛什么 agent 管不着），
+      // 不治理会把超长错误整段回填模型撑爆窗口——与正常结果 content 同口径。
+      const errMsg = truncate(String(e))
       this.services.emit({ type: 'tool_end', id: call.id, name: tool.name, output: errMsg, error: errMsg })
       return { role: 'tool', tool_call_id: call.id, content: errMsg }
     }
-    const content = 'content' in result ? truncate(result.content) : `ERROR: ${result.error}`
+    // error 结果路径同理：result.error 来自工具/MCP server，长度不可控，必须同样治理。
+    const content = 'content' in result ? truncate(result.content) : truncate(`ERROR: ${result.error}`)
     this.services.emit({ type: 'tool_end', id: call.id, name: tool.name, output: content, error: 'error' in result ? result.error : undefined })
     return { role: 'tool', tool_call_id: call.id, content }
   }

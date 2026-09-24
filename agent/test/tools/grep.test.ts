@@ -67,6 +67,28 @@ describe('grep tool', () => {
     expect(r.content.split('\n')).toEqual(['one.txt:1: needle', 'one.txt:3: needle'])
   })
 
+  it('path 指向具体文件时 glob 不参与过滤（显式点名即授权）', async () => {
+    writeFileSync(join(dir, 'one.ts'), 'needle')
+    // 回归点：单文件模式 rel='' 恒不过 globRe.test('') → 点名文件被误过滤成无命中。
+    const r = await tool.execute({ pattern: 'needle', path: 'one.ts', glob: '*.ts' }, ctx()) as { content: string }
+    expect(r.content).toBe('one.ts:1: needle')
+  })
+
+  it('gitignore 坐标系：path 传子目录时锚定规则双向不失真', async () => {
+    // 回归点：规则按会话 cwd 根编译，walker 产出的是相对子根的路径——
+    // `docs/internal.md` 在子根坐标下变成 internal.md（被搜出）、`/README.md` 误杀 docs/README.md。
+    writeFileSync(join(dir, '.gitignore'), 'docs/internal.md\n/top.md\n')
+    mkdirSync(join(dir, 'docs'), { recursive: true })
+    writeFileSync(join(dir, 'docs', 'internal.md'), 'needle')
+    writeFileSync(join(dir, 'docs', 'README.md'), 'needle')
+    writeFileSync(join(dir, 'top.md'), 'needle')
+    const sub = await tool.execute({ pattern: 'needle', path: 'docs' }, ctx()) as { content: string }
+    expect(sub.content).toBe('README.md:1: needle')
+    // 全根扫描（root===cwd，两坐标系重合）行为不变：internal.md 与锚定的 top.md 都被忽略。
+    const full = await tool.execute({ pattern: 'needle' }, ctx()) as { content: string }
+    expect(full.content).toBe('docs/README.md:1: needle')
+  })
+
   it('per-file cap 20 with unshown count note', async () => {
     // 23 行命中 → 展示 20 行 + 一条补数说明（还有 3 处）。
     writeFileSync(join(dir, 'dense.txt'), Array.from({ length: 23 }, (_, i) => `needle ${i}`).join('\n'))

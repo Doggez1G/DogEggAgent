@@ -75,4 +75,28 @@ describe('ToolRegistry 注册关口', () => {
       { name: 'mcp__s__t', description: '', identity: { kind: 'mcp', server: 's', name: 't' } },
     ])
   })
+
+  it('哈希改写保留原型：class 实现的 Tool 方法在原型上，浅拷贝会把它丢掉', () => {
+    // 回归点：{...tool} 只搬自有字段——class 工具（execute 在原型上）被哈希改写后
+    // execute 变 undefined，调用即崩。Object.create+assign 修复后方法必须存活。
+    class HashedTool implements Tool {
+      readonly name = 'mcp__我的服务__close' // 非法名 → 必走哈希档
+      readonly description = 'class 工具'
+      readonly schema = z.object({})
+      readonly parameters = {}
+      async execute(): Promise<{ content: string }> {
+        return { content: 'ok-from-prototype' }
+      }
+    }
+    const r = new ToolRegistry()
+    const label = r.register(new HashedTool())
+    expect(label).toMatch(/^h-[0-9a-f]{12}$/)
+    const t = r.get(label)!
+    expect(t.name).toBe(label)
+    expect(r.identityOf(label)).toEqual({ kind: 'builtin' })
+    expect(r.listTools()[0]).toMatchObject({ name: label, description: 'class 工具' })
+    expect(t.execute({}, { cwd: '.', signal: new AbortController().signal })).resolves.toEqual({
+      content: 'ok-from-prototype',
+    })
+  })
 })

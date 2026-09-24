@@ -39,6 +39,12 @@ describe('applyToolEnd', () => {
     expect(next).toHaveLength(1)
     expect(next[0]).toMatchObject({ status: 'rejected', decision: 'reject' })
   })
+  it('孤儿 tool_end 非 denied 错误：创建 error 条目（并非用户决策，不标 reject）', () => {
+    const next = applyToolEnd([], endMsg({ error: '执行超时' }), 'ask', 1)
+    expect(next).toHaveLength(1)
+    expect(next[0]).toMatchObject({ status: 'error' })
+    expect(next[0]?.decision).toBeUndefined()
+  })
 })
 
 describe('extractFilesTouched', () => {

@@ -115,6 +115,10 @@ export function reducer(state: ChatState, msg: Action): ChatState {
       const base = state.partial?.kind === 'assistant' ? flush(state) : state
       return { ...base, status: 'thinking', partial: { kind: 'thinking', text: (base.partial?.text ?? '') + msg.delta } }
     }
+    case 'stream_reset':
+      // 立法：请求层重试从零重发增量，UI 的 partial 必须先清空——否则第 2 次尝试的
+      // delta 追加在第 1 次残文后，展示与持久化分叉。不落盘、不产生新块（残文本就是该丢弃的半成品）。
+      return { ...state, partial: null }
     case 'message':
       return msg.role === 'assistant' ? flush(state) : state
     case 'tool_pending':
@@ -137,9 +141,29 @@ export function reducer(state: ChatState, msg: Action): ChatState {
     case 'tool_end': {
       // 拒绝/失败工具也有 tool_end（error 标记）——status 结构化区分，渲染层据此选图标。
       // 用 toolId 精确匹配 tool_start 的块——不靠数组尾部（notice/compaction 块可能插在中间）。
+      const idx = state.blocks.findIndex((b) => b.toolId === msg.id)
+      if (idx < 0) {
+        // 孤儿 tool_end（无配对 tool_start）：R3 立法——拒绝也发 tool_end，让 UI 能渲染 denied，
+        // reducer 不能静默丢弃——否则聊天区零反馈、pendingTool 悬挂到下次 tool_start。
+        // 兜底生成一个完整 tool 块（无 tool_start 的 input，参数段自然为空）；
+        // 工具名缺失时回退 pendingTool 的标签。partial 先 flush——助手文本在工具调用之前，顺序落盘。
+        const name = msg.name || state.pendingTool || '工具'
+        const status: ToolStatus = msg.error === 'denied' ? 'rejected' : msg.error ? 'error' : 'done'
+        const flushed = flush(state)
+        const orphan: Block = {
+          kind: 'tool',
+          color: 'cyan',
+          text: formatToolTitle(name, undefined, msg.output, msg.error),
+          toolId: msg.id,
+          toolName: name,
+          toolStatus: status,
+          toolOutput: msg.output,
+          toolError: msg.error,
+          toolBody: formatToolBody(name, undefined, msg.output, msg.error),
+        }
+        return { ...flushed, blocks: [...flushed.blocks, orphan], toolActive: false, pendingTool: null }
+      }
       const blocks = [...state.blocks]
-      const idx = blocks.findIndex((b) => b.toolId === msg.id)
-      if (idx < 0) return state // 未找到匹配块不改 state（孤儿 tool_end）
       const target = blocks[idx]!
       const status: ToolStatus = msg.error ? (msg.error === 'denied' ? 'rejected' : 'error') : 'done'
       blocks[idx] = {

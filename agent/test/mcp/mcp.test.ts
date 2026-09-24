@@ -12,8 +12,11 @@ import type { LlmClient, LlmStreamEvent } from '../../src/llm'
 // 启动注册（tools_list 含 mcp 工具）→ 轮次调用（权限审批后 echo 回显）→ 面板 CRUD（启停/项目文件）。
 
 // 假 server：逐行读请求，按 method 返回固定结果；initialize/tools:list/tools:call 三件套。
+// pid 落盘（argv[2] 给出标记文件时）：供测试断言「子进程存续/回收」——是否被无谓重启、失败路径是否泄漏。
 const FAKE_SERVER_JS = `
 import readline from 'node:readline'
+import { writeFileSync } from 'node:fs'
+if (process.argv[2]) writeFileSync(process.argv[2], String(process.pid))
 const rl = readline.createInterface({ input: process.stdin })
 rl.on('line', (line) => {
   if (!line.trim()) return
@@ -29,6 +32,27 @@ rl.on('line', (line) => {
     result = { content: [{ type: 'text', text: 'echo:' + JSON.stringify(msg.params.arguments ?? {}) }] }
   }
   process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result }) + '\\n')
+})
+`
+
+// 只答 initialize 的假 server：tools/list（及一切后续请求）回 JSON-RPC 错误——
+// 模拟「connect 成功但 listTools 失败」：不走 60s SDK 默认超时，错误响应让 listTools 立即 reject。
+const FAKE_LIST_FAIL_JS = `
+import readline from 'node:readline'
+import { writeFileSync } from 'node:fs'
+if (process.argv[2]) writeFileSync(process.argv[2], String(process.pid))
+const rl = readline.createInterface({ input: process.stdin })
+rl.on('line', (line) => {
+  if (!line.trim()) return
+  let msg
+  try { msg = JSON.parse(line) } catch { return }
+  if (msg.id === undefined || msg.id === null) return
+  if (msg.method === 'initialize') {
+    const result = { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1.0.0' } }
+    process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result }) + '\\n')
+    return
+  }
+  process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code: -32603, message: 'tools/list failed' } }) + '\\n')
 })
 `
 
@@ -94,6 +118,18 @@ async function waitRunning(post: (m: UiToAgentMessage) => void, events: AgentToU
   }
 }
 
+// 轮询进程存活（signal 0 探测）——断言 stdio 子进程真的退出（close 兜底生效），而非仅状态翻转。
+async function waitPidDead(pid: number, label: string): Promise<void> {
+  const deadline = Date.now() + 5000
+  for (;;) {
+    let alive = true
+    try { process.kill(pid, 0) } catch { alive = false }
+    if (!alive) return
+    if (Date.now() > deadline) throw new Error(`等待 ${label} 退出超时：pid ${pid} 仍存活`)
+    await new Promise((r) => setTimeout(r, 50))
+  }
+}
+
 const log: string[] = []
 
 describe('MCP 端到端（假 stdio server）', () => {
@@ -147,6 +183,37 @@ describe('MCP 端到端（假 stdio server）', () => {
     post({ type: 'mcp_manage', action: 'delete', scope: 'project', name: 'proj-srv' })
     await waitFor(events, (e) => e.type === 'mcp_list' && !JSON.stringify(e).includes('proj-srv'), 'project delete')
     expect(readFileSync(join(cwd, '.dogegg', '.mcp.json'), 'utf8')).not.toContain('proj-srv')
+  })
+
+  it('失败路径回收：connect 成功但 tools/list 失败 → error 可见且 stdio 子进程被关闭（不泄漏）', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dogegg-mcpfail-'))
+    const script = join(dir, 'fake.mjs')
+    writeFileSync(script, FAKE_LIST_FAIL_JS, 'utf8')
+    const marker = join(dir, 'pid.txt')
+    const { events } = makeAgent(toolCallScript(), [{ name: 'fake', enabled: true, transport: { type: 'stdio', command: process.execPath, args: [script, marker] } }])
+
+    // 失败可见：面板状态落 error 且携带人话原因（mcp_list 的 error 字段）。
+    await waitFor(events, (e) => e.type === 'mcp_list' && JSON.stringify(e).includes('"error"'), 'error 状态')
+    // 泄漏立法：connect 成功后任何失败路径都必须关闭连接——子进程随之退出（closeQuietly 1s 竞速兜底）。
+    const pid = Number(readFileSync(marker, 'utf8'))
+    await waitPidDead(pid, '失败路径泄漏的 stdio 子进程')
+  })
+
+  it('同名同传输 global→project 迁移：不重启子进程且 mcp_list 刷新为新 scope（面板操作打到正确层）', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dogegg-mcpscope-'))
+    const script = join(dir, 'fake.mjs')
+    writeFileSync(script, FAKE_SERVER_JS, 'utf8')
+    const marker = join(dir, 'pid.txt')
+    const cfg: McpServerConfig = { name: 'fake', enabled: true, transport: { type: 'stdio', command: process.execPath, args: [script, marker] } }
+    const { events, post } = makeAgent(toolCallScript(), [cfg])
+    await waitRunning(post, events)
+    const pidBefore = Number(readFileSync(marker, 'utf8'))
+
+    // 同名同传输落到项目层：merge 后 scope 变 project、transport 不变 → 只刷归属，不该重启。
+    post({ type: 'mcp_manage', action: 'save', scope: 'project', server: cfg })
+    await waitFor(events, (e) => e.type === 'mcp_list' && JSON.stringify(e).includes('"scope":"project"'), 'scope 迁移到 project')
+    // 无谓重启防护：等价传输（稳定序列化，键序不敏感）不该换子进程——同一 pid 仍在服务。
+    expect(Number(readFileSync(marker, 'utf8'))).toBe(pidBefore)
   })
 })
 
