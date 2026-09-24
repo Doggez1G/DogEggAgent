@@ -187,6 +187,20 @@ export class Agent {
     this.emit({ type: 'skills_list', skills: this.skills.list() })
   }
 
+  // system_state 消息构造——system_request 拉取与变更主动推送共用同一形状与同一现算来源。
+  private systemStateMessage() {
+    return { type: 'system_state' as const, path: this.ctx.config.systemPrompt ?? '内置', content: this.ctx.assembler.systemPrompt() }
+  }
+
+  // 系统提示词主动推送。prompt 是每次请求现算的（skills 增删启停、systemPrompt/shellProgram
+  // 配置变更、cwd 切换都会改变下一轮实际下发的内容），而右侧面板展示的是最近一次拉取的
+  // 快照——变更后不推送就会一直展示旧 prompt，误导「设置没生效」。凡 prompt 输入变化的
+  // 事件都必须伴随一次推送。失败保持上一帧快照（system_request 拉取路径的 notice 语义不变）。
+  private emitSystemState(): void {
+    try { this.emit(this.systemStateMessage()) }
+    catch { /* 保持上一帧快照 */ }
+  }
+
   // MCP 工具清单广播（tools_request 与 MCP 生命周期变化共用同一形状；身份随行供 UI 分组）。
   private emitToolsList(): void {
     this.emit({ type: 'tools_list', tools: this.registry.listTools() })
@@ -318,6 +332,8 @@ export class Agent {
           return // get 的响应是 skill_content，不需要重播清单
       }
       this.emitSkillsList()
+      // skills 增删启停改变系统提示的技能清单段——主动推送新快照（见 emitSystemState 立法）。
+      this.emitSystemState()
     } catch (e) {
       this.emit({ type: 'notice', text: (e as Error).message, channel: 'skills' })
     }
@@ -393,6 +409,8 @@ export class Agent {
     void this.rebuildMcp().catch(() => {})
     // provider/model 变更即时推送到状态栏与右侧面板——否则要等下一轮问答的状态机变化才刷新。
     if (isConfigured(this.ctx.config)) { this.emitStatusState() }
+    // systemPrompt/shellProgram 配置变更即时推送系统提示词快照（同上，不等下一次拉取）。
+    this.emitSystemState()
   }
 
   // 命令分发：动工作集类在 running 时发 notice 不静默丢弃；纯查询类始终放行。
@@ -505,7 +523,7 @@ export class Agent {
         break
       }
       case 'system_request':
-        try { this.emit({ type: 'system_state', path: this.ctx.config.systemPrompt ?? '内置', content: this.ctx.assembler.systemPrompt() }) }
+        try { this.emit(this.systemStateMessage()) }
         catch { this.emit({ type: 'notice', text: 'system prompt 加载失败（路径不存在或无法读取）' }) }
         break
       case 'log_request':
@@ -555,6 +573,7 @@ export class Agent {
           // 项目级 skills 目录随 cwd 变化——重扫并广播（清单段下一轮请求自动生效）。
           this.skills.setProjectDir(resolved)
           this.emitSkillsList()
+          this.emitSystemState()
           void this.rebuildMcp().catch(() => {})
           this.emit({ type: 'notice', text: `工作目录已切换到 ${resolved}` })
           // 立即落盘 + 重推会话列表：会话文件携带 cwd，WebUI 侧栏按 cwd 分组项目树——
