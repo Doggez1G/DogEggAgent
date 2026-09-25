@@ -37,13 +37,18 @@ export class TurnRunner {
     checkpointMs?: number
   }) {}
 
-  // 轮次进行中的实时 context（loop 内部副本的只读引用；每条 assistant/工具 step 后经 onProgress 更新）。
-  // 供门面的 token 估算在运行中读到实时值（否则状态栏/Context 卡在长任务期间停留在轮前旧值）。
-  // 轮次结束（含失败/取消）在 finally 清空——空闲期一律回落 conversation.getContext()。
-  private liveContext: Message[] | null = null
+  // 轮次进行中的实时快照（loop 内部副本的只读引用；每条 assistant/工具 step 后经 onProgress 更新）。
+  // 供门面的 token 估算与 Context 卡分段在运行中读到实时值（否则长任务期间停留在轮前旧值——
+  // 总量与明细必须同源，只换总量会让 breakdown 明细静默过期）。context/usage/compactions 三者
+  // 同帧更新。轮次结束（含失败/取消）在 finally 清空——空闲期一律回落 conversation 的轮末值。
+  private liveTurn: { context: Message[]; usage: { promptTokens: number; completionTokens: number }; compactions: number } | null = null
 
   getLiveContext(): Message[] | null {
-    return this.liveContext
+    return this.liveTurn?.context ?? null
+  }
+
+  getLiveTurn(): { context: Message[]; usage: { promptTokens: number; completionTokens: number }; compactions: number } | null {
+    return this.liveTurn
   }
 
   async submit(text: string, params: TurnParams): Promise<void> {
@@ -140,7 +145,7 @@ export class TurnRunner {
         signal: controller.signal,
         onProgress: (snap) => {
           // (a) 实时上下文：供门面估算与轮中状态推送读到最新值（接收方只读，引用不拷贝）。
-          this.liveContext = snap.context
+          this.liveTurn = { context: snap.context, usage: snap.usage, compactions: snap.compactions }
           // (b) 检查点节流落盘：尽力而为，失败静默（崩溃保护是增量优化，不能反过来干扰轮次）。
           const now = Date.now()
           if (snap.newMessages.length > 0 && now - lastCheckpointAt >= checkpointMs) {
@@ -171,7 +176,7 @@ export class TurnRunner {
     } finally {
       // 无论成功/失败/取消，turn 结束后状态回到 idle（成功路径 loop 停在 finished，需复位）。
       this.deps.ctx.gate.leave()
-      this.liveContext = null
+      this.liveTurn = null
       this.deps.emitState({ kind: 'reset' })
       this.saveOrNotice()
     }

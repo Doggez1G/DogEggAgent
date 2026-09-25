@@ -42,12 +42,13 @@ function toolThenTextAdapter(): LlmClient {
 }
 
 // 黑盒 harness：Agent 只经 port 收发；events 收集全部下行消息；agent 引用透出供 resendSessionState 直调。
-function makeAgent(cwd = mkdtempSync(join(tmpdir(), 'dogegg-recovery-'))) {
+// client 可注入——「轮中途 token 明细」用例需要延迟版的伪 client 制造观察窗口。
+function makeAgent(cwd = mkdtempSync(join(tmpdir(), 'dogegg-recovery-')), client: LlmClient = toolThenTextAdapter()) {
   const sessionsDir = mkdtempSync(join(tmpdir(), 'dogegg-recovery-sessions-'))
   writeFileSync(join(cwd, 'a.txt'), 'hi')
   const { agentPort, uiPort } = new InMemoryChannel()
   const events: AgentToUiMessage[] = []
-  const agent = new Agent(agentPort, makeConfig(), cwd, { client: toolThenTextAdapter(), sessionsDir })
+  const agent = new Agent(agentPort, makeConfig(), cwd, { client, sessionsDir })
   uiPort.onMessage((m) => events.push(m))
   const post = (m: UiToAgentMessage) => { uiPort.post(m) }
   return { agent, events, post, cwd }
@@ -139,5 +140,58 @@ describe('恢复链：权限挂起中取消 / 重发挂起审批 / resendSession
       '重发的 permission_request',
     )
     expect(resend).toMatchObject({ id, tool: 'read_file' })
+  })
+
+  it('长任务轮中途拉取 context：breakdown 分段为实时帧（总量与明细同源，不再撕裂）', async () => {
+    // call1 返回 tool_calls（读 a.txt，立即完成回填），call2 延迟 400ms 再出正文——
+    // 制造「工具已完成、正文未出」的观察窗口：此刻 conversation.getContext() 还是轮前旧数组，
+    // 只有 liveTurn 快照里有本轮的 assistant/tool 消息。
+    let call = 0
+    const client: LlmClient = {
+      async chat() {
+        call++
+        if (call === 1) {
+          return {
+            message: { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read_file', arguments: '{"path":"a.txt"}' } }] },
+            reasoning: undefined,
+          }
+        }
+        await new Promise((r) => setTimeout(r, 400))
+        return { message: { role: 'assistant', content: 'final' }, reasoning: undefined }
+      },
+    } as unknown as LlmClient
+    const { events, post } = makeAgent(undefined, client)
+
+    // 基线（轮前）：context 只有 system+schemas，tool/assistant 段为 0。
+    post({ type: 'context_request' })
+    const baseline = await waitFor(events, (e) => e.type === 'context_state', '基线 context_state') as Extract<AgentToUiMessage, { type: 'context_state' }>
+    expect(baseline.breakdown!.tool).toBe(0)
+
+    post({ type: 'submit', text: '读 a.txt' })
+    // 该 harness 的配置三桶全空：read_file 落 ask——先放行，工具才会真实执行并回填。
+    const perm = await waitFor(events, (e) => e.type === 'permission_request', 'permission_request')
+    post({ type: 'permission_decision', id: (perm as { id: string }).id, decision: 'allow_once' })
+    await waitFor(events, (e) => e.type === 'tool_end', 'tool_end')
+    post({ type: 'context_request' })
+    // 轮中帧：等第二条 context_state（第一条是基线）。
+    const deadline = Date.now() + 2000
+    let mid: Extract<AgentToUiMessage, { type: 'context_state' }> | undefined
+    for (;;) {
+      const states = events.filter((e): e is Extract<AgentToUiMessage, { type: 'context_state' }> => e.type === 'context_state')
+      if (states.length >= 2) { mid = states[1]; break }
+      if (Date.now() > deadline) throw new Error(`等待轮中 context_state 超时；已收到：${events.map((e) => e.type).join(',')}`)
+      await new Promise((r) => setTimeout(r, 5))
+    }
+    // 决定性断言：轮中的 breakdown 来自 liveTurn 快照——assistant/tool 段已计入，总量同步变大。
+    expect(mid!.breakdown!.assistant).toBeGreaterThan(0)
+    expect(mid!.breakdown!.tool).toBeGreaterThan(0)
+    expect(mid!.estimatedTokens).toBeGreaterThan(baseline.estimatedTokens)
+
+    // 轮末收口后：内存真相与轮中一致（tool/assistant 段保留），无撕裂回落。
+    await waitFor(events, (e) => e.type === 'finished', 'finished')
+    post({ type: 'context_request' })
+    const final = await waitFor(events, (e) => e.type === 'context_state' && events.indexOf(e) > events.indexOf(mid!), '轮末 context_state') as Extract<AgentToUiMessage, { type: 'context_state' }>
+    expect(final.breakdown!.tool).toBeGreaterThan(0)
+    expect(final.estimatedTokens).toBeGreaterThan(baseline.estimatedTokens)
   })
 })

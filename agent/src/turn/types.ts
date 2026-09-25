@@ -51,6 +51,7 @@ export interface TurnInput {
     newMessages: Message[]
     thinking: { text: string }[]
     usage: { promptTokens: number; completionTokens: number }
+    compactions: number
   }) => void
 }
 

@@ -182,7 +182,7 @@ export class AgentLoop {
         newMessages.push(assistant)
         this.services.emit({ type: 'message', role: 'assistant', id: newId() })
         // 轮次进度回调：assistant 消息已落位——轮中检查点/标题/实时估算的触发点（接收方只读）。
-        turn.onProgress?.({ context, newMessages, thinking, usage: turnUsage })
+        turn.onProgress?.({ context, newMessages, thinking, usage: turnUsage, compactions: turnCompactions })
 
         const calls = assistant.tool_calls ?? []
         if (calls.length === 0) {
@@ -213,7 +213,7 @@ export class AgentLoop {
           newMessages.push(step.toolMessage)
           state = trans(step.transitionInput)
           // 轮次进度回调：工具 step 已完成回填——长工具任务期间每个 step 都推进检查点进度。
-          turn.onProgress?.({ context, newMessages, thinking, usage: turnUsage })
+          turn.onProgress?.({ context, newMessages, thinking, usage: turnUsage, compactions: turnCompactions })
         }
       }
     } catch (e) {

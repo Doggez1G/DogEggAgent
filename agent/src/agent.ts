@@ -233,16 +233,27 @@ export class Agent {
   // context_state 消息构造——context_request 拉取与 token 显示刷新共用同一形状与同一估算口径。
   private contextStateMessage() {
     const m = this.current()
-    const tokens = this.estimateCurrentTokens()
+    // 总量与明细必须同源：breakdown 若仍取 conversation.getContext()（轮前数组），运行中会出现
+    // 「总数实时跳动、分段明细静默过期」的撕裂。live 快照存在时，分段/会话用量/lastTurn/压缩
+    // 计数全部取实时帧（usage 为轮末累计值 + 轮内已发生的部分）。
+    const live = this.turnRunner.getLiveTurn()
+    const context = live?.context ?? this.conversation.getContext()
+    const tokens = this.ctx.assembler.estimate(context)
+    const usage = this.conversation.getUsage()
+    const sessionUsage = live
+      ? { ...usage, promptTokens: usage.promptTokens + live.usage.promptTokens, completionTokens: usage.completionTokens + live.usage.completionTokens }
+      : usage
     return {
       type: 'context_state' as const,
       estimatedTokens: tokens,
       windowTokens: m.contextWindow,
       percent: m.contextWindow ? Math.round((tokens / m.contextWindow) * 100) : 0,
-      breakdown: breakdownContextTokens(this.ctx.assembler.systemPrompt(), this.conversation.getContext(), this.registry.schemas()),
-      lastTurn: this.conversation.getLastTurn(),
-      sessionUsage: this.conversation.getUsage(),
-      compactions: this.conversation.getCompactions(),
+      breakdown: breakdownContextTokens(this.ctx.assembler.systemPrompt(), context, this.registry.schemas()),
+      lastTurn: live
+        ? { promptTokens: live.usage.promptTokens, completionTokens: live.usage.completionTokens }
+        : this.conversation.getLastTurn(),
+      sessionUsage,
+      compactions: this.conversation.getCompactions() + (live?.compactions ?? 0),
     }
   }
 
