@@ -21,6 +21,15 @@
   --color-subtext-soft: rgba(113, 113, 122, 0.10);
   --color-warning-soft-bg: rgba(217, 119, 6, 0.06);
   --color-warning-soft-border: rgba(217, 119, 6, 0.20);
+  /* P2-32 补齐被使用但未定义的 token（亮色主题透明度整体下探，与同族 soft 系一致）：
+     accent-soft-border = 用户气泡边框；danger-soft-bg/-border = 错误卡底/框；
+     warning-soft-hover = thinking 卡头部 hover。 */
+  --color-accent-soft-border: rgba(99, 102, 241, 0.25);
+  --color-danger-soft-bg: rgba(220, 38, 38, 0.06);
+  --color-danger-soft-border: rgba(220, 38, 38, 0.25);
+  --color-warning-soft-hover: rgba(217, 119, 6, 0.18);
+  /* P2-32：border 的 hover 态（top-bar Cmd+K 按钮）——border #E5E5E5 的加深档（zinc-300）。 */
+  --color-border-hover: #D4D4D8;
 
   --radius-sm: 4px;
   --radius-md: 6px;

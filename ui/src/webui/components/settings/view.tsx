@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Trash2, Plus, Server, Cpu, ShieldCheck, SlidersHorizontal, ChevronDown, X, FileText, FolderClosed, FolderUp, ArrowLeft, ChevronRight, Check } from 'lucide-react'
-import type { Config, UiPort } from '@dogegg/bridge'
+import type { Config, UiPort, UiToAgentMessage } from '@dogegg/bridge'
 import { PermissionsSection } from './permissions'
 import { SkillsSection } from './skills'
 import { McpSection } from './mcp'
@@ -62,6 +62,17 @@ function GeneralSection({ config, port }: { config: Config; port: UiPort }) {
   const currentProvider = config.providers.find((p) => p.name === config.defaultProvider)
   const modelOptions = (currentProvider?.models ?? []).map((m) => ({ value: m.name, label: m.name || '(unnamed)' }))
 
+  // P2-35：保存失败反馈——此前 safeSettingsPost 未传 onFail，失败只有 console.warn，
+  // 用户以为保存成功。照 skills/mcp 的 inlineError 模式补齐（见下 post 包装）。
+  const [inlineError, setInlineError] = useState('')
+
+  // 本区统一提交入口：新提交开始即清上次失败提示、失败时写 inlineError。
+  // skills/mcp 靠成功清单广播清除提示；本区无清单广播，用「下一次提交起点」代替清除时机。
+  const post = (msg: UiToAgentMessage): void => {
+    setInlineError('')
+    safeSettingsPost(port, msg, (e) => setInlineError(`保存失败：${e.message}`))
+  }
+
   // Shell 检测——从 /api/shells 获取可用 shell 列表。
   const [shells, setShells] = useState<{ value: string; label: string }[]>([])
   useEffect(() => {
@@ -75,10 +86,12 @@ function GeneralSection({ config, port }: { config: Config; port: UiPort }) {
     <>
       <div className={styles.sectionTitle}>General</div>
       <div className={styles.sectionDesc}>Default provider, model, and runtime configuration</div>
+      {/* 保存失败的 inline 反馈（P2-35），样式与 skills/mcp 的 inlineError 一致。 */}
+      {inlineError && <div style={{ color: 'var(--color-danger)', fontSize: 12, marginBottom: 8 }}>{inlineError}</div>}
       <div className={styles.fieldGroup}>
-        {/* 所有 config_set 走 safeSettingsPost——网络/通道失败不再静默（console.warn 留痕）。 */}
-        <SelectField label="Default Provider" desc="Which API provider to use" value={config.defaultProvider ?? ''} options={providers.length ? providers : [{ value: '', label: '(none)' }]} onChange={(v) => safeSettingsPost(port, { type: 'config_set', path: 'defaultProvider', value: v })} />
-        <SelectField label="Default Model" desc="Which model to use for responses" value={config.defaultModel ?? ''} options={modelOptions.length ? modelOptions : [{ value: '', label: currentProvider ? '(no models — add them in Models)' : '(select provider first)' }]} onChange={(v) => safeSettingsPost(port, { type: 'config_set', path: 'defaultModel', value: v })} />
+        {/* 所有 config_set 走 post（safeSettingsPost + onFail）——网络/通道失败 inline 可见。 */}
+        <SelectField label="Default Provider" desc="Which API provider to use" value={config.defaultProvider ?? ''} options={providers.length ? providers : [{ value: '', label: '(none)' }]} onChange={(v) => post({ type: 'config_set', path: 'defaultProvider', value: v })} />
+        <SelectField label="Default Model" desc="Which model to use for responses" value={config.defaultModel ?? ''} options={modelOptions.length ? modelOptions : [{ value: '', label: currentProvider ? '(no models — add them in Models)' : '(select provider first)' }]} onChange={(v) => post({ type: 'config_set', path: 'defaultModel', value: v })} />
 
         {/* System Prompt — 原生文件选择对话框 + 清除按钮 */}
         <div className={styles.field}>
@@ -87,7 +100,7 @@ function GeneralSection({ config, port }: { config: Config; port: UiPort }) {
           <div className={styles.filePicker}>
             <input className={`${styles.input} ${styles.mono}`} placeholder="(built-in)" value={config.systemPrompt ?? ''} readOnly />
             {config.systemPrompt && (
-              <button className={styles.fileClearBtn} onClick={() => safeSettingsPost(port, { type: 'config_set', path: 'systemPrompt', value: '' })} title="Clear">
+              <button className={styles.fileClearBtn} onClick={() => post({ type: 'config_set', path: 'systemPrompt', value: '' })} title="Clear">
                 <X size={14} strokeWidth={1.5} />
               </button>
             )}
@@ -98,18 +111,18 @@ function GeneralSection({ config, port }: { config: Config; port: UiPort }) {
         </div>
 
         {/* Shell Program — 检测到的 shell 下拉框 */}
-        <SelectField label="Shell Program" desc="Detected shells available on this system" value={config.shellProgram ?? ''} options={[{ value: '', label: '(auto — platform default)' }, ...shells]} onChange={(v) => safeSettingsPost(port, { type: 'config_set', path: 'shellProgram', value: v })} />
+        <SelectField label="Shell Program" desc="Detected shells available on this system" value={config.shellProgram ?? ''} options={[{ value: '', label: '(auto — platform default)' }, ...shells]} onChange={(v) => post({ type: 'config_set', path: 'shellProgram', value: v })} />
 
         <div className={styles.twoCol}>
           {/* validate 与后端 zod 校验对齐（config.ts：maxIterations=-1 或 >=1；maxRetries>=0）——前端即时反馈。 */}
-          <NumberField label="Max Iterations" value={config.maxIterations} validate={(n) => (n === -1 || n >= 1 ? null : '需为正整数（-1 表示不设限）')} onChange={(v) => safeSettingsPost(port, { type: 'config_set', path: 'maxIterations', value: v })} />
-          <NumberField label="Max Retries" value={config.maxRetries} validate={(n) => (n >= 0 ? null : '需为非负整数')} onChange={(v) => safeSettingsPost(port, { type: 'config_set', path: 'maxRetries', value: v })} />
+          <NumberField label="Max Iterations" value={config.maxIterations} validate={(n) => (n === -1 || n >= 1 ? null : '需为正整数（-1 表示不设限）')} onChange={(v) => post({ type: 'config_set', path: 'maxIterations', value: v })} />
+          <NumberField label="Max Retries" value={config.maxRetries} validate={(n) => (n >= 0 ? null : '需为非负整数')} onChange={(v) => post({ type: 'config_set', path: 'maxRetries', value: v })} />
         </div>
       </div>
 
       {fileBrowserOpen && (
         <FsFilePicker
-          onConfirm={(path) => { safeSettingsPost(port, { type: 'config_set', path: 'systemPrompt', value: path }); setFileBrowserOpen(false) }}
+          onConfirm={(path) => { post({ type: 'config_set', path: 'systemPrompt', value: path }); setFileBrowserOpen(false) }}
           onClose={() => setFileBrowserOpen(false)}
         />
       )}
@@ -119,17 +132,31 @@ function GeneralSection({ config, port }: { config: Config; port: UiPort }) {
 
 // ── Models ──
 function ModelsSection({ config, port }: { config: Config; port: UiPort }) {
+  // P2-35：与 General 同款 inlineError——失败不再只有 console.warn。post 沿组件树下发
+  //（ProviderCard/ModelEditor 的全部写操作都走它），失败统一显示在本区标题下方。
+  const [inlineError, setInlineError] = useState('')
+  const post = (msg: UiToAgentMessage): void => {
+    setInlineError('')
+    safeSettingsPost(port, msg, (e) => setInlineError(`保存失败：${e.message}`))
+  }
   return (
     <>
       <div className={styles.sectionTitle}>Providers & Models</div>
       <div className={styles.sectionDesc}>API providers and their model configurations</div>
+      {inlineError && <div style={{ color: 'var(--color-danger)', fontSize: 12, marginBottom: 8 }}>{inlineError}</div>}
       <div className={styles.providerList}>
-        {/* key 用 provider 名（稳定标识）而非数组下标——删除中间项时下标 key 会让后续卡片整体
-            前移复用，折叠/展开等组件内部状态错位到错误的 provider 上；未命名 provider 回落下标。 */}
+        {/* P2-34 立法：key 改用数组下标（原用 provider.name，未命名回落下标）。取舍说明——
+            name 作 key 的问题：改名保存 → 后端回读 config → name 变化 → key 变化 → 整卡重挂载，
+            卡内未 blur 的草稿（BaseURL/APIKey 的 TextField draft）丢失、展开态折叠回默认。
+            编辑会话内 providers 数组顺序稳定（本 UI 无拖拽/排序，只有尾部 Add 与显式 Delete），
+            下标 key 让卡片跨 name 变化保持实例，草稿与展开态得以保留。
+            下标 key 的代价：删除中间项时后续卡片下标前移、React 复用同位置实例——但删除是
+            显式破坏性操作，且回读的 config 会经各字段 useEffect 重置草稿、展开态错位影响仅
+            一次折叠状态，可接受。 */}
         {config.providers.map((provider, pIdx) => (
-          <ProviderCard key={provider.name || `__idx_${pIdx}`} provider={provider} pIdx={pIdx} port={port} />
+          <ProviderCard key={pIdx} provider={provider} pIdx={pIdx} post={post} />
         ))}
-        <button className={styles.addBtn} onClick={() => safeSettingsPost(port, { type: 'config_add', path: 'providers', value: { name: '', protocol: 'openai', baseURL: '', apiKey: '', models: [] } })}>
+        <button className={styles.addBtn} onClick={() => post({ type: 'config_add', path: 'providers', value: { name: '', protocol: 'openai', baseURL: '', apiKey: '', models: [] } })}>
           <Plus size={14} strokeWidth={1.5} /><span>Add Provider</span>
         </button>
       </div>
@@ -137,7 +164,7 @@ function ModelsSection({ config, port }: { config: Config; port: UiPort }) {
   )
 }
 
-function ProviderCard({ provider, pIdx, port }: { provider: Config['providers'][number]; pIdx: number; port: UiPort }) {
+function ProviderCard({ provider, pIdx, post }: { provider: Config['providers'][number]; pIdx: number; post: (msg: UiToAgentMessage) => void }) {
   const [expanded, setExpanded] = useState(true)
   const base = `providers.${pIdx}`
   return (
@@ -150,21 +177,22 @@ function ProviderCard({ provider, pIdx, port }: { provider: Config['providers'][
       </div>
       {expanded && (
         <div className={styles.providerBody}>
-          <TextField label="Name" value={provider.name} mono clearable onChange={(v) => safeSettingsPost(port, { type: 'config_set', path: `${base}.name`, value: v })} />
-          <SelectField label="Protocol" desc="API protocol (currently OpenAI-compatible only)" value={provider.protocol} options={[{ value: 'openai', label: 'openai (OpenAI-compatible)' }]} onChange={(v) => safeSettingsPost(port, { type: 'config_set', path: `${base}.protocol`, value: v })} />
-          <TextField label="Base URL" value={provider.baseURL} mono clearable onChange={(v) => safeSettingsPost(port, { type: 'config_set', path: `${base}.baseURL`, value: v })} />
-          <TextField label="API Key" value={provider.apiKey} mono password clearable onChange={(v) => safeSettingsPost(port, { type: 'config_set', path: `${base}.apiKey`, value: v })} />
+          {/* 卡片内全部写操作走 ModelsSection 下发的 post（P2-35：失败 inline 反馈）。 */}
+          <TextField label="Name" value={provider.name} mono clearable onChange={(v) => post({ type: 'config_set', path: `${base}.name`, value: v })} />
+          <SelectField label="Protocol" desc="API protocol (currently OpenAI-compatible only)" value={provider.protocol} options={[{ value: 'openai', label: 'openai (OpenAI-compatible)' }]} onChange={(v) => post({ type: 'config_set', path: `${base}.protocol`, value: v })} />
+          <TextField label="Base URL" value={provider.baseURL} mono clearable onChange={(v) => post({ type: 'config_set', path: `${base}.baseURL`, value: v })} />
+          <TextField label="API Key" value={provider.apiKey} mono password clearable onChange={(v) => post({ type: 'config_set', path: `${base}.apiKey`, value: v })} />
 
           <div className={styles.modelsLabel}>Models</div>
-          {/* key 用 model 名（稳定标识）而非下标——删除中间 model 时下标 key 会让后续编辑器的
-              展开/草稿状态错位到相邻项；未命名 model 回落下标。 */}
+          {/* P2-34：与 provider 卡同理改下标 key（原用 model.name）——model 改名回读后 name 变化
+              会整块重挂载，展开态丢失；删除中间项的错位代价同上可接受。 */}
           {provider.models.map((model, mIdx) => (
-            <ModelEditor key={model.name || `__idx_${mIdx}`} model={model} pIdx={pIdx} mIdx={mIdx} port={port} />
+            <ModelEditor key={mIdx} model={model} pIdx={pIdx} mIdx={mIdx} post={post} />
           ))}
-          <button className={styles.addBtn} onClick={() => safeSettingsPost(port, { type: 'config_add', path: `${base}.models`, value: { name: '', contextWindow: 128000, maxOutput: 16384, reasoning: false } })}>
+          <button className={styles.addBtn} onClick={() => post({ type: 'config_add', path: `${base}.models`, value: { name: '', contextWindow: 128000, maxOutput: 16384, reasoning: false } })}>
             <Plus size={14} strokeWidth={1.5} /><span>Add Model</span>
           </button>
-          <button className={styles.deleteBtn} onClick={() => safeSettingsPost(port, { type: 'config_remove', path: 'providers', index: pIdx })}>
+          <button className={styles.deleteBtn} onClick={() => post({ type: 'config_remove', path: 'providers', index: pIdx })}>
             <Trash2 size={13} strokeWidth={1.5} /><span>Delete Provider</span>
           </button>
         </div>
@@ -174,7 +202,7 @@ function ProviderCard({ provider, pIdx, port }: { provider: Config['providers'][
 }
 
 // Model 编辑器——完整字段：name/contextWindow/maxOutput/reasoning + 删除。可折叠。
-function ModelEditor({ model, pIdx, mIdx, port }: { model: Config['providers'][number]['models'][number]; pIdx: number; mIdx: number; port: UiPort }) {
+function ModelEditor({ model, pIdx, mIdx, post }: { model: Config['providers'][number]['models'][number]; pIdx: number; mIdx: number; post: (msg: UiToAgentMessage) => void }) {
   const mb = `providers.${pIdx}.models.${mIdx}`
   const [expanded, setExpanded] = useState(false)
   return (
@@ -183,21 +211,21 @@ function ModelEditor({ model, pIdx, mIdx, port }: { model: Config['providers'][n
         <Cpu size={14} strokeWidth={1.5} className={styles.modelIcon} />
         <span className={styles.modelEditorTitle}>{model.name || '(unnamed)'}</span>
         <ChevronDown size={12} strokeWidth={2} className={styles.providerChevron} style={{ transform: expanded ? 'none' : 'rotate(-90deg)' }} />
-        <button className={styles.modelDel} onClick={(e) => { e.stopPropagation(); safeSettingsPost(port, { type: 'config_remove', path: 'models', index: mIdx, providerIndex: pIdx }) }} aria-label="Delete model">
+        <button className={styles.modelDel} onClick={(e) => { e.stopPropagation(); post({ type: 'config_remove', path: 'models', index: mIdx, providerIndex: pIdx }) }} aria-label="Delete model">
           <Trash2 size={12} strokeWidth={1.5} />
         </button>
       </div>
       {expanded && (
         <div className={styles.modelFields}>
-          <TextField label="Model Name" value={model.name} mono onChange={(v) => safeSettingsPost(port, { type: 'config_set', path: `${mb}.name`, value: v })} />
+          <TextField label="Model Name" value={model.name} mono onChange={(v) => post({ type: 'config_set', path: `${mb}.name`, value: v })} />
           {/* validate 与后端 zod 对齐（config.ts：contextWindow/maxOutput 为正整数）。 */}
-          <NumberField label="Context Window" value={model.contextWindow} validate={(n) => (n > 0 ? null : '需为正整数')} onChange={(v) => safeSettingsPost(port, { type: 'config_set', path: `${mb}.contextWindow`, value: v })} />
-          <NumberField label="Max Output" value={model.maxOutput} validate={(n) => (n > 0 ? null : '需为正整数')} onChange={(v) => safeSettingsPost(port, { type: 'config_set', path: `${mb}.maxOutput`, value: v })} />
+          <NumberField label="Context Window" value={model.contextWindow} validate={(n) => (n > 0 ? null : '需为正整数')} onChange={(v) => post({ type: 'config_set', path: `${mb}.contextWindow`, value: v })} />
+          <NumberField label="Max Output" value={model.maxOutput} validate={(n) => (n > 0 ? null : '需为正整数')} onChange={(v) => post({ type: 'config_set', path: `${mb}.maxOutput`, value: v })} />
           <div className={styles.field}>
             <span className={styles.fieldLabel}>Reasoning</span>
             <div className={styles.toggleRow}>
               <span className={styles.toggleDesc}>Enable thinking mode</span>
-              <Toggle on={model.reasoning} onChange={() => safeSettingsPost(port, { type: 'config_set', path: `${mb}.reasoning`, value: !model.reasoning })} />
+              <Toggle on={model.reasoning} onChange={() => post({ type: 'config_set', path: `${mb}.reasoning`, value: !model.reasoning })} />
             </div>
           </div>
         </div>

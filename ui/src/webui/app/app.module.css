@@ -113,6 +113,21 @@
   gap: var(--sp-2);
 }
 
+/* P2-36：scoped 授权按钮内嵌完整 pattern（可能是长 shell 前缀），不加约束会撑宽横幅。
+   按钮允许在 actions 行内收缩（覆盖 primitives .btn 的 flex-shrink: 0）并限宽，
+   标签 span 单行 ellipsis；完整 pattern 走 title 悬停查看。 */
+.permissionScopedBtn {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 340px;
+}
+.permissionScopedLabel {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 /* ── Toast 提示 ── */
 .toast {
   position: fixed;

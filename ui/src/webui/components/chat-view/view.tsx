@@ -43,8 +43,13 @@ export function ChatView({ chat, isRunning }: ChatViewProps) {
         </div>
       ) : (
         <div className={styles.messages}>
+          {/* P2-31 立法：key 用 Block.id（reducer 注入的稳定序号，ui/src/shared/block.ts）而非下标——
+              session_ready 恢复/切换会话时 blocks 被整体替换，下标 key 会让 React 复用同位置的
+              组件实例，把旧块（旧会话）的本地展开态（thinking/tool 卡折叠）错位到新块上。
+              保留 `?? i` 兜底：Block.id 是可选字段，reducer 生产端并行实现中——未注入 id 的
+              旧状态（历史广播/本地 local_user 块）仍需可渲染，此时退化为原下标行为。 */}
           {chat.blocks.map((b, i) => (
-            <MessageBlock key={i} block={b} isRunning={isRunning} />
+            <MessageBlock key={b.id ?? i} block={b} isRunning={isRunning} />
           ))}
 
           {chat.partial && (

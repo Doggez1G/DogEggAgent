@@ -1,19 +1,12 @@
-/* 命令面板：玻璃拟态遮罩 + 居中卡片。匹配 mockup 设计。 */
+/* 命令面板：卡片样式（遮罩由 ModalPortal 提供，P2-37 迁移后本文件不再自绘 scrim）。 */
 
-.scrim {
-  position: fixed;
-  inset: 0;
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 15vh;
-  z-index: var(--z-modal);
-}
-
+/* P2-37 定位补偿：ModalPortal 的 scrim 是垂直居中（align-items: center），
+   面板设计是「居中偏上」（原自绘 scrim 为 flex-start + padding-top 15vh）。
+   卡片是 scrim 的 flex 子项——用 align-self 覆盖容器的居中对齐 + margin-top 复现原位，
+   不必为单一面板改动通用 ModalPortal。 */
 .palette {
+  align-self: flex-start;
+  margin-top: 15vh;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xl, var(--radius-lg));

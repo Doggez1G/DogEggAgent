@@ -220,6 +220,13 @@ function BucketCard({ bucket, bucketMap, setBucket, toolsList, mcpServers }: {
 export function PermissionsSection({ config, port }: { config: Config; port: UiPort }) {
   const buckets = ['allow', 'reject', 'ask'] as const
   const [toolsList, setToolsList] = useState<ToolListItem[]>([])
+  // P2-35：与 General/Models 同款 inlineError——此前 safeSettingsPost 未传 onFail，
+  // 权限桶提交失败只有 console.warn，用户以为已生效（fail-closed 下后果更重）。
+  const [inlineError, setInlineError] = useState('')
+  const post = (msg: Parameters<typeof safeSettingsPost>[1]): void => {
+    setInlineError('')
+    safeSettingsPost(port, msg, (e) => setInlineError(`保存失败：${e.message}`))
+  }
 
   // 工具清单走运行时事实：挂载即请求 tools_request，订阅 tools_list。
   // WebUI 特征各自订阅 port 是既定模式（多订阅合法）；卸载时退订。
@@ -232,9 +239,8 @@ export function PermissionsSection({ config, port }: { config: Config; port: UiP
   }, [port])
 
   const setBucket = (bucket: 'allow' | 'reject' | 'ask', next: Record<string, PermissionRule>): void => {
-    // 安全提交（post 返回 void | Promise<void>，SSE 通道失败会静默）——console.warn 留痕；
-    // 本 section 无 inline 错误面，失败由后端 config 回读自愈（config_updated 校正显示）。
-    safeSettingsPost(port, { type: 'config_set', path: `permission.${bucket}`, value: next })
+    // 安全提交走 post（safeSettingsPost + onFail → inlineError，P2-35）；后端 zod 校验仍兜底非法值。
+    post({ type: 'config_set', path: `permission.${bucket}`, value: next })
   }
   return (
     <>
@@ -244,6 +250,7 @@ export function PermissionsSection({ config, port }: { config: Config; port: UiP
         unchecking it limits the rule to selected tools / patterns (e.g. "git *" for shell,
         "./docs/**" for file paths, "browser_*" for MCP internal tool names).
       </div>
+      {inlineError && <div style={{ color: 'var(--color-danger)', fontSize: 12, marginBottom: 8 }}>{inlineError}</div>}
       <div className={styles.permList}>
         {buckets.map((bucket) => (
           <BucketCard key={bucket} bucket={bucket} bucketMap={config.permission[bucket]} setBucket={(next) => setBucket(bucket, next)} toolsList={toolsList} mcpServers={config.mcpServers} />

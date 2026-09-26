@@ -242,14 +242,17 @@ export function App({ port, connectionState }: AppProps) {
         <SettingsModal config={panel.config} port={port} onClose={() => setModal({ kind: 'none' })} initialSection={modal.section} />
       )}
       {modal.kind === 'command-palette' && (
+        // P2-37：面板入口的 new/resume 与侧栏同源（对齐 Sidebar 的 props 用法），
+        // 改走 safePost 带 isUserAction=true——此前裸 port.post 在 SSE 断连时静默失败，
+        // 用户点「New Session」毫无反应也无提示。
         <CommandPalette
           sessions={sessions}
           skills={skills.map((s) => ({ name: s.name, description: s.description }))}
           activeSessionId={panel.sessionId}
           theme={theme}
           onThemeChange={chrome.setTheme}
-          onNewSession={(cwdArg) => port.post({ type: 'new_session', ...(cwdArg ? { cwd: cwdArg } : {}) })}
-          onResumeSession={(id) => port.post({ type: 'resume_session', id })}
+          onNewSession={(cwdArg) => safePost({ type: 'new_session', ...(cwdArg ? { cwd: cwdArg } : {}) }, true)}
+          onResumeSession={(id) => safePost({ type: 'resume_session', id }, true)}
           onOpenSettings={() => setModal({ kind: 'settings' })}
           onClearHistory={onClearHistory}
           onCommandFeedback={onCommandFeedback}

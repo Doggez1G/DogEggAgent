@@ -117,7 +117,10 @@
   flex-shrink: 0;
   transition: border-color var(--t-fast) ease, color var(--t-fast) ease;
 }
-.cmdkBtn:hover { border-color: var(--color-border-hover, var(--color-border-hover)); color: var(--color-text); }
+/* P2-32：原为 var(--color-border-hover, var(--color-border-hover))——fallback 自引用等于没有
+   fallback，且该 token 三主题原本均未定义，hover 提亮整条失效。现三主题已补定义
+   --color-border-hover（见 theme/themes/*.css），fallback 回落 --color-border 作保底。 */
+.cmdkBtn:hover { border-color: var(--color-border-hover, var(--color-border)); color: var(--color-text); }
 .cmdkLabel { font-size: var(--fs-xs); }
 .cmdkKey {
   font-family: var(--font-mono);

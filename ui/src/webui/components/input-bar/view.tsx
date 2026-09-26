@@ -35,6 +35,8 @@ export function InputBar({ port, isRunning, cwd, skills, onCommandNav, onClearHi
   const suggestIdxRef = useRef<number | null>(null)
   const setSuggest = useCallback((i: number | null) => { suggestIdxRef.current = i; setSuggestIdx(i) }, [])
   const quickMenuRef = useRef<HTMLDivElement>(null)
+  // P2-33：textarea 的 DOM ref——onChange 用 inline style 撑开的高度需要在清空路径上回收。
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   // 输入历史——ArrowUp/Down 在输入框为空时回溯历史输入（与 TUI 行为一致）。
   const inputHistory = useRef<string[]>([])
   const historyIdx = useRef<number>(-1) // -1 = 不在历史浏览模式
@@ -58,6 +60,18 @@ export function InputBar({ port, isRunning, cwd, skills, onCommandNav, onClearHi
       onRetryConsumed?.()
     }
   }, [retryText, onRetryConsumed])
+
+  // P2-33 立法：textarea 高度由 onChange 写 inline style（auto → min(scrollHeight, 200)）撑开，
+  // 这是 DOM 状态而非 React state——setInput('') 清空内容后 inline height 仍是峰值，
+  // 发送多行消息后输入区永久保持高个头。选择 useEffect 监听 input 变为空串时重置
+  // （而非在每个清空点手动调）：清空入口分散且会继续增加（提交发送、/clear、/quit、
+  // 会话切换整体替换、历史回溯回落到空、未来 App 层的清空路径……），单一观测点不会漏。
+  // 重置为 'auto' 后高度交还 CSS（.textarea 的 min-height: 24px 单行态）。
+  useEffect(() => {
+    if (input === '' && textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+    }
+  }, [input])
 
   const skillCommands = (skills ?? []).map((s) => ({ cmd: '/' + s.name, desc: `skill: ${s.description}` }))
   const matches = input.startsWith('/') ? matchCommands(input, skillCommands) : []
@@ -179,6 +193,15 @@ export function InputBar({ port, isRunning, cwd, skills, onCommandNav, onClearHi
       else if (cmd === '/skills') { onCommandFeedback?.('/skills') }
       else if (cmd === '/mcp') { onCommandFeedback?.('/mcp') }
       else { onCommandNav('/help') }
+    } else if (result.kind === 'unknown') {
+      // P2-30/T10 立法：未知命令（/ 开头但既非内置也非 skill，如 /etc/hosts 式提问、/fooo 拼错）
+      // 此前会落空整条分支链、被末尾 setInput('') 静默吞掉——parseCommand 的契约（shared/commands.ts）
+      // 要求 UI 显式提示且保留输入。实现取舍：复用现有 onPostError → App.showToast 链路做可见反馈
+      //（toast 前缀「Failed to send:」语义成立——消息确实未发送），不为它新增大段接线；
+      // 输入保留不清空、不发送，联想面板收起。
+      onPostError?.(new Error(`未知命令 ${result.cmd}——输入 / 查看可用命令，或以普通文本重新提问`))
+      setSuggest(null)
+      return
     } else if (result.kind === 'message') {
       const cmd = input.trim().split(/\s+/)[0] ?? ''
       if (result.msg.type === 'clear_history') { onClearHistory(); setInput(''); setSuggest(null); return }
@@ -199,7 +222,8 @@ export function InputBar({ port, isRunning, cwd, skills, onCommandNav, onClearHi
     }
     setInput('')
     setSuggest(null)
-  }, [input, matches, port, onCommandNav, onClearHistory, onQuit, onUserSubmit, onCommandFeedback, setSuggest])
+    // onPostError 此前缺失于 deps（user 分支已在用）——T10 的 unknown 分支也依赖它，补齐。
+  }, [input, matches, port, onCommandNav, onClearHistory, onQuit, onUserSubmit, onCommandFeedback, onPostError, setSuggest])
   const handleKeyDown = (e: React.KeyboardEvent) => {
     // @path 菜单导航（优先于 slash 联想——两者首字符互斥）：↑↓ 选择、Tab/回车插入、esc 关闭。
     if (atMatches.length > 0) {
@@ -272,10 +296,10 @@ export function InputBar({ port, isRunning, cwd, skills, onCommandNav, onClearHi
       e.preventDefault()
       handleSubmit()
     }
-    if (e.ctrlKey && e.key === 'c' && isRunning) {
-      e.preventDefault()
-      port.post({ type: 'cancel' })
-    }
+    // P2-30 立法：原此处有 Ctrl+C → cancel 的分支——挂在被 disabled={isRunning} 的 textarea 上
+    // （isRunning 时恰好才想取消），永不可达，属死代码。产品决策：WebUI 不做 Ctrl+C 取消
+    //（运行中由停止按钮承担取消职责），如未来支持须换成 document 级监听并处理与
+    // 浏览器复制行为的冲突。
   }
 
   return (
@@ -312,6 +336,7 @@ export function InputBar({ port, isRunning, cwd, skills, onCommandNav, onClearHi
       )}
       <div className={styles.inputContainer}>
         <textarea
+          ref={textareaRef}
           className={styles.textarea}
           value={input}
           onChange={(e) => {
