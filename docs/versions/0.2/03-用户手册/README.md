@@ -18,7 +18,7 @@
 
 ```bash
 dogegg        # TUI（终端界面）
-dogegg -web   # WebUI（浏览器界面，默认 http://localhost:3001）
+dogegg -web   # WebUI（浏览器界面，默认 http://localhost:3000，可用 PORT 环境变量覆盖）
 ```
 
 开发态（仓库内）：

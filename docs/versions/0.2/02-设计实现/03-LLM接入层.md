@@ -9,7 +9,7 @@
 | `agent/src/llm/types.ts` | LlmStreamEvent / ChatRequest / ChatResult / LlmClient / LlmUsage 契约 |
 | `agent/src/llm/client-for.ts` | protocol → client 分派（新增协议的唯一改动点） |
 | `agent/src/llm/provider/openai/openai-client.ts` | OpenAiClient：重试编排（唯一对外类） |
-| `agent/src/llm/provider/openai/stream.ts` | 单次流式请求：fetch → SSE 逐行读 → parser，两级超时 |
+| `agent/src/llm/provider/openai/stream.ts` | 单次流式请求：fetch → SSE 逐行读 → parser，三级超时 |
 | `agent/src/llm/provider/openai/parser.ts` | 行驱动 SSE 解析器（可无网络单测） |
 | `agent/src/llm/provider/openai/request.ts` | ChatRequest + 连接参数 → HTTP 请求体组装 |
 | `agent/src/llm/provider/openai/retry.ts` | withRetry：指数退避 + Retry-After 尊重 |
@@ -112,7 +112,7 @@ flowchart TD
   CF["clientFor(protocol, conn)——R6 唯一分派点"]
   OC["OpenAiClient：chat = withRetry(maxRetries + 1, streamOnce)"]
   IF["LlmClient 接口：chat(req, signal, emit)"]
-  SO["streamOnce：fetch → SSE 逐行读 → parser（两级超时）"]
+  SO["streamOnce：fetch → SSE 逐行读 → parser（三级超时）"]
   RP --> CF
   SC --> CF
   CF -- "protocol = openai（config.ts:16）" --> OC
@@ -189,7 +189,7 @@ SSE 流式解析管线：
 
 ```mermaid
 flowchart TD
-  A["fetch Response body（字节流）"] --> B["reader.read() 循环（60s 空闲定时器）"]
+  A["fetch Response body（字节流）"] --> B["reader.read() 循环（分段空闲定时器：首 chunk 前 60s / 流建立后 180s）"]
   B --> C["decoder.decode + buf 缓冲跨 chunk 的不完整尾行"]
   C --> D["按换行切行，逐行 parser.feed(line)"]
   D --> E{"行以 data: 开头？"}
@@ -205,11 +205,11 @@ flowchart TD
   H --> N["streamOnce 返回 message/reasoning/usage"]
 ```
 
-### 3.4 D-4 两级超时与失败归因还原
+### 3.4 D-4 三级超时与失败归因还原
 
 **设计问题**：流式请求的失败形态比普通请求多——连接阶段超时、读到一半流停滞、用户中途取消、流"正常"结束却没有最终消息；错误必须归因准确，否则重试层会把不可重试的取消当超时重试、把该重试的超时当致命错误上抛。
 
-**方案与取舍**：两级超时模型（stream.ts:7-12 注释），均**不含总时长上限**——"持续出字节的流是健康的，生成长度由 maxOutput 决定"（:7 注释）：①连接超时 `CONNECT_TIMEOUT_MS = 60s`（fetch 发起 → 响应头，含 DNS/TLS/首响）；②空闲超时 `IDLE_TIMEOUT_MS = 60s`（相邻 chunk 最大间隔，首个 chunk 前的 body 等待同受约束）。两级统一抛 StreamTimeoutError（可重试）；用户取消走 AbortError，互不混淆（:10 注释）。
+**方案与取舍**：三级超时模型（stream.ts:7-20 注释与常量），均**不含总时长上限**——"持续出字节的流是健康的，生成长度由 maxOutput 决定"（:7 注释）：①连接超时 `CONNECT_TIMEOUT_MS = 60s`（fetch 发起 → 响应头，含 DNS/TLS/首响）；②③空闲超时按流是否建立分两级——首 chunk 前 `IDLE_FIRST_CHUNK_TIMEOUT_MS = 60s`（端点已接受请求却迟迟不给任何字节，多半是网关/负载异常，快速失败进重试比干等划算）；流建立后 `IDLE_STREAMING_TIMEOUT_MS = 180s`（推理模型的合法生成节奏含整分钟级思考静默——思考段内部的长停顿、思考流结束到首个正文 delta 之间 provider 可能完全不发字节，60s 会误杀；放宽为「服务器仍在生成、只是暂时不吐字节」的等待上限，死连接由 TCP 层与连接超时兜底）。三级统一抛 StreamTimeoutError（可重试）；用户取消走 AbortError，互不混淆（:13 注释）。
 
 代码走查——`agent/src/llm/provider/openai/stream.ts:20-38`：
 
@@ -237,7 +237,7 @@ flowchart TD
 
 连接超时用独立 AbortController 承载（:21-25）——外部 signal abort 时联动 abort connectCtrl（:23-24），fetch 只见一个 signal 但归因靠 `connectTimedOut` 标志：`signal.aborted` → AbortError（用户取消，不重试，:33）；`connectTimedOut` → StreamTimeoutError('connect')（:34）；其余 → NetworkError（:35）。HTTP 非 2xx → `HttpError(status, msg, retryAfterMs)`（:40-47），Retry-After header 解析支持秒数与 HTTP-date 两种格式（parseRetryAfter，:118-125）。
 
-**读流循环**（:61-96）：每次 `reader.read()` 挂一个 60s 空闲定时器，超时 `reader.cancel(timeout)`（:64-67）；read reject 时区分 `signal.aborted`（AbortError）、StreamTimeoutError、NetworkError（:75-82）；数据按行切分喂 parser（`buf` 缓冲跨 chunk 的不完整尾行，:85-95）；连接关闭时最后一批字节可能无尾随换行，残余行单独处理（:98-104）。**超时归因还原**是本文件最精巧的失败归因设计。
+**读流循环**（:61-96）：每次 `reader.read()` 挂一个分段空闲定时器——首 chunk 前按 60s、流建立后（收到任意字节，空 chunk 也算）放宽到 180s，超时 `reader.cancel(timeout)`（:105-110）；read reject 时区分 `signal.aborted`（AbortError）、StreamTimeoutError、NetworkError（:118-122）；数据按行切分喂 parser（`buf` 缓冲跨 chunk 的不完整尾行，:129-139）；连接关闭时最后一批字节可能无尾随换行，残余行单独处理（:146-154）。**超时归因还原**是本文件最精巧的失败归因设计。
 
 代码走查——`agent/src/llm/provider/openai/stream.ts:109-114`：
 
@@ -347,7 +347,7 @@ flowchart TD
 - **INV-1**：agent 上层只依赖 `LlmClient` 接口 + `clientFor`，不感知具体 provider（R6）。
 - **INV-2**：done 事件前必有完整增量序列；`tool_call_start` 在 name/id 合并后发出（parser.ts:75-76）。
 - **INV-3**：取消（AbortError）在重试层零延迟上抛，永不重试（retry.ts:14-15）。
-- **INV-4**：两级超时都归因到 StreamTimeoutError，与用户 AbortError 互不混淆（stream.ts:10 注释）。
+- **INV-4**：三级超时都归因到 StreamTimeoutError，与用户 AbortError 互不混淆（stream.ts:13 注释）。
 - **INV-5**：ChatRequest.messages 不含 system——拼接是 client 的职责（request.ts:4），保证历史消息（OpenAI 线格式）可直接持久化回放。
 - **INV-6**：`stream_options: { include_usage: true }` 恒开（request.ts:15）——真实用量是用量双口径（《09》§3.7）与压缩触发校准的数据前提。
 - **INV-7**：tool_call 按 index 累积、done 时按 index 排序输出（parser.ts:23-25）——分片乱序到达不改变最终 tool_calls 顺序。
@@ -359,7 +359,7 @@ flowchart TD
 
 1. **第一站（loop）**：AbortError → cancelled；其余 → trans error + LoopResult.error（《02》§3.3）；
 2. **第二站（TurnRunner）**：emit `{type:'error', error:{message}}` → UI 聊天区错误块 + TUI 自动重填上次提交文本（use-agent-events onErrorRetry / use-turn-tracking retryText）。
-3. 错误消息本身是人话（errors.ts 的构造文案）：`流式连接超时（服务器未及时响应）`、`流式空闲超时（长时间无数据）`、`网络错误: <cause>`、`HTTP <status>`——排查时无需看堆栈。
+3. 错误消息本身是人话（errors.ts 的构造文案）：`流式连接超时（服务器未及时响应）`、`流式空闲超时（长时间未收到服务器新数据，已停止等待）`、`网络错误: <cause>`、`HTTP <status>`——排查时无需看堆栈。
 
 ## 5. 失败模式与恢复
 
@@ -369,7 +369,8 @@ flowchart TD
 | HTTP 4xx（除 429） | HttpError（不可重试） | fail-fast 上抛 → 轮次 error（如 apiKey 无效，重试无意义） |
 | DNS/TLS/连接失败 | NetworkError（可重试） | 指数退避重试 |
 | 连接超时（60s 无响应头） | StreamTimeoutError('connect') | 重试 |
-| 空闲超时（60s 无 chunk） | StreamTimeoutError('idle') | 重试——归因还原设计防止误报"流未产生最终消息" |
+| 空闲超时·首 chunk 前（60s 无任何字节） | StreamTimeoutError('idle') | 重试 |
+| 空闲超时·流建立后（180s 无新 chunk，容忍推理模型思考静默） | StreamTimeoutError('idle') | 重试——归因还原设计防止误报"流未产生最终消息" |
 | 用户取消 | AbortError | 不重试，直接上抛；loop 转 cancelled（《02》§3.6） |
 | SSE 坏行/心跳 | parser 静默跳过 | 不中断流 |
 | JSON.parse 失败（data 行内） | parser 返回空事件数组（parser.ts:44-45） | 该 chunk 丢弃，后续 chunk 正常 |

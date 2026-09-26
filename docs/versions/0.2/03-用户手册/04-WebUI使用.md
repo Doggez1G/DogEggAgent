@@ -1,6 +1,6 @@
 # 04-WebUI使用
 
-浏览器界面（`dogegg -web` 启动，默认 http://localhost:3001）。布局：左侧会话侧栏、中间聊天区、右侧信息面板、顶部工具条（设置齿轮、Cmd+K）。
+浏览器界面（`dogegg -web` 启动，默认 http://localhost:3000，可用 `PORT` 环境变量覆盖）。布局：左侧会话侧栏、中间聊天区、右侧信息面板、顶部工具条（设置齿轮、Cmd+K）。
 
 ## 聊天区
 
@@ -13,7 +13,7 @@
 
 顶部侧栏切换五区：
 
-- **General**：systemPrompt、maxIterations（-1 无限）、maxRetries、shellProgram（下拉带本机扫描）、主题。
+- **General**：systemPrompt、maxIterations（-1 无限）、maxRetries、shellProgram（下拉带本机扫描）。
 - **Models**：provider 列表 → 展开编辑（name/protocol/baseURL/apiKey）+ models 子列表（name/contextWindow/maxOutput/reasoning）；添加后把 default 指向它。
 - **Permissions**：三桶折叠卡片。每条规则：整选开关 chip（✓ Whole tool / · 按模式）、模式 chips（点击改名/×删除）、添加输入框。MCP 服务键规则展开为**勾选 chips**（该服务运行时工具清单）+ 通配 chips。添加下拉分两组：MCP 服务（整组生效）+ 内建工具。
 - **MCP Servers**：全局/项目两组状态卡片（状态点 + 名称 + 传输/状态徽章 + 工具数）；启停/编辑（表单）/删除（确认）；「+ 新建 MCP server」表单（类型/名称/command/args/env 或 url/headers）。
@@ -45,4 +45,4 @@
 - **目录浏览器**：/cd 与工作目录选择器联动，可视化选择工作目录。
 - **斜杠联想**：输入 `/` 弹命令与技能命令（↑↓ 选择自动滚入可视区）。
 - **多标签页**：可同时开多个标签共享同一 agent——任一标签的操作（配置/会话）全局可见。
-- **主题**：设置 General 中切换三主题与明暗两态。
+- **主题**：三主题（Midnight / Forest / Dawn）——在**左侧栏底部**的色板切换（非设置弹框），Cmd+K 命令面板亦可切换。
