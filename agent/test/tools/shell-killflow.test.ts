@@ -100,3 +100,45 @@ describe('killTree（win32 taskkill 路径）', () => {
     expect(() => killer.emit('error', new Error('spawn taskkill ENOENT'))).not.toThrow()
   })
 })
+
+describe('shell spawn 参数形态（P1-4 / P2-14 立法固化）', () => {
+  beforeEach(() => vi.mocked(spawn).mockReset())
+
+  it.skipIf(!isWin)('cmd 分支：ComSpec + /d /s /c + 整体引号 + windowsVerbatimArguments + stdio 声明', async () => {
+    // 回归点：旧形态 spawn('cmd', ['/c', command]) 让 node 按 MSVCRT 规则转义内嵌引号（" → \"），
+    // cmd.exe 不认 \，含引号命令被错拆（实测 findstr /c:"hello world" 报 Cannot open world\"）。
+    // verbatim 形态必须整体固化：参数数组、选项里的 verbatim 与 stdio 三者缺一即回归。
+    const main = fakeChild()
+    vi.mocked(spawn).mockImplementationOnce(() => main as never)
+    const p = new ShellTool().execute(
+      { command: 'findstr /c:"hello world" x.txt' },
+      { cwd: '.', signal: new AbortController().signal, shellTimeoutMs: 10_000 },
+    )
+    main.emit('close', 0)
+    await p
+    expect(spawn).toHaveBeenCalledWith(
+      process.env.ComSpec ?? 'cmd.exe',
+      ['/d', '/s', '/c', '"findstr /c:"hello world" x.txt"'],
+      expect.objectContaining({ windowsVerbatimArguments: true, stdio: ['ignore', 'pipe', 'pipe'] }),
+    )
+    expect(spawn).not.toHaveBeenCalledWith('cmd', expect.anything()) // 裸名数组形态（被 node 转义）禁止回归
+  })
+
+  it.skipIf(isWin)('POSIX 分支保持 -c 数组形态 + detached 进程组 + stdio 声明（P2-14）', async () => {
+    // 程序名不锁死：resolveShellPath 命中时是绝对路径、否则裸名——两种都是合法形态，
+    // 形态固化的重点是「-c 单参数数组」与 detached/stdio 选项。
+    const main = fakeChild()
+    vi.mocked(spawn).mockImplementationOnce(() => main as never)
+    const p = new ShellTool().execute(
+      { command: 'echo hi' },
+      { cwd: '.', signal: new AbortController().signal, shellTimeoutMs: 10_000 },
+    )
+    main.emit('close', 0)
+    await p
+    expect(spawn).toHaveBeenCalledWith(
+      expect.any(String),
+      ['-c', 'echo hi'],
+      expect.objectContaining({ detached: true, stdio: ['ignore', 'pipe', 'pipe'] }),
+    )
+  })
+})

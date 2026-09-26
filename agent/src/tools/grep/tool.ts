@@ -4,6 +4,7 @@ import type { z } from 'zod'
 import { globToRegExp } from '@dogegg/bridge'
 import type { Tool, ToolContext, ToolResult } from '../types'
 import { walkFiles, isBinaryFile, loadGitIgnore } from '../traverse'
+import { resolveTargetPath } from '../../shared'
 import { grepSchema, grepParameters } from './schema'
 
 // ── 输出治理四层（设计 §3.3）──
@@ -48,7 +49,11 @@ export class GrepTool implements Tool {
       }
     }
 
-    const root = path ? join(ctx.cwd, path) : ctx.cwd
+    // P3 绝对路径立法：搜索起点走 resolveTargetPath 而非 join——Windows 上 join(cwd, 绝对路径)
+    // 会吞掉盘符冒号产生乱码根（恒报「路径不存在」）；绝对参数原样 resolve，相对参数基于
+    // cwd resolve（shared/target-path.ts）。下方 join(root, rel) 不在此列：root 已是解析后的
+    // 绝对根，rel 是 walker 产出的相对路径，属遍历内部拼接，逻辑保持不动。
+    const root = path ? resolveTargetPath(ctx.cwd, path) : ctx.cwd
     const rootStat = await stat(root).catch(() => null)
     if (!rootStat) return { error: `路径不存在：${path ?? '.'}` }
 

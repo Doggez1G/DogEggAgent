@@ -2,6 +2,7 @@ import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { z } from 'zod'
 import type { Tool, ToolContext, ToolResult } from '../types'
+import { resolveTargetPath } from '../../shared'
 import { lsSchema, lsParameters } from './schema'
 
 // 条目封顶：目录可能巨大（构建产物、缓存），无封顶的回执会撑爆上下文。
@@ -26,7 +27,10 @@ export class LsTool implements Tool {
 
   async execute(args: unknown, ctx: ToolContext): Promise<ToolResult> {
     const { path } = args as z.infer<typeof lsSchema>
-    const abs = join(ctx.cwd, path)
+    // P3 绝对路径立法：走 resolveTargetPath 而非 join——Windows 上 join(cwd, 绝对路径) 会吞掉
+    // 盘符冒号产生乱码路径；绝对参数原样 resolve，相对参数基于 cwd resolve（shared/target-path.ts）。
+    // 下方的 join(abs, e.name) 不在此列：abs 已是解析后的绝对目录，e.name 是目录项相对名，拼接合法。
+    const abs = resolveTargetPath(ctx.cwd, path)
     try {
       const entries = await readdir(abs, { withFileTypes: true })
       const dirs: string[] = []

@@ -1,9 +1,9 @@
-import { join } from 'node:path'
 import { stat } from 'node:fs/promises'
 import type { z } from 'zod'
 import { globToRegExp } from '@dogegg/bridge'
 import type { Tool, ToolContext, ToolResult } from '../types'
 import { walkFiles, loadGitIgnore } from '../traverse'
+import { resolveTargetPath } from '../../shared'
 import { globSchema, globParameters } from './schema'
 
 // 命中封顶：匹配全部文件名的场景（如 **）在大仓库会产出上万条，无封顶会撑爆上下文。
@@ -27,7 +27,10 @@ export class GlobTool implements Tool {
     } catch (e) {
       return { error: `无效的 glob 模式 ${pattern}：${String(e)}` }
     }
-    const root = path ? join(ctx.cwd, path) : ctx.cwd
+    // P3 绝对路径立法：起点目录走 resolveTargetPath 而非 join——Windows 上 join(cwd, 绝对路径)
+    // 会吞掉盘符冒号产生乱码根（恒报「路径不存在」）；绝对参数原样 resolve，相对参数基于
+    // cwd resolve（shared/target-path.ts）。未传 path 时保持会话 cwd 根。
+    const root = path ? resolveTargetPath(ctx.cwd, path) : ctx.cwd
     // 前置检查：walker 对单目录读失败是「跳过继续」语义（探索不因单点失败中断），
     // 但整个根都不存在必须显式报错——否则「模式写错」和「路径写错」在模型侧不可区分。
     const rootStat = await stat(root).catch(() => null)

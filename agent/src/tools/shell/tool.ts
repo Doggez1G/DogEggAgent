@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import type { z } from 'zod'
 import type { Tool, ToolContext, ToolResult } from '../types'
 import { resolveShell } from './support/interpreter'
+import { resolveShellPath } from './support/detect'
 import { killTree } from './support/kill-tree'
 import { shellSchema, shellParameters } from './schema'
 
@@ -60,6 +61,10 @@ class BoundedOutput {
 // 取消三件套之一：把 killTree 挂在 ctx.signal 的 abort 上，cancel 时杀进程树。
 // detached（仅 POSIX）用于进程组 kill——kill(-pid) 需要子进程在独立进程组里。
 // Windows 不设 detached（taskkill /T 杀子树不需要进程组），不用 shell:true（会触发 DEP0190 弃用警告）。
+// spawn 形态按解释器分两支（P1-4）：win 的 cmd 分支用 verbatim 引号包裹形态（cmd.exe 的引号
+// 规则与 MSVCRT 转义不兼容，见 execute 内立法注释）；powershell/pwsh/bash/sh 保持
+// 「程序 + flag + 命令」数组形态——这些解释器把 flag 后的命令串当单个参数自行解析，
+// 与 node 的参数转义兼容，无需特殊处理。
 export class ShellTool implements Tool {
   readonly name = 'shell'
   readonly description = '执行 shell 命令，捕获 stdout/stderr 与 exit code'
@@ -68,14 +73,48 @@ export class ShellTool implements Tool {
 
   execute(args: unknown, ctx: ToolContext): Promise<ToolResult> {
     const { command } = args as z.infer<typeof shellSchema>
-    const { program, flag } = resolveShell(ctx.shellProgram)
+    const spec = resolveShell(ctx.shellProgram)
     const isWin = process.platform === 'win32'
     const timeoutMs = ctx.shellTimeoutMs ?? SHELL_TIMEOUT_MS
+    // 执行程序优先用绝对路径（P1-5 接线）：resolveShellPath 与 detectShells 走同一份扫描判定，
+    // 保证「检测到的 shell」和「实际启动的 shell」是同一个文件。win32 上绝对路径 spawn 绕过
+    // CreateProcess 的 System32-先于-PATH 搜索序——否则装了 WSL 的机器上裸名 bash 会被
+    // System32 的 WSL 启动器截胡，与检测结果脱节（详见 detect.ts 头部立法）。
+    // 解析不到（null）回退裸名：行为与旧版一致——Unix 上 bash.exe 命名扫描不到即属此列。
+    const shellExe = resolveShellPath(spec.kind) ?? spec.program
     return new Promise((resolve) => {
-      const child = spawn(program, [flag, command], {
-        cwd: ctx.cwd,
-        detached: !isWin,
-      })
+      // stdio 立法（P2-14）：stdin 显式 'ignore'——旧实现用缺省 pipe 却从不写入、从不 end，
+      // 读 stdin 的交互命令（缺参数的脚本、等待确认的 CLI）会一直等输入，挂满 120s 超时才被杀；
+      // 'ignore' 让子进程 stdin 指向空设备，读立即得 EOF，交互命令按「无输入」自然失败。
+      // stdout/stderr 保持 'pipe' 与下方 BoundedOutput 采集相接（缺省本就是 pipe，行为不变，
+      // 显式写出是为了与 stdin 一起构成完整的管道声明，避免读者去查 spawn 缺省值）。
+      //
+      // P1-4 cmd 引号立法：cmd 分支禁止「裸名数组」形态（旧实现 spawn('cmd', ['/c', command])）。
+      // 原因：数组形态下 node 按 MSVCRT 规则对每个参数做转义，命令串内嵌的 " 会被改写成 \"，
+      // 而 cmd.exe 不认 \"（反斜杠对它是普通字符，引号转义只有 "" 一条路），含引号的命令因此
+      // 被错拆——实测 `findstr /c:"hello world"` 在旧形态下报「Cannot open world\"」。
+      // 改为与 node { shell: true } 内部实现完全一致的 verbatim 形态（但显式 spawn 而非
+      // shell:true，避开 DEP0190 弃用警告），三个组成部分缺一不可：
+      // - /d：跳过 AutoRun 注册表项——用户自定义的 cmd 启动脚本会污染输出甚至改写命令语义；
+      // - /s：改变 cmd 对 /c 后字符串的引号剥离规则——仅当整个串首尾恰是一对引号时剥掉这一对，
+      //   命令内部其余引号原样保留（与本包裹形态配套，引号体验对齐 bash -c）；
+      // - 整体 "..." 包裹 + windowsVerbatimArguments: true：后者禁止 node 做 MSVCRT 参数转义，
+      //   命令串逐字节原样到达 cmd.exe，再由外层引号 + /s 规则还原出原命令——没有 verbatim
+      //   时包裹引号自身也会被转义破坏，两步必须同时存在。
+      // ComSpec 是 Windows 自己记录的 cmd 真实位置（沙箱/精简镜像可能改写），缺省 cmd.exe。
+      // PowerShell 与 bash 侧的引号由各自解释器处理（-Command / -c 取单参数），不需要本机制。
+      const child =
+        isWin && spec.kind === 'cmd'
+          ? spawn(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', `"${command}"`], {
+              cwd: ctx.cwd,
+              windowsVerbatimArguments: true,
+              stdio: ['ignore', 'pipe', 'pipe'],
+            })
+          : spawn(shellExe, [spec.flag, command], {
+              cwd: ctx.cwd,
+              detached: !isWin,
+              stdio: ['ignore', 'pipe', 'pipe'],
+            })
       const output = new BoundedOutput()
       let timedOut = false
       let killed = false   // 是否已进入杀进程路径（决定是否需要二级看门狗兜底）

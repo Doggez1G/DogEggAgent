@@ -194,3 +194,40 @@ describe('PermissionManager 会话提升（范围化）', () => {
     expect(pm.snapshotPermissions()).toEqual([])
   })
 })
+
+describe('PermissionManager 路径锚点与 win32 归一（批次2）', () => {
+  it('~/ 锚点：主目录作用域——主目录内命中，出主目录失配（此前漏测的锚点分支）', () => {
+    const pm = new PermissionManager(cfg({ read_file: ['~/notes/**'] }))
+    const home = homedir().replace(/\\/g, '/')
+    // 主目录内的绝对参数（模型常以绝对形式传路径）命中 ~/ 模式
+    expect(pm.classify('read_file', { path: `${home}/notes/a.md` }, 'D:\\proj')).toBe('allow')
+    // 相对写法不享受 ~/ 语义：realTargetPath 把相对参数按 cwd 解析，不会落进主目录
+    expect(pm.classify('read_file', { path: 'notes/a.md' }, 'D:\\proj')).toBe('ask')
+    // 出主目录（../ 折叠后越出 homedir）失配：作用域由锚点声明，~/ 只覆盖主目录子树
+    expect(pm.classify('read_file', { path: `${home}/../elsewhere/x.md` }, 'D:\\proj')).toBe('ask')
+  })
+
+  it('盘符锚点分支：绝对盘符模式按盘符解析（../ 折叠），独立于 cwd', () => {
+    const pm = new PermissionManager(cfg({ read_file: ['D:/proj/../data/**'] }))
+    // 折叠后授权 D:/data/**——盘符开头的模式不锚定 cwd，参数落在折叠后的子树即命中
+    expect(pm.classify('read_file', { path: 'D:/data/x.txt' }, 'D:\\proj')).toBe('allow')
+    // 相对参数按各自 cwd 解析：D:\other\data 不在折叠后的子树 → 失配（fail-closed）
+    expect(pm.classify('read_file', { path: 'data/x.txt' }, 'D:\\other')).toBe('ask')
+    // D:\proj\data 也不在：模式里的 .. 已把 proj 折掉，cwd 恰与模式前缀同名不代表在范围内
+    expect(pm.classify('read_file', { path: 'data/x.txt' }, 'D:\\proj')).toBe('ask')
+  })
+
+  it.skipIf(process.platform !== 'win32')('win32 大小写归一（P2-12）：小写盘符模式命中真实大小写参数；command 侧不 fold', () => {
+    // 回归点：NTFS 大小写不敏感，而匹配引擎恒敏感——小写盘符模式 d:/proj/** 与携带磁盘
+    // 真实大小写的参数（realpath/词法解析产出 D:/Proj/...）恒失配，静默回落 ask。
+    // fold 立法后两侧统一小写坐标系（cwd 也写成大写，覆盖「cwd 与参数大小写都不一致」的现场）。
+    const pm = new PermissionManager(cfg({ read_file: ['d:/proj/**'] }))
+    expect(pm.classify('read_file', { path: 'D:/Proj/docs/guide.md' }, 'D:\\Proj')).toBe('allow')
+    // 归一只处理大小写，不放宽作用域：盘符不同的参数依旧失配
+    expect(pm.classify('read_file', { path: 'D:/Other/x.md' }, 'D:\\Proj')).toBe('ask')
+    // fold 边界（刻意收窄）：command 大小写有语义（/i 与 /I 等开关），绝不 fold——
+    // 大写 GIT 不得借 win32 大小写不敏感误命中 git 模式
+    const pm2 = new PermissionManager(cfg({ shell: ['git *'] }))
+    expect(pm2.classify('shell', { command: 'GIT status' }, 'D:\\Proj')).toBe('ask')
+  })
+})
