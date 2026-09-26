@@ -73,21 +73,32 @@ export class SseChannel implements AgentPort {
       res.end('Unsupported Media Type: Content-Type must be application/json')
       return
     }
-    let body = ''
+    // P2-19a：body 用 Buffer[] 收集，'end' 时 Buffer.concat 后统一按 UTF-8 解码。
+    // 旧实现 `body += chunk.toString()` 会在 chunk 边界把多字节 UTF-8 字符截成两半——
+    // 中文常态 3 字节，两半各自解码成 U+FFFD 替换符：轻则 JSON.parse 失败 400，重则
+    // 损坏的文本进入会话历史。Buffer 层面拼接则不存在截断问题（解码只在完整字节序列上做）。
+    const chunks: Buffer[] = []
+    let bodySize = 0
     let tooLarge = false
     req.on('data', (chunk: Buffer) => {
-      body += chunk.toString()
-      if (body.length > MAX_BODY_SIZE) {
+      if (tooLarge) return // 已超限并回应 413——后续数据一律忽略，等响应 flush 后断开连接。
+      chunks.push(chunk)
+      bodySize += chunk.length
+      if (bodySize > MAX_BODY_SIZE) {
         tooLarge = true
-        req.destroy() // 停止读取
+        // P2-19b：413 尽力而为响应。旧实现在此直接 req.destroy() 毁 socket——'end' 永不
+        // 触发，原 413 分支是死代码，客户端只见连接重置。改为先写响应、flush 完成后再断开，
+        // 尽力让客户端读到 413。注意这是「尽力而为」：客户端若仍持续猛发，后续写入可能
+        // 触发 RST 抢在响应之前到达，客户端仍可能只看到连接重置——无法 100% 兜住。
+        res.writeHead(413, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Request body too large' }), () => {
+          req.destroy()
+        })
       }
     })
     req.on('end', () => {
-      if (tooLarge) {
-        res.writeHead(413, { 'Content-Type': 'text/plain' })
-        res.end('Request body too large')
-        return
-      }
+      if (tooLarge) return // 413 已在 data 阶段发出——这里不重复响应。
+      const body = Buffer.concat(chunks).toString('utf8')
       try {
         const raw = JSON.parse(body)
         // zod 校验——确保 POST body 是合法的 UiToAgentMessage。

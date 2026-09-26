@@ -252,4 +252,140 @@ describe('SseChannel', () => {
 
     expect(() => captured!({ type: 'notice', text: 'x' })).not.toThrow()
   })
+
+  // ── P2-19a：POST body 跨 chunk 多字节 UTF-8 ──
+  // 旧实现 `body += chunk.toString()` 在 chunk 边界把多字节字符截成 U+FFFD；改为 Buffer[]
+  // 收集后解码只发生在完整字节序列上。
+
+  it('多字节 UTF-8 字符跨 chunk 边界仍完整解析（「你」的 3 字节分两个 chunk）', () => {
+    const channel = new SseChannel()
+    const received: UiToAgentMessage[] = []
+    channel.onMessage((msg) => { received.push(msg) })
+
+    // 「你」的 UTF-8 编码为 3 字节（E4 BD A0）——从首字节之后切开，迫使该字符跨两个 chunk。
+    const body = Buffer.from(JSON.stringify({ type: 'submit', text: '你' }), 'utf8')
+    const cut = body.indexOf(Buffer.from([0xe4])) + 1
+    const chunks = [body.subarray(0, cut), body.subarray(cut)]
+
+    const fakeReq = {
+      headers: { 'content-type': 'application/json' },
+      on: (event: string, cb: (arg?: Buffer) => void) => {
+        if (event === 'data') chunks.forEach((c) => cb(c))
+        if (event === 'end') cb()
+        if (event === 'error') { /* no-op */ }
+      },
+    }
+    let statusCode = 0
+    const fakeRes = {
+      writeHead: (code: number) => { statusCode = code },
+      end: () => {},
+    }
+    channel.postHandler(fakeReq as never, fakeRes as never)
+
+    expect(statusCode).toBe(200) // 不再 400
+    expect(received).toHaveLength(1)
+    expect(received[0]).toEqual({ type: 'submit', text: '你' }) // 文本完整，无替换符
+  })
+
+  it('整段中文按单字节切碎成多个 chunk 仍完整解析（最坏切分）', () => {
+    const channel = new SseChannel()
+    const received: UiToAgentMessage[] = []
+    channel.onMessage((msg) => { received.push(msg) })
+
+    // 中英混合文本逐字节切开——每个多字节字符都被撕成 3 份，是最坏的 chunk 边界分布。
+    const text = '中文消息abc123'
+    const body = Buffer.from(JSON.stringify({ type: 'submit', text }), 'utf8')
+    const chunks: Buffer[] = []
+    for (let i = 0; i < body.length; i++) chunks.push(body.subarray(i, i + 1))
+
+    const fakeReq = {
+      headers: { 'content-type': 'application/json' },
+      on: (event: string, cb: (arg?: Buffer) => void) => {
+        if (event === 'data') chunks.forEach((c) => cb(c))
+        if (event === 'end') cb()
+        if (event === 'error') { /* no-op */ }
+      },
+    }
+    let statusCode = 0
+    const fakeRes = {
+      writeHead: (code: number) => { statusCode = code },
+      end: () => {},
+    }
+    channel.postHandler(fakeReq as never, fakeRes as never)
+
+    expect(statusCode).toBe(200)
+    expect(received).toHaveLength(1)
+    expect(received[0]).toEqual({ type: 'submit', text })
+  })
+
+  // ── P2-19b：413 尽力而为响应 ──
+  // 旧实现超限即 req.destroy()，413 分支是死代码（'end' 永不触发）；新实现超限时立刻
+  // 写 413 + JSON 错误体，响应 flush 后才断开连接，后续数据一律忽略。
+
+  it('body 超过 1MB 上限 → data 阶段即刻回应 413（JSON 形态），flush 后才断开', () => {
+    const channel = new SseChannel()
+    const received: UiToAgentMessage[] = []
+    channel.onMessage((msg) => { received.push(msg) })
+
+    let destroyed = false
+    const handlers: Record<string, (arg?: unknown) => void> = {}
+    const fakeReq = {
+      headers: { 'content-type': 'application/json' },
+      on: (event: string, cb: (arg?: unknown) => void) => { handlers[event] = cb },
+      destroy: () => { destroyed = true },
+    }
+    let statusCode = 0
+    let responseBody: string | undefined
+    let endCalls = 0
+    const fakeRes = {
+      writeHead: (code: number) => { statusCode = code },
+      // 模拟真实 res.end(data, cb)：写入完成（flush）后调用回调。
+      end: (body?: string, cb?: () => void) => { endCalls++; responseBody = body; cb?.() },
+    }
+    channel.postHandler(fakeReq as never, fakeRes as never)
+
+    // 第一块 600KB 未超限（600KB < 1MB）——不响应。
+    handlers['data']!(Buffer.alloc(600 * 1024))
+    expect(statusCode).toBe(0)
+    expect(destroyed).toBe(false)
+
+    // 第二块累计 1200KB > 1MB——在 data 阶段即刻回应 413，flush（回调）后才 destroy。
+    handlers['data']!(Buffer.alloc(600 * 1024))
+    expect(statusCode).toBe(413)
+    expect(JSON.parse(responseBody!)).toEqual({ error: 'Request body too large' })
+    expect(destroyed).toBe(true)
+    expect(endCalls).toBe(1)
+
+    // 后续 data 与 'end' 均被忽略——不重复写响应、不触发 agent。
+    handlers['data']!(Buffer.alloc(10))
+    handlers['end']!()
+    expect(endCalls).toBe(1)
+    expect(statusCode).toBe(413)
+    expect(received).toHaveLength(0)
+  })
+
+  it('未超限的正常 body 不受影响：end 阶段正常 200', () => {
+    const channel = new SseChannel()
+    const received: UiToAgentMessage[] = []
+    channel.onMessage((msg) => { received.push(msg) })
+
+    const handlers: Record<string, (arg?: unknown) => void> = {}
+    const fakeReq = {
+      headers: { 'content-type': 'application/json' },
+      on: (event: string, cb: (arg?: unknown) => void) => { handlers[event] = cb },
+      destroy: () => {},
+    }
+    let statusCode = 0
+    const fakeRes = {
+      writeHead: (code: number) => { statusCode = code },
+      end: () => {},
+    }
+    channel.postHandler(fakeReq as never, fakeRes as never)
+
+    handlers['data']!(Buffer.from(JSON.stringify({ type: 'submit', text: 'hello' })))
+    handlers['end']!()
+
+    expect(statusCode).toBe(200)
+    expect(received).toHaveLength(1)
+  })
 })

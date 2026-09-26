@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createServer, type Server } from 'node:http'
+import { createServer, request, type Server } from 'node:http'
 import { describe, it, expect, afterEach } from 'vitest'
 import { Agent, ConfigStore } from '@dogegg/agent'
 import { SseChannel } from '../../src/channel/sse'
@@ -72,6 +72,38 @@ async function collectStream(base: string, pred: (buf: string) => boolean, label
   }
 }
 
+// 用 node:http 客户端手工控制 TCP 写入时序——fetch 的 body 是整体字符串，无法指定
+// chunk 边界。逐块 write（等 flush 回调后再写下一块，块间再加间隔让服务端消化），
+// 人为制造 chunk 边界 / 保证服务端逐块跟得上。Content-Length 按全部块之和声明。
+function postRaw(base: string, chunks: Buffer[], gapMs: number): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const url = new URL(`${base}/api/message`)
+    const total = chunks.reduce((n, c) => n + c.length, 0)
+    const req = request(
+      {
+        host: url.hostname,
+        port: Number(url.port),
+        path: url.pathname,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': total },
+      },
+      (res) => {
+        let body = ''
+        res.setEncoding('utf8')
+        res.on('data', (d: string) => { body += d })
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, body }))
+      },
+    )
+    req.on('error', reject)
+    let i = 0
+    const writeNext = () => {
+      if (i >= chunks.length) { req.end(); return }
+      req.write(chunks[i]!, () => { i++; setTimeout(writeNext, gapMs) })
+    }
+    writeNext()
+  })
+}
+
 describe('WebUI 下行链路端到端（SSE 无过滤）', () => {
   it('rename_session 的 notice 与 session_list 都能从 SSE 流到达浏览器', async () => {
     const base = await start()
@@ -92,4 +124,39 @@ describe('WebUI 下行链路端到端（SSE 无过滤）', () => {
     expect(buf).toContain('"type":"session_list"')
     expect(buf).toContain('"title":"端到端命名"')
   })
+
+  // ── P2-19a 实网验证：多字节 UTF-8 跨 TCP chunk 边界不被截断 ──
+  it('「你」的 3 字节分两个 TCP 写入仍被完整解析（通知回显无替换符）', async () => {
+    const base = await start()
+    const streamPromise = collectStream(base, (buf) => buf.includes('会话已命名「你」'), 'notice')
+    await new Promise((r) => setTimeout(r, 50)) // 等服务端登记 SSE 连接
+
+    // 「你」的 UTF-8 编码为 3 字节（E4 BD A0）——从首字节之后切开，两个 TCP 写入。
+    const body = Buffer.from(JSON.stringify({ type: 'rename_session', title: '你' }), 'utf8')
+    const cut = body.indexOf(Buffer.from([0xe4])) + 1
+    const post = await postRaw(base, [body.subarray(0, cut), body.subarray(cut)], 20)
+
+    expect(post.status).toBe(200) // 不再因 JSON 损坏 400
+    const buf = await streamPromise
+    expect(buf).toContain('会话已命名「你」') // 文本完整回显
+  })
+
+  // ── P2-19b 实网验证：413 可达（尽力而为语义下用正常速度发送保证读到响应）──
+  it('body 超过 1MB 上限 → 客户端收到 413 与 JSON 错误体', async () => {
+    const base = await start()
+    // 压线构造：head（json + 填充）恰好 1MB，最后 1 字节才突破——总数 = 上限 + 1。
+    // 突破点即最后一个 TCP 写入——服务端回应 413 时客户端已发完全部数据（end 已调用），
+    // 没有后续在途写入触发 RST，「尽力而为」的最坏路径被排除，413 必达。
+    const json = JSON.stringify({ type: 'submit', text: 'x' })
+    const pad = 1024 * 1024 - Buffer.byteLength(json)
+    const head = Buffer.concat([Buffer.from(json), Buffer.alloc(pad)])
+    const post = await postRaw(
+      base,
+      [head.subarray(0, 512 * 1024), head.subarray(512 * 1024), Buffer.from('a')],
+      30,
+    )
+
+    expect(post.status).toBe(413)
+    expect(JSON.parse(post.body)).toEqual({ error: 'Request body too large' })
+  }, 10000)
 })

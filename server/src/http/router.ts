@@ -38,10 +38,14 @@ export class Router {
       return true
     })
     // shells handler：GET /api/shells → 检测系统可用的 shell 程序列表（结果缓存）。
+    // detect 为异步（P2-20）：探测在子进程中并行进行，await 等待期间事件循环照常服务
+    // 其它请求——不再有首次请求冻结整个 server 的问题。探测核心内部对每个候选全捕获，
+    // 不会 reject；探测失败的候选被跳过，与旧同步实现的响应形态（200 + JSON 数组）一致。
     this.routes.set('/api/shells', async (req, res) => {
       if (req.method !== 'GET') { res.writeHead(405); res.end('Method Not Allowed'); return true }
+      const found = await shells.detect()
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
-      res.end(JSON.stringify(shells.detect()))
+      res.end(JSON.stringify(found))
       return true
     })
   }
