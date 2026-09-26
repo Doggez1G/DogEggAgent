@@ -7,6 +7,11 @@ import type { AgentContext } from '../ctx'
 
 // 会话生命周期：new / resume / delete / list / clear 的实现归属。
 // 会话隔离：allow_always 授权随 PermissionManager.reset() 只对当前会话生效。
+//
+// 会话 id 白名单立法（防路径穿越）：id 会被直接拼进会话文件名（store.file：`${id}.json`），
+// 放行 `../`、`\` 等字符等于允许路径穿越读/删会话目录之外的任意 json 文件。resume 与
+// deleteSession 两个外部入口统一先过 SESSION_ID_RE 校验，非法直接拒绝（emit notice 并 return）。
+const SESSION_ID_RE = /^[A-Za-z0-9._-]+$/
 export class SessionManager {
   constructor(private readonly deps: {
     ctx: AgentContext
@@ -53,8 +58,16 @@ export class SessionManager {
     this.deps.onSessionSwitched?.(this.deps.conversation.getCwd())
   }
 
+  // 非法 id 防御（白名单立法见文件头注释）：非法则 emit notice 并返回 true，调用方直接 return。
+  private rejectInvalidId(id: string): boolean {
+    if (SESSION_ID_RE.test(id)) return false
+    this.deps.emit({ type: 'notice', text: `非法会话 id：${id}（只允许字母、数字、点、下划线、连字符）` })
+    return true
+  }
+
   resume(id: string): void {
     if (this.blocked()) return
+    if (this.rejectInvalidId(id)) return
     try {
       const s = this.deps.sessions.load(id)
       this.deps.conversation.load(s)
@@ -81,6 +94,16 @@ export class SessionManager {
   clearHistory(): void {
     if (this.blocked()) return
     this.deps.conversation.clearMessages()
+    // /clear 必须同步落盘（R1 双持久化——内存与磁盘是同一工作集的两份）：只清内存的话，
+    // 磁盘上还留着旧历史，resume 会把「已清空」的对话原样复活。保存走 snapshotFull 全量快照：
+    // 清空后 history/context 为空数组，title（/rename 或自动生成的标题）、usage、cwd 等字段
+    // 原样保留——清历史不清标题（形态参照 agent.ts rename_session 的 setTitle + save）。
+    try {
+      this.save()
+    } catch {
+      // 落盘失败不打断清空本身（内存已清、UI 已可继续）——但要告知后果：resume 可能复活旧历史。
+      this.deps.emit({ type: 'notice', text: '历史已清空，但落盘失败（磁盘错误？）——resume 可能恢复旧历史' })
+    }
     this.deps.emit({ type: 'history_cleared' })
   }
 
@@ -89,9 +112,10 @@ export class SessionManager {
     catch { this.deps.emit({ type: 'notice', text: '会话列表读取失败' }) }
   }
 
-  // 删除会话文件——运行中阻塞（不能删正在使用的会话）。
+  // 删除会话文件——运行中阻塞（不能删正在使用的会话）；id 先过白名单（防路径穿越删任意 json）。
   deleteSession(id: string): void {
     if (this.blocked()) return
+    if (this.rejectInvalidId(id)) return
     try {
       this.deps.sessions.delete(id)
     } catch {

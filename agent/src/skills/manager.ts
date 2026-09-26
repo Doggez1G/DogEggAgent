@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { parseSkillMd, skeletonSkillMd } from './parser'
+import { atomicWriteFileSync } from '../shared'
 
 // Skills 管理（M4.1）：自有目录体系 + Agent Skills 规范格式的扫描 / CRUD / 调用渲染。
 //
@@ -128,7 +129,9 @@ export class SkillsManager {
   private writeDisabled(scope: 'project' | 'user', names: string[]): void {
     const file = this.statePathFor(scope)
     mkdirSync(dirname(file), { recursive: true })
-    writeFileSync(file, JSON.stringify({ disabled: names }, null, 2), 'utf8')
+    // 原子写（立法见 shared/atomic.ts）：.skills.json 是启停状态的唯一副本，直接写中断会留
+    // 半截 JSON——readDisabled 对损坏文件按空名单自愈，但用户的停用清单会静默丢失。
+    atomicWriteFileSync(file, JSON.stringify({ disabled: names }, null, 2))
   }
 
   // 启停：更新旁挂名单并失效缓存。启用一个 missing 条目 = 清理孤儿记录。

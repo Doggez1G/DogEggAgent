@@ -1,7 +1,17 @@
-import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import { configSchema, type Config } from '@dogegg/bridge'
+import { atomicWriteFileSync } from '../shared'
+
+// 配置文件 JSON 损坏（SyntaxError）的明确化错误：裸抛 SyntaxError 只有「Unexpected token」，
+// 用户不知道该改哪个文件。携带 filePath + 中文修复指引（上次写入可能被中断——半截 JSON）。
+export class ConfigParseError extends Error {
+  constructor(public readonly filePath: string) {
+    super(`配置文件解析失败：${filePath}——上次写入可能被中断，请修复或删除该文件后重试`)
+    this.name = 'ConfigParseError'
+  }
+}
 
 // 定位配置文件：项目内 .dogegg.json 优先，否则 ~/.dogegg/config.json，都没有返回 null。
 // （模块私有——外部只经 ConfigStore 存取，路径策略不外泄。）
@@ -37,7 +47,18 @@ export class ConfigStore {
       data = raw
     } else {
       const file = findConfig()
-      data = file ? JSON.parse(readFileSync(file, 'utf8')) : {}
+      if (!file) {
+        data = {}
+      } else {
+        // JSON.parse 失败（SyntaxError）不裸抛：转成带路径的 ConfigParseError，指明修复哪个文件。
+        // zod 校验失败（ZodError）分支维持原样向上抛——schema 错误是另一类问题，报错口径不同。
+        const text = readFileSync(file, 'utf8')
+        try {
+          data = JSON.parse(text)
+        } catch (e) {
+          throw e instanceof SyntaxError ? new ConfigParseError(file) : e
+        }
+      }
     }
     const parsed = configSchema.parse(data)
     // 仅在存在 provider 时补默认 provider/model；空配置保持无默认值。
@@ -51,8 +72,10 @@ export class ConfigStore {
   }
 
   // 把内存中的配置序列化写回 JSON（/config 编辑的持久化）；path 缺省走 configTargetPath()。
+  // 原子写（tmp + rename，见 shared/atomic.ts 立法）：直接 writeFileSync 中途崩溃会留下半截
+  // JSON——下次启动 load 抛解析错误，配置是唯一副本，损坏不可自愈。
   save(config: Config, path = this.defaultPath ?? configTargetPath()): void {
     mkdirSync(dirname(path), { recursive: true })
-    writeFileSync(path, JSON.stringify(config, null, 2), 'utf8')
+    atomicWriteFileSync(path, JSON.stringify(config, null, 2))
   }
 }

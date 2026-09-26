@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { mcpServerSchema, type McpServerConfig } from '@dogegg/bridge'
+import { atomicWriteFileSync } from '../shared'
 
 // 项目级 MCP 配置（.dogegg/.mcp.json）：与全局 config.json 的 mcpServers 同 schema，同名覆盖全局。
 // 读取容错：文件缺失 / JSON 损坏 / 条目校验失败 → 空数组（项目配置错误不拖垮全局）。
@@ -25,7 +26,9 @@ export function readProjectMcp(cwd: string): McpServerConfig[] {
 
 export function writeProjectMcp(cwd: string, servers: McpServerConfig[]): void {
   mkdirSync(join(cwd, '.dogegg'), { recursive: true })
-  writeFileSync(projectFile(cwd), JSON.stringify({ mcpServers: servers }, null, 2) + '\n', 'utf8')
+  // 原子写（立法见 shared/atomic.ts）：.mcp.json 中断半写会损坏项目级 MCP 配置——
+  // 读取侧虽有损坏容错（按空数组），但用户配置静默丢失不可自愈。
+  atomicWriteFileSync(projectFile(cwd), JSON.stringify({ mcpServers: servers }, null, 2) + '\n')
 }
 
 export interface McpMergedEntry {

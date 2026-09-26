@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ConfigStore } from '../../src/config'
@@ -101,6 +101,38 @@ describe('ConfigStore.load', () => {
     const reloaded = store.load(JSON.parse(readFileSync(file, 'utf8')))
     expect(reloaded.defaultProvider).toBe('o')
     expect(reloaded.defaultModel).toBe('m')
+  })
+
+  it('save 原子落盘：内容正确且无 .tmp 残留', () => {
+    // 原子写（tmp + rename）成功后临时文件必须被 rename 走——残留会污染配置目录。
+    const dir = mkdtempSync(join(tmpdir(), 'dogegg-cfg-atomic-'))
+    const file = join(dir, 'config.json')
+    const cfg = store.load({ providers: [{ name: 'o', protocol: 'openai', baseURL: 'http://x', apiKey: 'k', models: [{ name: 'm' }] }] })
+    store.save(cfg, file)
+    const onDisk = JSON.parse(readFileSync(file, 'utf8'))
+    expect(onDisk.defaultProvider).toBe('o')
+    expect(onDisk.providers[0].name).toBe('o')
+    expect(readdirSync(dir).filter((f) => f.includes('.tmp'))).toEqual([])
+  })
+
+  it('损坏的 JSON 配置文件：load 抛错且错误信息带文件路径（指明修复目标）', () => {
+    // load 从 findConfig() 取路径（项目内 .dogegg.json 优先）——chdir 到临时目录隔离，
+    // 不碰进程真实配置；finally 恢复 cwd 并清理临时文件。
+    const dir = mkdtempSync(join(tmpdir(), 'dogegg-cfg-bad-'))
+    const prevCwd = process.cwd()
+    process.chdir(dir)
+    try {
+      writeFileSync(join(dir, '.dogegg.json'), '{"providers": [中途被截断', 'utf8')
+      let err: Error | null = null
+      try { store.load() } catch (e) { err = e as Error }
+      expect(err).not.toBeNull()
+      expect(err!.message).toContain('.dogegg.json')
+      expect(err!.message).toContain('配置文件解析失败')
+      expect(err!.message).toContain('上次写入可能被中断')
+    } finally {
+      process.chdir(prevCwd)
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 

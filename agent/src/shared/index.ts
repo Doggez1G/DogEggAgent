@@ -3,3 +3,5 @@
 export { Logger } from './logger'
 export { BusyGate } from './gate'
 export { CancelledError, newId } from './support'
+export { resolveTargetPath } from './target-path'
+export { atomicWriteFileSync, atomicWriteFile } from './atomic'

@@ -36,7 +36,11 @@ export class ConfigController {
     this.edit((e) => e.setMcpServers(servers))
   }
 
-  // 配置编辑统一入口：委托 ConfigEditor，成功后同步运行时 + 落盘 + emit。
+  // 配置编辑统一入口：委托 ConfigEditor，成功后落盘 + 同步运行时 + emit。
+  // 顺序立法（先落盘、再联动运行时、最后广播）：save 抛错会被上层 send 的 .catch 静默吞掉，
+  // 若先 onConfigChanged（运行时已换新）再 save，磁盘上仍是旧配置——运行态与磁盘分叉，
+  // 重启后「修改消失」。因此磁盘成功才允许运行时与 UI 看到：save 抛错只发 notice，
+  // 不换运行时、不发 config_updated（编辑器内存态保持编辑后值，后续编辑在其上继续，可再重试落盘）。
   private edit(fn: (e: ConfigEditor) => { ok: boolean; error?: string }): void {
     // busy/失败 notice 带 channel: 'config'——WebUI 设置面板 inline 可见（枚举由 WP2 扩 'config'，
     // 此处先行接入；类型报错待 WP2 收口）。
@@ -50,8 +54,14 @@ export class ConfigController {
       return
     }
     const config = this.deps.editor.getConfig()
+    try {
+      this.deps.configs.save(config)
+    } catch {
+      // 落盘失败（磁盘错误？）：本次修改不生效——不发 config_updated，WebUI 表单保留用户输入可重试。
+      this.deps.emit({ type: 'notice', text: '配置保存失败（磁盘错误？），本次修改未生效', channel: 'config' })
+      return
+    }
     this.deps.onConfigChanged(config)
-    this.deps.configs.save(config)
     this.deps.emit({ type: 'config_updated', config })
   }
 }

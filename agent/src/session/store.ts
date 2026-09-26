@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
+import { randomBytes } from 'node:crypto'
 import type { Message, ToolPermission } from '@dogegg/bridge'
 
 // 会话快照：R1 双持久化的完整会话数据。
@@ -44,7 +45,11 @@ export class SessionStore {
   save(snapshot: SessionSnapshot): void {
     mkdirSync(this.baseDir, { recursive: true })
     const target = this.file(snapshot.id)
-    const tmp = target + '.tmp'
+    // tmp 名含 pid 与随机后缀（立法同 shared/atomic.ts）：固定 target + '.tmp' 在双进程
+    // 并发写同一会话时互踩（A 写完 B 覆盖，各自 rename 后内容张冠李戴）。后缀含随机段，
+    // 同进程内的重入写也不会撞名；后缀在 .json 之后——list() 的 .endsWith('.json') 过滤
+    // 天然不会把残留 tmp 当会话文件列出。
+    const tmp = `${target}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`
     writeFileSync(tmp, JSON.stringify({
       id: snapshot.id,
       updatedAt: new Date().toISOString(),
@@ -114,6 +119,9 @@ export class SessionStore {
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) // 降序：最新在前
   }
 
+  // id 直接拼进文件名——调用方（SessionManager 的 resume / deleteSession）必须在入口先过
+  // 白名单 /^[A-Za-z0-9._-]+$/（防 `../../` 路径穿越读/删目录外任意 json）。本类不再重复校验，
+  // 但任何新的直调入口都必须沿用同一白名单（立法位置见 session/manager.ts 文件头）。
   private file(id: string): string {
     return join(this.baseDir, `${id}.json`)
   }
