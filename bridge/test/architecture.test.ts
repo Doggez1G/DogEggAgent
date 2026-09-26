@@ -125,6 +125,9 @@ function resolveTarget(fromFile: string, spec: string): string | null {
 describe('architecture: agent 子域矩阵（纵切立法，2026-09-07 spec §6）', () => {
   // 允许依赖矩阵。改矩阵 = 显式设计决策：同时改这里与 spec。
   // ROOT = agent/src 根文件（agent.ts 门面 / ctx.ts 可变状态持有者 / index.ts 包出口）。
+  // 例外（2026-09 批次1/2 立法）：shared 是显式的跨域底层支撑层（并发原语 gate、日志 logger、
+  // 平台级文件原语 atomicWrite、路径解析 resolveTargetPath）——任何能力域都可依赖 shared，
+  // 不逐域列举（否则每入驻一个平台级原语都要改矩阵）。shared 自身依赖任何域。
   const ALLOWED: Record<string, string[]> = {
     turn: ['session', 'llm', 'tools', 'context', 'permission', 'shared', 'ROOT'],
     session: ['shared', 'ROOT'],
@@ -148,6 +151,8 @@ describe('architecture: agent 子域矩阵（纵切立法，2026-09-07 spec §6�
           .map((imp) => resolveTarget(f, imp))
           .filter((t): t is string => t !== null)
           .filter((t) => t !== domain)
+          // shared 例外：底层支撑层，任何域可依赖（见上方立法注释）。
+          .filter((t) => t !== 'shared')
           .filter((t) => !(ALLOWED[domain] ?? []).includes(t))
           .map((t) => `${domain} -> ${t} (${f})`)
       })

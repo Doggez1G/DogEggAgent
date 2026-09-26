@@ -23,7 +23,10 @@ export type AgentToUiMessage =
   // busy = 快照重发时 agent 是否在跑（gate.busy）。恢复链立法：运行中刷新页面/新标签接入时，
   // session_ready 快照不得把 UI 打回 idle（否则输入框误启用、显示与后端真实状态分叉）——
   // UI 据 busy 先落到「运行中」形态，随后的 status_state 会校正为真实 machine state。
-  | { type: 'session_ready'; id: string; messages: Message[]; busy: boolean; thinking?: { text: string }[] }
+  // live = 运行中的轮内现场（仅 busy=true 时由 agent 附加）：partial 是当前流式中的助手文本
+  //（后续 text_delta 从其上续拼），runningTool 是进行中的工具调用（UI 据此重建 running 工具块）。
+  // 缺省（空闲期快照）不带 live——恢复后 partial/工具块从 history 重建即可，无现场可补。
+  | { type: 'session_ready'; id: string; messages: Message[]; busy: boolean; thinking?: { text: string }[]; live?: { partial?: string; runningTool?: { id: string; name: string; input: unknown } } }
   | { type: 'session_list'; sessions: { id: string; updatedAt: string; preview: string; cwd?: string; title?: string }[] }
   | { type: 'session_deleted'; id: string } // 会话已删除——UI 据此刷新侧栏列表
   | { type: 'config_state'; config: Config }

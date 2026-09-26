@@ -45,6 +45,12 @@ export interface TurnInput {
    * 接收方据此实现轮中检查点落盘 / 中途标题触发 / 实时 token 估算。
    * ⚠️ 传的是 loop 内部工作数组的【引用】（不拷贝——热路径上拷贝整个 context 不可接受），
    * 接收方只读，不得改写；数组内容会在后续迭代继续演化。usage 为轮内已累计的真实用量。
+   *
+   * partial / runningTool（P2-23 运行现场）随行快照：partial 是此刻流式中的 assistant 文本
+   * （assistant 定稿即清零），runningTool 是进行中的工具（tool_start 起、tool_end 止）。
+   * ⚠️ 两者只在 onProgress 触发时刻有效且恒为「刚收口」的值（本回调不发生在长工具执行中 /
+   * 流式生成中）——需要【重发时刻】的最新现场（如 busy 期快照重发恢复 UI），应直读
+   * AgentLoop.getLive()（turn-runner 的 getLiveTurn 已做此覆盖），勿依赖本字段的时效性。
    */
   onProgress?: (snap: {
     context: Message[]
@@ -52,6 +58,10 @@ export interface TurnInput {
     thinking: { text: string }[]
     usage: { promptTokens: number; completionTokens: number }
     compactions: number
+    /** 流式中的 assistant 文本（assistant 定稿即清零；空串 = 此刻无未定稿的流式内容）。 */
+    partial?: string
+    /** 进行中的工具（tool_start 起、tool_end 止；缺省 = 此刻无工具在执行）。 */
+    runningTool?: { id: string; name: string; input: unknown }
   }) => void
 }
 

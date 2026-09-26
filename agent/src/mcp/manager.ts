@@ -42,10 +42,17 @@ export interface McpServerStatusView {
 
 const CALL_TIMEOUT_MS = 60_000
 
+// 启动期两阶段（connect / listTools）的超时上限（立法）：CALL_TIMEOUT_MS 只覆盖 callTool
+// （SDK request 级 timeout 参数），启动期没有任何内建上限——command 误指 REPL、下载卡住的
+// server 会把 connect 挂死，而 rebuild 是串行链（启动/config 变更/set_cwd/面板 manage 都排队），
+// 一个挂死的 server 就阻塞整条链，MCP 子系统失去自愈。两阶段各自计时，超时按启动失败处理，
+// 走 startOne 既有 catch 路径（closeQuietly 释放 client/子进程、状态落 error 面板可见）。
+const MCP_STARTUP_TIMEOUT_MS = 30_000
+
 export class McpManager {
   private readonly servers = new Map<string, McpServerRuntime>()
 
-  constructor(private readonly deps: { registry: ToolRegistry; emit: (m: AgentToUiMessage) => void }) {}
+  constructor(private readonly deps: { registry: ToolRegistry; emit: (m: AgentToUiMessage) => void; /** 启动超时的测试接缝——缺省 MCP_STARTUP_TIMEOUT_MS（30s）。 */ startupTimeoutMs?: number }) {}
 
   // 期望状态 → diff 停启。幂等：多次调用收敛到 desired；任何变化后重播 tools_list + mcp_list。
   async rebuild(desired: McpMergedEntry[]): Promise<void> {
@@ -56,7 +63,7 @@ export class McpManager {
     for (const [name, rt] of [...this.servers]) {
       const next = desired.find((d) => d.server.name === name)
       if (!next || !next.server.enabled || stableStringify(next.server.transport) !== stableStringify(rt.config.transport)) {
-        this.stopOne(name) // 同步落状态 + 后台关连接——广播不被 close 时序阻塞
+        void this.stopOne(name) // 同步落状态 + 后台关连接——广播不被 close 时序阻塞
         if (!next) this.servers.delete(name)
         else { rt.config = next.server; rt.scope = next.scope } // 保留壳体让 listStatus 反映最新配置
         changed = true
@@ -95,8 +102,8 @@ export class McpManager {
       const transport = cfg.transport.type === 'stdio'
         ? new StdioClientTransport({ command: cfg.transport.command, args: cfg.transport.args, env: toEnvMap(cfg.transport.env) })
         : new StreamableHTTPClientTransport(new URL(cfg.transport.url), { requestInit: { headers: cfg.transport.headers } })
-      await client.connect(transport)
-      const { tools } = await client.listTools()
+      await this.withStartupTimeout(client.connect(transport), 'connect')
+      const { tools } = await this.withStartupTimeout(client.listTools(), 'listTools')
       rt.tools = tools.map((t) => ({ name: t.name, description: t.description ?? '', inputSchema: (t.inputSchema ?? {}) as Record<string, unknown> }))
       rt.status = 'running'
       rt.error = undefined
@@ -105,35 +112,57 @@ export class McpManager {
       rt.error = (e as Error).message
       // 立法：connect 成功后任何失败路径都必须关闭连接，否则 stdio 子进程泄漏
       //（SDK 只在 connect 自身失败时自关；此后连接与子进程永久存活）。
-      this.closeQuietly(rt)
+      void this.closeQuietly(rt)
       rt.tools = []
     }
   }
 
-  // 停止单个 server（同步）：摘除工具 + 状态落为 stopped 立即生效；连接关闭后台执行（1s 竞速上限）。
+  // 启动阶段带超时竞速（P2-8）：connect 与 listTools 各自计时，超时 reject 走 startOne 既有
+  // 失败路径。race 出结果后必须 clearTimeout（finally）——否则定时器在剩余窗口内无谓持有进程；
+  // unref 兜底：即使某处未来漏清，启动期挂着的定时器也不该拖住进程退出（shutdown 路径）。
+  private withStartupTimeout<T>(stage: Promise<T>, phase: string): Promise<T> {
+    const ms = this.deps.startupTimeoutMs ?? MCP_STARTUP_TIMEOUT_MS
+    let timer: NodeJS.Timeout | undefined
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`MCP ${phase} 启动超时（${Math.round(ms / 1000)}s）`)), ms)
+      timer.unref()
+    })
+    return Promise.race([stage, timeout]).finally(() => clearTimeout(timer))
+  }
+
+  // 停止单个 server（同步落状态）：摘除工具 + 状态落为 stopped 立即生效；连接关闭后台执行（1s 竞速上限）。
   // 立法：状态变更必须同步完成（广播/面板即时可见），连接关闭是后台事务——stdio 子进程退出时序
   // 偶发让 close 不返回，同步 await 会卡死 rebuild 与其后的整个串行链。
-  private stopOne(name: string): void {
+  // 返回 close 竞速的 Promise（stopAll 需要等待全部关闭完成；rebuild 等调用方以 void 丢弃维持原语义）。
+  private stopOne(name: string): Promise<void> {
     const rt = this.servers.get(name)
-    if (!rt) return
+    if (!rt) return Promise.resolve()
     rt.status = 'stopped'
     rt.tools = []
     this.unregisterServerTools(name)
-    this.closeQuietly(rt)
+    return this.closeQuietly(rt)
   }
 
-  // 尽力而为关闭连接（fire-and-forget，1s 竞速上限）：startOne 失败兜底 / syncRegistry 判死 / stopOne 共用。
+  // 优雅退出（P2-6a）：停掉全部 server——唯一调用方是 Agent.dispose（组合根信号处理的下游）。
+  // 复用 stopOne（注册表摘除 + 状态落 stopped + closeQuietly），退出与运行中停用走同一条清理路径，
+  // 不另写一套（两套清理必然漂移）。await 全部 close 竞速（单个 1s 上限、并行）——dispose 返回后
+  // 组合根即可安全退出，stdio 子进程不会拖着不回收。
+  async stopAll(): Promise<void> {
+    await Promise.all([...this.servers.keys()].map((name) => this.stopOne(name)))
+  }
+
+  // 尽力而为关闭连接（1s 竞速上限）：startOne 失败兜底 / syncRegistry 判死 / stopOne 共用。
   // close 抛错（已断开/SDK connect 失败路径已自关）静默吞掉；关不动的连接放弃等待，
   // close 本身仍在后台推进（SDK close 内部会升级到强杀子进程）。
-  private closeQuietly(rt: McpServerRuntime): void {
+  // 返回竞速 Promise——调用方自行决定 fire-and-forget（void）还是等待（stopAll）。
+  private closeQuietly(rt: McpServerRuntime): Promise<void> {
     const client = rt.client
     rt.client = undefined
-    if (client) {
-      void Promise.race([
-        client.close().catch(() => { /* 已断开则忽略 */ }),
-        new Promise((r) => setTimeout(r, 1000)),
-      ])
-    }
+    if (!client) return Promise.resolve()
+    return Promise.race([
+      client.close().catch(() => { /* 已断开则忽略 */ }),
+      new Promise<void>((r) => setTimeout(r, 1000)),
+    ])
   }
 
   // 把运行中 server 的工具注册进注册表（先摘后挂——server 工具清单可能变化）。
@@ -154,7 +183,7 @@ export class McpManager {
         this.unregisterServerTools(serverName) // 清掉半挂状态：冲突前已注册的本服务工具一并摘除
         // 服务判死即断连（error 态不再持连接）：连接若留着，下次 rebuild 走 startOne 顶替
         // map 条目时旧 client 无人关闭——stdio 子进程泄漏。连接已建立，关闭必须兜底。
-        this.closeQuietly(rt)
+        void this.closeQuietly(rt)
       }
     }
   }

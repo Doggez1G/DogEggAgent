@@ -21,7 +21,18 @@ export const agentToUiMessageSchema: z.ZodType<AgentToUiMessage> = z.discriminat
   z.object({ type: z.literal('tool_end'), id: z.string(), name: z.string(), output: z.string(), error: z.string().optional() }),
   z.object({ type: z.literal('permission_request'), id: z.string(), tool: z.string(), input: z.unknown(), alwaysScope: z.object({ pattern: z.string() }).optional() }),
   // busy 必填（与类型同步）：旧载荷缺 busy 在此被拒——运行中保真依赖该字段，宁可不降级也不静默失真。
-  z.object({ type: z.literal('session_ready'), id: z.string(), messages: z.array(z.any()), busy: z.boolean(), thinking: z.array(z.object({ text: z.string() })).optional() }),
+  // live 可选：运行中快照的轮内现场（partial 流式文本 + runningTool 进行中工具），空闲期快照不带。
+  z.object({
+    type: z.literal('session_ready'),
+    id: z.string(),
+    messages: z.array(z.any()),
+    busy: z.boolean(),
+    thinking: z.array(z.object({ text: z.string() })).optional(),
+    live: z.object({
+      partial: z.string().optional(),
+      runningTool: z.object({ id: z.string(), name: z.string(), input: z.unknown() }).optional(),
+    }).optional(),
+  }),
   z.object({ type: z.literal('session_list'), sessions: z.array(z.object({ id: z.string(), updatedAt: z.string(), preview: z.string(),
       title: z.string().optional(), cwd: z.string().optional() })) }),
   z.object({ type: z.literal('session_deleted'), id: z.string() }),

@@ -15,7 +15,10 @@ export function buildRequest(req: ChatRequest, conn: LlmClientConn): { url: stri
         stream_options: { include_usage: true },
         messages: [{ role: 'system', content: req.systemPrompt }, ...req.messages],
         tools: req.tools,
-        max_tokens: req.maxOutput,
+        // 【立法 P1-7】maxOutput = -1 是 bridge 契约的「不设限」语义（config schema：-1 或正整数）。
+        // OpenAI 协议没有「无限」的表达——直接下发 max_tokens: -1 会被严格实现判 400（该字段
+        // 须为正整数）。此处省略 max_tokens 字段，由服务端取该模型的输出上限；正数时照常携带。
+        ...(req.maxOutput === -1 ? {} : { max_tokens: req.maxOutput }),
       }),
     },
   }

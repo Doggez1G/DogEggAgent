@@ -3,9 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { AgentLoop, Compactor, StateMachine } from '../../src/turn'
+import { patchUnpairedToolCalls } from '@dogegg/bridge'
 import type { LoopServices, LoopResult, TurnInput } from '../../src/turn'
 import { PermissionManager } from '../../src/permission'
 import { ReadFileTool, ToolRegistry } from '../../src/tools'
+import { CancelledError } from '../../src/shared'
+import type { Message } from '@dogegg/bridge'
 import type { LlmClient, LlmStreamEvent } from '../../src/llm/types'
 
 const dir = mkdtempSync(join(tmpdir(), 'dogegg-loop-'))
@@ -192,5 +195,79 @@ describe('AgentLoop', () => {
     expect(machine.state).toBe('cancelled')
     expect(events.some((e) => (e as { type: string }).type === 'state'
       && (e as { from: string }).from === 'compacting' && (e as { to: string }).to === 'cancelled')).toBe(true)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// patchUnpairedToolCalls（P1-6 提炼的纯函数）：loop catch 路径 / 检查点落盘 / 会话加载
+// 三处共用的配对修补规则。纯函数契约：返回修补副本、不改入参。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('patchUnpairedToolCalls（纯函数）', () => {
+  function assistantWith(ids: string[]): Message {
+    return {
+      role: 'assistant', content: null,
+      tool_calls: ids.map((id) => ({ id, type: 'function', function: { name: 'read_file', arguments: '{}' } })),
+    } as unknown as Message
+  }
+  function toolMsg(id: string): Message {
+    return { role: 'tool', tool_call_id: id, content: 'ok' } as Message
+  }
+
+  it('为未配对的 tool_calls 追加补齐 tool 消息；返回副本、不改入参', () => {
+    const msgs = [assistantWith(['c1', 'c2']), toolMsg('c1')]
+    const snapshot = [...msgs]
+    const out = patchUnpairedToolCalls(msgs)
+    expect(out).not.toBe(msgs) // 副本
+    expect(msgs).toEqual(snapshot) // 入参未被改动
+    expect(out).toHaveLength(3)
+    // 补齐消息在尾部、指向未配对的 c2（向后扫描找到最后一条 assistant，已配对的 c1 不重复补）。
+    expect(out.at(-1)).toMatchObject({ role: 'tool', tool_call_id: 'c2', content: 'cancelled（用户打断了操作）' })
+  })
+
+  it('已配对 / 无带 tool_calls 的 assistant 时原样返回（零拷贝）', () => {
+    const paired = [assistantWith(['c1']), toolMsg('c1')]
+    expect(patchUnpairedToolCalls(paired)).toBe(paired)
+    const noAssistant: Message[] = [{ role: 'user', content: 'x' }]
+    expect(patchUnpairedToolCalls(noAssistant)).toBe(noAssistant)
+  })
+
+  it('多工具批量部分配对：只补缺失的（tool 1 已回填、tool 2 中断的旧回归场景）', () => {
+    // 旧实现只查尾部会把这种情况漏掉——尾部是 tool1_result，未配对的是中间的 tool 2。
+    const msgs = [assistantWith(['c1', 'c2']), toolMsg('c1')]
+    const out = patchUnpairedToolCalls(msgs, '会话在工具执行中被中断，未记录到该工具的结果')
+    expect(out).toHaveLength(3)
+    expect(out.at(-1)).toMatchObject({ role: 'tool', tool_call_id: 'c2', content: '会话在工具执行中被中断，未记录到该工具的结果' })
+  })
+
+  it('取消/错误路径接线回归：挂起权限被 reject 打断 → context 与 newMessages 尾部同步补齐', async () => {
+    // 两个 tool_calls 落 ask：第 1 个放行执行，第 2 个的 requestPermission 抛 CancelledError
+    //（模拟 cancel → pending.rejectAll）——loop catch 路径必须补齐未配对的 c2，且
+    // history 载体 newMessages 与 context 同步（R1 同构），修补后状态机落在 cancelled。
+    const client = fakeClient(() => [
+      { type: 'done', message: { role: 'assistant', content: null, tool_calls: [
+        { id: 'c1', type: 'function', function: { name: 'read_file', arguments: '{"path":"a.txt"}' } },
+        { id: 'c2', type: 'function', function: { name: 'read_file', arguments: '{"path":"a.txt"}' } },
+      ] } },
+    ])
+    const machine = new StateMachine('idle')
+    let permCount = 0
+    const loop = new AgentLoop(baseServices({
+      registry: new ToolRegistry([new ReadFileTool()]),
+      machine,
+      requestPermission: async () => {
+        permCount++
+        if (permCount === 2) throw new CancelledError()
+        return { decision: 'allow_once' as const }
+      },
+    }))
+    const result: LoopResult = await loop.run(baseTurn({
+      client,
+      permission: new PermissionManager({ allow: {}, reject: {}, ask: {} }),
+    }))
+    expect(result.cancelled).toBe(true)
+    const patched = result.context.at(-1)!
+    expect(patched).toMatchObject({ role: 'tool', tool_call_id: 'c2', content: 'cancelled（用户打断了操作）' })
+    expect(result.newMessages.at(-1)).toMatchObject({ role: 'tool', tool_call_id: 'c2' })
+    expect(machine.state).toBe('cancelled')
   })
 })

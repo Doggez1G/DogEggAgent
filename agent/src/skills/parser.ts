@@ -5,22 +5,28 @@
 //   ---
 //   正文指令……
 // 不引 YAML 依赖——只取 frontmatter 块内「key: value」单行键值，其余键忽略。
+//
+// 定界符立法（P2-15）：闭合 --- 必须是【独立行】（行级扫描，而非子串 indexOf）——
+// 子串匹配会把正文中的 '----'、'--- text' 等行误当闭合定界符，把正文截进 frontmatter。
+// 找不到合法闭合 → 无 frontmatter（整文件当正文，维持容错方向：解析失败不吞正文）。
+// BOM 立法：Windows 编辑器常给 UTF-8 文件加 BOM——不剥掉则 startsWith('---\n') 恒假，
+// frontmatter 整体失效（description 丢失），所以必须先剥 BOM 再解析。
 export interface ParsedSkillMd {
   description: string
   body: string
 }
 
 export function parseSkillMd(raw: string): ParsedSkillMd {
-  const normalized = raw.replace(/\r\n/g, '\n')
-  // frontmatter 块：首行必须是 ---，且存在闭合 ---。
+  // BOM（U+FEFF）只出现在文件头，先剥再归一化换行。
+  const normalized = raw.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n')
+  // frontmatter 块：首行必须是 ---，且存在作为独立行的闭合 ---。
   if (!normalized.startsWith('---\n')) return { description: '', body: normalized.trim() }
-  const end = normalized.indexOf('\n---', 4)
-  if (end < 0) return { description: '', body: normalized.trim() }
-  const head = normalized.slice(4, end)
-  // 无尾换行：闭合 --- 是文件最后一行时其后没有 \n，indexOf 返回 -1——body 应为空串，
-  // 而非旧实现 slice(0) 把整个文件（frontmatter 混入正文）当 body。
-  const nl = normalized.indexOf('\n', end + 1)
-  const body = (nl < 0 ? '' : normalized.slice(nl + 1)).trim()
+  const lines = normalized.split('\n')
+  // 从第 1 行（跳过开头的 --- 行）起找第一条恰好为 '---' 的行——'----'、'--- text' 都不是定界符。
+  const closeIdx = lines.findIndex((line, i) => i > 0 && line === '---')
+  if (closeIdx < 0) return { description: '', body: normalized.trim() }
+  const head = lines.slice(1, closeIdx).join('\n')
+  const body = lines.slice(closeIdx + 1).join('\n').trim()
   let description = ''
   for (const line of head.split('\n')) {
     const m = /^description:\s*(.*)$/.exec(line)

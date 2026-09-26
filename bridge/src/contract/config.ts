@@ -178,6 +178,23 @@ export const configSchema = z.object({
       }
     }
   })
+  // mcpServers 同名条目校验（P2-9，独立 superRefine）：数组内 name 重复 → 加载期拒绝。
+  // 立法：合并语义下同名项目级会覆盖全局（mergeMcpServers 的既定行为），但【同一数组内】的
+  // 重复名没有覆盖语义可言——实际效果是「后者覆盖前者」的静默丢弃，且首个同名条目启动的
+  // MCP 子进程会被 rebuild 的 diff 判定为「被顶替」而遗留为孤儿进程（旧 client 无主可关）。
+  // 两头都是坑且用户不可见，故在加载期直接拒绝，指明重复名与修复方式。
+  .superRefine((cfg, ctx) => {
+    const seen = new Set<string>()
+    for (const srv of cfg.mcpServers) {
+      if (seen.has(srv.name)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `MCP server 名重复："${srv.name}"——同名条目按「后者覆盖前者」合并，且旧实例会泄漏为孤儿进程，故加载期拒绝；请删除重名条目或改名`,
+        })
+      }
+      seen.add(srv.name)
+    }
+  })
 
 export type Config = z.infer<typeof configSchema>
 export type ProviderConfig = z.infer<typeof providerSchema>

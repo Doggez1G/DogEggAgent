@@ -154,6 +154,13 @@ export async function streamOnce(conn: LlmClientConn, req: ChatRequest, signal: 
     }
   } finally {
     signal.removeEventListener('abort', onUserAbort)
+    // 【立法 P2-5】统一取消 reader：try 内的 throw 路径（parser 喂入畸形负载抛错 / SSE 缓冲超限）
+    // 原本直接上抛、未 cancel reader——未读完的响应体悬空占住 keep-alive socket（连接泄漏，
+    // 与 HTTP 错误分支的 res.body.cancel 同理）。统一收口到 finally：
+    // 幂等保护——流已正常 done / 已被空闲超时 cancel(timeout) / 用户 abort 后，再次 cancel 是
+    // 无害 no-op（对已关闭流的 cancel 立即 resolve）；成功路径走到这里同样是资源收尾。
+    // cancel 失败不影响原错误/结果上抛。
+    try { await reader.cancel() } catch { /* cancel 失败不覆盖原错误 */ }
   }
 
   if (!finalMessage) {

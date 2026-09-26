@@ -18,6 +18,11 @@ import { McpManager, readProjectMcp, writeProjectMcp, mergeMcpServers, type McpM
 import { homedir } from 'node:os'
 import type { AgentContext } from './ctx'
 
+// dispose 等待运行轮收尾的宽限上限：取消路径全部有 AbortSignal / 挂起审批 rejection 兜底，
+// 正常应在毫秒级收尾；但 dispose 是退出路径，绝不能因单个收尾环节意外卡住而挂死信号处理——
+// 到点即放弃等待，继续停 MCP 与落盘（轮次自身仍在后台尽力收尾）。
+const DISPOSE_TURN_GRACE_MS = 5_000
+
 // Agent 构造选项：依赖注入（生产组合根传 logger；client/sessionsDir/registry 为测试接缝）。
 export interface AgentOptions {
   /** 覆盖 clientFor() 的 LLM client（表征测试注入假 client 用）。 */
@@ -32,6 +37,8 @@ export interface AgentOptions {
   skillsUserDir?: string
   /** 配置落盘路径——缺省真实配置文件。⚠️ 会触发配置保存的测试必须注入临时路径。 */
   configPath?: string
+  /** MCP 启动超时（connect/listTools 两阶段各自计时）——缺省 30s；测试接缝（挂死 server 用例注入小值）。 */
+  mcpStartupTimeoutMs?: number
 }
 
 // Agent 是后端对外的唯一入口（门面）：持有 port 订阅与消息路由，通过 AgentPort 收发消息，不依赖 ui。
@@ -114,6 +121,8 @@ export class Agent {
     })
     this.mcp = new McpManager({
       registry: this.registry,
+      // 启动超时测试接缝透传（缺省 30s，见 AgentOptions）。
+      startupTimeoutMs: opts.mcpStartupTimeoutMs,
       // MCP 工具集变化（生命周期广播的 tools_list）直接改变工具 schema 占用——
       // 联动刷新状态栏与 Context 卡的 token 数字（见 refreshTokenDisplays 立法）。
       emit: (m) => { this.emit(m); if (m.type === 'tools_list') this.refreshTokenDisplays() },
@@ -278,28 +287,45 @@ export class Agent {
     return mergeMcpServers(this.ctx.config.mcpServers, readProjectMcp(this.conversation.getCwd()))
   }
 
-  // 裸服务名权限键运行时告警：config 的 superRefine 只校验全局 mcpServers 名单（加载期拒绝），
-  // 项目级 .mcp.json 服务的裸键（如 "playwright" 而非 "mcp:playwright"）静默失效——前缀立法下
-  // 不作为服务键匹配，用户的 allow/reject 意图丢失（回落默认 ask）。MCP 重建完成后用生效服务
-  // 名单（全局 ⊕ 项目）复查 permission 三桶键，让失配在运行时可见（错误可见立法）。
+  // MCP 权限键失配的运行时告警（P2-11 扩展，错误可见立法）：config 的 superRefine 只校验全局
+  // mcpServers 名单（加载期拒绝），两类失配键此前是静默盲区——MCP 重建完成后用生效服务名单
+  // （全局 ⊕ 项目）复查 permission 三桶键，让失配在运行时可见：
+  // 1. 裸服务名键（如 "playwright" 而非 "mcp:playwright"）：前缀立法下不作为服务键匹配，
+  //    用户的 allow/reject 意图丢失（回落默认 ask）；
+  // 2. 遗留标签形态键（含 '__'，如 "mcp__playwright__browser_close"）：v3 前缀立法前的书写
+  //    形态，不作为服务键生效——该键的 patterns 会按 path 主参数匹配，对 MCP 工具通常永不
+  //    生效，应改用 mcp:<服务名> 键。与生效服务名单无关（内建工具名不含 '__'，无误报面），
+  //    服务名单为空也要告警；标签第二段可提取时给出具体的改写建议。
   // 已警告键去重：重建链触发频繁（启动/config 变更/set_cwd/面板 manage），同键重复弹 notice 是噪音。
   // 去重集带键集合指纹复位：记录上次检查的三桶键集合指纹，变化时清空去重集——
-  // 否则用户改回裸键（曾把键改成 mcp: 前缀又改回来）会因去重集残留而永远不再告警。
-  private readonly warnedBareMcpKeys = new Set<string>()
+  // 否则用户改回失配形态（曾把键改成合法写法又改回来）会因去重集残留而永远不再告警。
+  private readonly warnedMcpKeys = new Set<string>()
   private warnedMcpKeysFingerprint = ''
-  private warnBareMcpPermissionKeys(): void {
+  private warnMcpPermissionKeys(): void {
     const names = new Set(this.mergeMcp().map((e) => e.server.name))
-    // 指纹在任何键集合变化时都更新（包括生效服务名单为空的早退路径——服务被删又加回时同样要能再告警）。
+    // 指纹在任何键集合变化时都更新——键被修正后又改坏时同样要能再告警。
     const fingerprint = JSON.stringify([this.ctx.config.permission.allow, this.ctx.config.permission.reject, this.ctx.config.permission.ask].map((b) => Object.keys(b).sort()))
     if (fingerprint !== this.warnedMcpKeysFingerprint) {
       this.warnedMcpKeysFingerprint = fingerprint
-      this.warnedBareMcpKeys.clear()
+      this.warnedMcpKeys.clear()
     }
-    if (names.size === 0) return
     for (const bucket of [this.ctx.config.permission.allow, this.ctx.config.permission.reject, this.ctx.config.permission.ask]) {
       for (const key of Object.keys(bucket)) {
-        if (key.startsWith('mcp:') || !names.has(key) || this.warnedBareMcpKeys.has(key)) continue
-        this.warnedBareMcpKeys.add(key)
+        if (this.warnedMcpKeys.has(key)) continue
+        // 前缀化键是合法服务键——即使服务名本身含 '__'（服务名零约束）也不告警。
+        if (key.startsWith('mcp:')) continue
+        // 遗留标签形态：先于裸名检查——它必然失配，不依赖生效服务名单。
+        if (key.includes('__')) {
+          this.warnedMcpKeys.add(key)
+          // mcp__服务__工具 / mcp__服务 → 服务名取第二段；推不出具体名时给出占位写法。
+          const parts = key.split('__')
+          const suggest = parts[0] === 'mcp' && parts[1] ? `mcp:${parts[1]}` : 'mcp:<服务名>'
+          this.emit({ type: 'notice', text: `权限键 "${key}" 是遗留标签形态——该键的 patterns 会按 path 主参数匹配，对 MCP 工具通常永不生效，应改用 "${suggest}" 键`, channel: 'mcp' })
+          continue
+        }
+        // 裸服务名键：仅在名字确实撞上生效服务时告警（否则可能是普通写错的键，不属于本告警的职责）。
+        if (!names.has(key)) continue
+        this.warnedMcpKeys.add(key)
         this.emit({ type: 'notice', text: `权限键 "${key}" 应写作 "mcp:${key}"，当前不生效（裸服务名键不匹配 MCP 工具）`, channel: 'mcp' })
       }
     }
@@ -312,10 +338,25 @@ export class Agent {
   private rebuildMcp(): Promise<void> {
     this.mcpRebuildChain = this.mcpRebuildChain
       .then(() => this.mcp.rebuild(this.mergeMcp()))
-      // 重建完成后再查裸服务名权限键：此刻生效服务名单（含项目级）才是权威事实。
-      .then(() => this.warnBareMcpPermissionKeys())
+      // 重建完成后再查权限键失配（裸服务名 / 遗留标签形态）：此刻生效服务名单（含项目级）才是权威事实。
+      .then(() => this.warnMcpPermissionKeys())
       .catch(() => { /* 重建失败不中断后续重建——状态在 mcp_list 可见 */ })
     return this.mcpRebuildChain
+  }
+
+  // 等待在飞的 MCP 重建收敛（P2-4）：busy 门只挡「新触发」的重建，不挡「已在飞」的——
+  // 轮次若不等它，开轮时刻的工具清单与重建完成后的清单漂移（工具清单随 system 消息快照进轮），
+  // 重建中停掉的 server 其在飞 MCP 工具会被断连。submit 前调用：等当前链尾；若等待期间又有
+  // 新重建排队（消息在 await 点交错是常态），尾引用变化则继续等——直到「我们等的仍是尾」，
+  // 保证提交时刻重建静止。只读链尾、绝不触发新重建；链自身不 await gate（无死锁面）；
+  // 时长上限由启动超时兜底（每个 server 最坏 30s），此处不加额外超时。
+  private async awaitMcpRebuildSettled(): Promise<void> {
+    let tail = this.mcpRebuildChain
+    for (;;) {
+      await tail
+      if (tail === this.mcpRebuildChain) return
+      tail = this.mcpRebuildChain
+    }
   }
 
   // 项目级 .mcp.json 落盘（失败发 notice 不静默）：磁盘只读/权限问题时面板状态与磁盘事实分叉，
@@ -426,7 +467,16 @@ export class Agent {
       // tool/input 一并存入挂起项——snapshot 重发挂起审批时按原 id 还原 permission_request 载荷。
       const scopePattern = deriveAlwaysScope(tool, input, this.conversation.getCwd())
       this.pending.add(id, { resolve, reject, scopePattern, tool, input })
-      this.emit({ type: 'permission_request', id, tool, input, ...(scopePattern ? { alwaysScope: { pattern: scopePattern } } : {}) })
+      // 【P2-3 立法】emit 包 try/catch：pending.add 之后 emit 一抛（如 emit 链路落盘 appendFileSync
+      // 磁盘满），旧实现 Promise 永不 settle → 工具的 await 永久挂起、gate 永久 busy，进程锁死。
+      // 捕获后用 PendingPermissions 的 reject 语义唤醒该等待（pending 只有 rejectAll——loop 串行
+      // 执行工具，同一时刻至多一个挂起请求，rejectAll 不会误伤其他等待），异常沿 await 正常
+      // 传播为工具失败（executor → loop catch → 轮次 error 收尾），并清空挂起表防泄漏。
+      try {
+        this.emit({ type: 'permission_request', id, tool, input, ...(scopePattern ? { alwaysScope: { pattern: scopePattern } } : {}) })
+      } catch (e) {
+        this.pending.rejectAll(e as Error)
+      }
     })
   }
 
@@ -441,6 +491,21 @@ export class Agent {
   // notice 有界环形缓冲（容量 20）：emit 时捕获、resendSessionState 单播恢复时重放。
   private readonly recentNotices: Extract<AgentToUiMessage, { type: 'notice' }>[] = []
 
+  // P2-23：busy 期的运行现场（session_ready.live）——流式 partial 与进行中工具块。
+  // 数据源是 TurnRunner.getLiveTurn()（onProgress 存档 + loop 实时直读覆盖，长工具执行中 /
+  // 流式生成中也拿得到最新值）。partial 为空串/undefined、无进行中工具时不带对应字段；
+  // 两者皆无（或当前 busy 的是 compact——无轮次现场）则整个 live 缺省（契约：live 各字段可选，
+  // 空对象对 UI 无意义，不发）。非 busy 期一律不带——恢复后 partial/工具块从 history 重建即可。
+  private liveSnapshot(): { partial?: string; runningTool?: { id: string; name: string; input: unknown } } | undefined {
+    if (!this.ctx.gate.busy) return undefined
+    const live = this.turnRunner.getLiveTurn()
+    if (!live || (!live.partial && !live.runningTool)) return undefined
+    return {
+      ...(live.partial ? { partial: live.partial } : {}),
+      ...(live.runningTool ? { runningTool: live.runningTool } : {}),
+    }
+  }
+
   // 重发当前会话的状态快照：session_ready（消息历史 + thinking）+ 近期 notice 重放 + 挂起中的
   // permission_request。
   // 【立法】SSE 重连/刷新后前端无后端重放——唯一恢复源是重发快照。server 在新 SSE 连接建立时
@@ -451,12 +516,16 @@ export class Agent {
   resendSessionState(send?: (m: AgentToUiMessage) => void): void {
     const out = send ?? ((m: AgentToUiMessage) => this.port.post(m))
     const thinking = this.conversation.getThinking()
+    const live = this.liveSnapshot()
     out({
       type: 'session_ready',
       id: this.conversation.getId(),
       messages: [...this.conversation.getHistory()],
       // busy 与 WP2 的 session_ready 契约同步（恢复链立法）：运行中重连时 UI 不被打回 idle。
       busy: this.ctx.gate.busy,
+      // P2-23：busy 时附加运行现场——UI 恢复流式 partial 光标与进行中工具块（否则重连后
+      // 长任务期间界面「看起来 idle」，与后端真实状态分叉）。
+      ...(live ? { live } : {}),
       ...(thinking.length ? { thinking: [...thinking] } : {}),
     })
     for (const n of this.recentNotices) out(n)
@@ -504,17 +573,41 @@ export class Agent {
     this.refreshTokenDisplays()
   }
 
+  // 在飞运行轮句柄（dispose 的等待面）：submit / compact / invoke_skill 产生的轮次 Promise
+  // 登记于此，dispose 据此等待运行轮收尾。TurnRunner 不暴露在飞句柄（其职责是轮次执行，
+  // 并发语义已由 gate 承载），门面在调用点登记是改动最小的接缝。busy 时 submit/compact 自行
+  // 发 notice 立即返回、不产生轮次——wasIdle 判定避免用「立即解决的空 Promise」覆盖真实
+  // 在飞轮的登记；finally 的同一性判断防并发场景误清新登记（详见 runTrackedTurn）。
+  private turnInFlight: Promise<void> | null = null
+
+  // 轮次执行的登记包装：空闲时（本次调用真的会开轮）登记 Promise 再 await；busy 时直接透传
+  //（内部自会发「运行中，请稍候」）。同一性判断：轮 A 收尾（gate 已 leave、轮 A 的 finally
+  // 尚未执行）与轮 B 开轮之间存在微任务窗口，B 的登记会覆盖 A——A 清理时比对引用，
+  // 只清理仍指向自己的登记，不误删 B 的。
+  private async runTrackedTurn(run: () => Promise<void>): Promise<void> {
+    if (this.ctx.gate.busy) { await run(); return }
+    const turn = run()
+    this.turnInFlight = turn
+    try { await turn } finally { if (this.turnInFlight === turn) this.turnInFlight = null }
+  }
+
   // 命令分发：动工作集类在 running 时发 notice 不静默丢弃；纯查询类始终放行。
   async send(cmd: UiToAgentMessage): Promise<void> {
     switch (cmd.type) {
       // ── 动 loop 工作集 / 轮次（运行中阻塞）──
-      case 'submit':
+      case 'submit': {
         if (!isConfigured(this.ctx.config)) { this.emit({ type: 'notice', text: '尚未配置 provider，请先 /config 添加并保存后重试' }); break }
-        await this.turnRunner.submit(cmd.text, this.resolveTurnParams())
+        // P2-4：开轮前先等在飞的 MCP 重建收敛——重建进行中提交会让轮中途工具清单漂移、
+        // 在飞 MCP 工具被断连（详见 awaitMcpRebuildSettled 立法）。等待发生在 gate 占用之前，
+        // 且重建链自身不 await gate——无死锁面。顺带让 resolveTurnParams 取到重建后的最新配置。
+        await this.awaitMcpRebuildSettled()
+        await this.runTrackedTurn(() => this.turnRunner.submit(cmd.text, this.resolveTurnParams()))
         break
+      }
       case 'compact_request':
         if (!isConfigured(this.ctx.config)) { this.emit({ type: 'notice', text: '尚未配置 provider，请先 /config' }); break }
-        await this.turnRunner.compact(this.resolveTurnParams())
+        // 压缩同样登记（dispose 要等它收尾——压缩也占 gate）。
+        await this.runTrackedTurn(() => this.turnRunner.compact(this.resolveTurnParams()))
         break
 
       // ── 会话生命周期（运行中阻塞）──
@@ -572,9 +665,11 @@ export class Agent {
         break
       case 'invoke_skill':
         if (!isConfigured(this.ctx.config)) { this.emit({ type: 'notice', text: '尚未配置 provider，请先 /config 添加并保存后重试' }); break }
+        // 与 submit 同口径：开轮前等在飞 MCP 重建收敛（invoke_skill 也是开轮，同一漂移面）。
+        await this.awaitMcpRebuildSettled()
         try {
           const skillText = this.skills.forInvocation(cmd.name, cmd.args)
-          await this.turnRunner.submit(skillText, this.resolveTurnParams())
+          await this.runTrackedTurn(() => this.turnRunner.submit(skillText, this.resolveTurnParams()))
         } catch (e) {
           this.emit({ type: 'notice', text: (e as Error).message })
         }
@@ -601,9 +696,19 @@ export class Agent {
         break
       }
       case 'status_request': {
-        if (!isConfigured(this.ctx.config)) { this.emit({ type: 'notice', text: '尚未配置 provider，请先 /config' }); break }
-        try { this.emitStatusState() }
-        catch { this.emit({ type: 'notice', text: '状态读取失败' }) }
+        // 【TUI 头部依赖修复】TUI 的 headerReady 依赖 status_state 的 cwd——旧实现未配置 provider
+        // 时只回 notice 不回 status_state，头部永不就绪。未配置也照常下发 status_state：
+        // provider/model 是展示字段，空串即可渲染；windowTokens 0（无配置口径）；cwd 用会话
+        // 当前值；estimatedTokens 走本地估算（不依赖 provider 配置）。原提示 notice 保留——
+        // 两条消息不互斥（状态帧给头部，notice 给用户引导）。
+        try {
+          if (!isConfigured(this.ctx.config)) {
+            this.emit({ type: 'status_state', sessionId: this.conversation.getId(), provider: '', model: '', cwd: this.conversation.getCwd(), state: this.ctx.machine.state, estimatedTokens: this.estimateCurrentTokens(), windowTokens: 0, usage: this.conversation.getUsage() })
+            this.emit({ type: 'notice', text: '尚未配置 provider，请先 /config' })
+            break
+          }
+          this.emitStatusState()
+        } catch { this.emit({ type: 'notice', text: '状态读取失败' }) }
         break
       }
       case 'system_request':
@@ -621,6 +726,11 @@ export class Agent {
         this.resendPendingPermissions()
         break
       case 'rename_session': {
+        // P2-1：busy 门（对齐同文件 set_cwd/skills_manage 的 R2 阻塞语义）。轮中 rename 会把
+        // 「轮前工作集」snapshotFull 落盘——轮内消息还在 loop 手里未同步进 history，落盘即把
+        // 检查点刚写的轮内进度回退成旧态；busy 时拒绝执行，notice 不带 channel（TUI 对话流
+        // 与 WebUI 全局 toast 都可见，与 set_cwd 的 busy 提示同口径）。
+        if (this.ctx.gate.busy) { this.emit({ type: 'notice', text: '运行中，请稍候' }); break }
         // /rename：手动命名当前会话（手动命名优先于自动标题）。notice 让两端对话流都有可见回执。
         const title = cmd.title.trim()
         if (!title) { this.emit({ type: 'notice', text: '用法：/rename <名称>' }); break }
@@ -686,5 +796,55 @@ export class Agent {
       case 'quit':
         process.exit(0)
     }
+  }
+
+  // ── 优雅退出（P2-6b）────────────────────────────────────────────────────────
+  // dispose：唯一调用方是组合根的信号处理（SIGINT/SIGTERM 接线在 bin/dogegg.ts；dev:web 在
+  // main-web.ts）——消息通道里没有对应命令，正常消息流永远不会走到这里。
+  // 流程：①运行中先取消（与 cancel 消息完全同款的双机制：gate.cancel 触发协作检查点 +
+  // AbortSignal 中断在飞 fetch/工具，pending.rejectAll 唤醒挂起中的审批），随后等待运行轮
+  // 收尾（有界宽限——轮次取消路径理论上限毫秒级，但退出路径绝不能被单个收尾环节挂死）；
+  // ②停掉全部 MCP server（复用 stopOne 清理路径、等待 close 竞速完成，stdio 子进程不残留）；
+  // ③尽力而为最终落盘（轮次正常结束已由 saveOrNotice 落盘，这里兜「空闲期直接退出」与
+  // 「取消收尾后仍有未落盘变更」两种情形；失败吞掉——退出路径无处展示错误）。
+  // 幂等立法：信号可能连发（用户狂按 Ctrl+C），二次调用直接返回，不重复取消/停服/落盘。
+  // 已知边界：submit 正在 awaitMcpRebuildSettled 的窄缝里到达的 dispose 不会等它（此刻既无
+  // 在飞轮也无在飞停服动作）——进程随即退出，组合根在 dispose 后 exit 即可终止一切。
+  private disposed = false
+  async dispose(): Promise<void> {
+    if (this.disposed) return
+    this.disposed = true
+    // ① 与 cancel 消息分支同款：两路取消一次触发（gate 双机制 + 挂起审批唤醒）。
+    if (this.ctx.gate.busy) {
+      this.ctx.gate.cancel()
+      this.pending.rejectAll(new CancelledError())
+    }
+    // 等运行轮收尾（轮次 Promise 由 runTrackedTurn 登记；catch 兜底——取消引发的 rejection
+    // 已在轮内转成部分结果，这里吞掉防未处理拒绝）。宽限到点即放弃，不拖死信号处理。
+    const turn = this.turnInFlight
+    if (turn) {
+      let grace: NodeJS.Timeout | undefined
+      await Promise.race([
+        turn.catch(() => { /* 轮内已兜底——防御性吞掉 */ }),
+        new Promise<void>((r) => {
+          grace = setTimeout(r, DISPOSE_TURN_GRACE_MS)
+          grace.unref() // 宽限定时器不持有进程：dispose 之后组合根可能直接 exit
+        }),
+      ]).finally(() => clearTimeout(grace))
+    }
+    // ② 停 MCP：含注册表摘除与 stdio 子进程回收（close 竞速单个 1s 上限、并行）。
+    await this.mcp.stopAll()
+    // ③ 尽力而为最终落盘：有历史才写（空会话没有可落的内容）。
+    try {
+      if (this.conversation.getHistory().length > 0) {
+        this.sessions.save(
+          this.conversation.snapshotFull(
+            this.ctx.permission.snapshotPermissions(),
+            this.conversation.getUsage(),
+            this.conversation.getCompactions(),
+          ),
+        )
+      }
+    } catch { /* 退出路径的落盘失败无从展示——尽力而为 */ }
   }
 }

@@ -43,4 +43,34 @@ describe('parseSkillMd', () => {
     expect(parsed.description).toBe('演示技能')
     expect(parsed.body).toContain('$ARGUMENTS')
   })
+
+  // ── P2-15 定界符严格化：闭合 --- 必须是独立行；先剥 UTF-8 BOM ──
+
+  it('P2-15 正文含 "----" 行：不误判为闭合，"----" 保留在 body', () => {
+    const parsed = parseSkillMd('---\ndescription: 分隔线测试\n---\n正文一\n----\n正文二')
+    expect(parsed.description).toBe('分隔线测试')
+    expect(parsed.body).toBe('正文一\n----\n正文二')
+  })
+
+  it('P2-15 正文含 "--- text" 行：不误判为闭合，整行保留在 body', () => {
+    const parsed = parseSkillMd('---\ndescription: 备注测试\n---\n先看这里\n--- text 是普通文本行\n结尾')
+    expect(parsed.description).toBe('备注测试')
+    expect(parsed.body).toBe('先看这里\n--- text 是普通文本行\n结尾')
+  })
+
+  it('P2-15 UTF-8 BOM 开头（兼 CRLF）：剥 BOM 后 frontmatter 照常解析', () => {
+    // 旧实现不剥 BOM → startsWith('---\n') 恒假 → frontmatter 整体失效（description 丢失）。
+    const parsed = parseSkillMd('\uFEFF---\r\ndescription: 带 BOM 的技能\r\n---\r\n正文')
+    expect(parsed.description).toBe('带 BOM 的技能')
+    expect(parsed.body).toBe('正文')
+  })
+
+  it('P2-15 只有 "----" 可当「闭合」：不合法 → 无 frontmatter，整文件当 body', () => {
+    // 旧实现 indexOf('\n---') 会把 "----" 行的前缀误当闭合，把正文截进 frontmatter——
+    // 新实现找不到独立行的 "---" 即整体视为无 frontmatter（容错方向：不吞正文）。
+    const raw = '---\nname: a\ndescription: 未闭合\n----\n正文'
+    const parsed = parseSkillMd(raw)
+    expect(parsed.description).toBe('')
+    expect(parsed.body).toBe(raw.trim())
+  })
 })

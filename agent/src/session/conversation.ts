@@ -1,6 +1,9 @@
 import type { Message, ToolPermission } from '@dogegg/bridge'
 import type { SessionSnapshot } from './store'
 import { newId } from '../shared'
+// P1-6 配对毒化修补：修补的是「OpenAI 契约级不变量」（assistant.tool_calls 必须有配对 tool 消息），
+// 纯函数收口在 bridge/contract/message-pairing——引擎与存储同源引用，不引入 session→turn 依赖边。
+import { patchUnpairedToolCalls, INTERRUPTED_TOOL_CONTENT } from '@dogegg/bridge'
 
 // 轮次增量：turn 特征回传的工作集变更（LoopResult 的结构子集——session 不依赖 turn）。
 export interface TurnDelta {
@@ -137,8 +140,14 @@ export class Conversation {
 
   // resume：整体替换工作集；快照带 cwd 时一并恢复（项目→会话切换恢复目录）。
   load(s: SessionSnapshot): void {
-    this.history = s.history
-    this.context = s.context
+    // 【立法 P1-6 检查点配对毒化兜底】旧版本写入的检查点可能以「带 tool_calls 且无 tool 结果」
+    // 的 assistant 结尾（onProgress 在 assistant push 后立即触发检查点，工具尚在执行时崩溃/断电）。
+    // 恢复后下一轮请求把该 context 发给严格实现的 OpenAI API 会被 400 拒绝（协议要求每个
+    // tool_call 必须有配对的 tool 消息）。load 时对 history 与 context 应用与 writeCheckpoint
+    // 同款的纯函数修补——新写入的检查点已在落盘前修补，这里是兜底：修复历史遗留的毒化文件，
+    // 并让「配对完整性」规则在读写两端单点收口。修补返回副本，不改动快照入参数组。
+    this.history = patchUnpairedToolCalls(s.history, INTERRUPTED_TOOL_CONTENT)
+    this.context = patchUnpairedToolCalls(s.context, INTERRUPTED_TOOL_CONTENT)
     this.thinking = s.thinking
     this.sessionId = s.id
     if (s.cwd) this.cwdValue = s.cwd
