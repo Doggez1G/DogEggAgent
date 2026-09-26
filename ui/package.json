@@ -3,6 +3,6 @@
   "version": "0.1.0",
   "type": "module",
   "exports": { ".": "./src/index.ts" },
-  "dependencies": { "ink": "^7.1.1", "react": "^19.2.8", "ink-text-input": "^6.0.0", "marked": "^15.0.12", "cli-highlight": "^2.1.11", "chalk": "^5.6.2", "@dogegg/bridge": "*" },
+  "dependencies": { "ink": "^7.1.1", "react": "^19.2.8", "react-dom": "^19.2.8", "ink-text-input": "^6.0.0", "marked": "^15.0.12", "react-markdown": "^10.1.0", "rehype-highlight": "^7.0.2", "lucide-react": "^0.460.0", "cli-highlight": "^2.1.11", "chalk": "^5.6.2", "@dogegg/bridge": "*" },
   "devDependencies": { "@types/react": "^19.2.18" }
 }

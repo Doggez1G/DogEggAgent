@@ -1,0 +1,24 @@
+# CI 门禁：typecheck + 全量测试。
+# 立法：此前仓库无任何 CI，「578 全绿」没有强制执行点，回归可直接进主分支。
+# 本工作流是最小集——lint/format 工具链（eslint/prettier）采纳与否另行决策，暂不引入。
+# 平台固定 windows-latest：本仓库的 shell 工具测试（cmd verbatim 引号、PATHEXT、kill-tree）
+# 与路径语义深度绑定 Windows 行为，是主要目标平台；跨平台矩阵待测试套件平台解耦后再开。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test:run
