@@ -28,7 +28,11 @@ export function PermissionOverlay({ view }: { view: Extract<View, { kind: 'permi
         <Text dimColor>命令：{String(inp.command ?? '')}</Text>
       )}
       {decisionItems(view.alwaysScope?.pattern).map((item, i) => (
-        <Text key={item.decision} inverse={i === view.cursor}>{i === view.cursor ? '> ' : '  '}{item.label}</Text>
+        // desc 补充说明渲染为弱化色次行（仅 scoped 档有）——覆盖面须在确认前向用户言明。
+        <React.Fragment key={item.decision}>
+          <Text inverse={i === view.cursor}>{i === view.cursor ? '> ' : '  '}{item.label}</Text>
+          {item.desc && <Text dimColor>　  {item.desc}</Text>}
+        </React.Fragment>
       ))}
       <Text dimColor>↑↓ 选择 · 回车确认 · esc 拒绝</Text>
     </Box>

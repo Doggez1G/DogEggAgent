@@ -6,6 +6,9 @@ import type { PermissionDecision } from '@dogegg/bridge'
 export interface DecisionItem {
   decision: PermissionDecision
   label: string
+  // 可选补充说明（渲染为弱化色的次行）——scoped 档的覆盖面须向用户言明：
+  // shell 类范围规则按命令前缀匹配，含该前缀的一切命令（含 && 命令链）都会被放行。
+  desc?: string
 }
 
 export function decisionItems(alwaysScopePattern?: string): DecisionItem[] {
@@ -14,7 +17,11 @@ export function decisionItems(alwaysScopePattern?: string): DecisionItem[] {
     { decision: 'allow_always', label: '始终允许（本次会话）' },
   ]
   if (alwaysScopePattern) {
-    items.push({ decision: 'allow_always_scoped', label: `对此范围不再询问（${alwaysScopePattern}）` })
+    items.push({
+      decision: 'allow_always_scoped',
+      label: `对此范围不再询问（${alwaysScopePattern}）`,
+      desc: 'shell 类范围含该前缀的一切命令（含 && 命令链）',
+    })
   }
   items.push({ decision: 'reject', label: '拒绝' })
   return items

@@ -8,6 +8,8 @@ import chalk from 'chalk'
 //   粘贴多行文本经 usePaste（bracketed paste）整段插入，不误提交。
 // Enter（\r，无修饰）提交。Up/Down 在多行文本内移动光标行；单行时不上报
 //（让 app 的输入历史回溯生效）。
+// Ctrl 组合键（除 Ctrl+C 放行给全局处理器）一律吞掉，防字母混入文本；
+// Backspace 回删、Delete 前向删除（两者语义拆分）。
 
 export function MultilineInput(props: {
   value: string
@@ -36,6 +38,11 @@ export function MultilineInput(props: {
   useInput((inputChar, key) => {
     // Ctrl+C 不拦截——让 app 的全局 Ctrl+C 处理器处理（cancel/quit）。
     if (key.ctrl && inputChar === 'c') return
+
+    // 其余 Ctrl 组合键一律吞掉（P2-26）：Ink 把 Ctrl+A/U/W/V 等解析成普通字母 + key.ctrl=true，
+    // 落到下面的字符插入会污染输入文本。Ctrl+J（\n）与 Ctrl+M（\r）被 Ink 解析为
+    // enter/return 且 ctrl=false，不受此拦截影响（换行/提交分支在下方照常工作）。
+    if (key.ctrl) return
 
     // Tab 不拦截——让 app 的命令补全处理器处理。
     if (key.tab) return
@@ -90,10 +97,20 @@ export function MultilineInput(props: {
       return
     }
 
-    if (key.backspace || key.delete) {
+    // Backspace：删光标前一字符（现状语义保留）。
+    if (key.backspace) {
       if (cursorOffset > 0) {
         change(value.slice(0, cursorOffset - 1) + value.slice(cursorOffset))
         setCursorOffset(cursorOffset - 1)
+      }
+      return
+    }
+
+    // Delete：前向删除（P2-28）——删光标处字符，光标未到行尾（文本末尾）时生效；
+    // 旧实现把 delete 与 backspace 合并处理，前向删除键被错误地当成回删。
+    if (key.delete) {
+      if (cursorOffset < value.length) {
+        change(value.slice(0, cursorOffset) + value.slice(cursorOffset + 1))
       }
       return
     }

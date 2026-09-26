@@ -43,6 +43,10 @@ export interface Block {
   kind: BlockKind
   color: ColorToken
   text: string
+  // 稳定序号（reducer 注入，单调递增）：React/WebUI 列表 key 用它而非数组下标——
+  // session_ready/history_cleared 整体替换 blocks 时，下标 key 会让 React 复用同位置
+  // 组件实例，把旧会话块的本地展开态错位到新块上。
+  id?: number
   full?: string
   toolId?: string       // tool_start/tool_end 精确匹配（不靠数组尾部）
   toolInput?: unknown   // tool_start 的 input，供格式化参数段/diff

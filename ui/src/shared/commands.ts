@@ -38,10 +38,13 @@ export function matchCommands(input: string, skills: SkillCommand[] = []): { cmd
 
 // 斜杠命令解析结果：null = 非命令（普通消息）；UiToAgentMessage = 对应的后端消息。
 // /help 是 UI 本地渲染（不发后端消息），返回特殊标记。
+// unknown = 以 / 开头但既非内置命令也非 skill 命令——UI 须显式提示「未知命令」并保留输入，
+// 不得静默吞掉（否则 /etc/hosts 这类以斜杠开头的正常提问会被无反馈丢弃）。
 export type CommandResult =
   | { kind: 'message'; msg: UiToAgentMessage }
   | { kind: 'help' }
   | { kind: 'user'; text: string }
+  | { kind: 'unknown'; cmd: string }
 
 // 解析输入框文本 → 命令消息。★ 可单测。
 // /model 和 /config 都先请求 config（后端回 config_state），由 App 根据 intent 决定打开哪个 overlay/面板。
@@ -87,6 +90,6 @@ export function parseCommand(text: string, skillNames: string[] = []): CommandRe
     }
     case '/quit': return { kind: 'message', msg: { type: 'quit' } }
     case '/help': return { kind: 'help' }
-    default: return { kind: 'help' } // 未知命令也显示帮助
+    default: return { kind: 'unknown', cmd } // 未知命令——UI 显式提示，不吞成帮助页
   }
 }

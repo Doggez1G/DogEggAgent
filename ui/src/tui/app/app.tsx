@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Box, Static, Text } from 'ink'
-import type { Config, ToolListItem, UiPort } from '@dogegg/bridge'
+import type { Config, State, ToolListItem, UiPort } from '@dogegg/bridge'
 import { TopBar, MessageBlock, StatusBar, MultilineInput, StreamingBlock, PendingTool } from '../components'
 import { palette, themeRegistry } from '../theme'
 import { renderMarkdown } from '../markdown'
@@ -27,6 +27,13 @@ import { type View } from '../view-state'
 
 // Static items 的类型：首项是品牌头（启动打印一次），其余是已完成的消息块。
 type StaticItem = { type: 'header' } | { type: 'block'; block: Block }
+
+// 运行态判据（与 reducer 的 status 语义对齐）：idle/finished/cancelled/error 是终态，
+// 其余（thinking/responding/tool_calling/waiting_permission/executing/compacting）都在跑。
+// 运行中提交防丢（handleSubmit）与 context 轮询共用同一判据，避免两处语义漂移。
+function isRunningState(s: State): boolean {
+  return s !== 'idle' && s !== 'finished' && s !== 'cancelled' && s !== 'error'
+}
 
 // App 是 UI 的装配层：chat 数据域（use-chat）+ 视图事件域（use-agent-events）+
 // 键盘路由（use-key-routing → features/*/keys）+ 布局渲染。
@@ -207,8 +214,7 @@ export function App({ port }: { port: UiPort }) {
 
   // 运行中轮询 context_request（2s 间隔）——让 StatusBar 的 tokens 实时更新。
   useEffect(() => {
-    const running = chat.status !== 'idle' && chat.status !== 'finished' && chat.status !== 'cancelled' && chat.status !== 'error'
-    if (!running) return
+    if (!isRunningState(chat.status)) return
     const timer = setInterval(() => port.post({ type: 'context_request' }), 2000)
     return () => clearInterval(timer)
   }, [port, chat.status])
@@ -233,6 +239,13 @@ export function App({ port }: { port: UiPort }) {
     const result = parseCommand(raw, skillsList.map((s) => s.name))
     if (result.kind === 'user' && !result.text) return
     if (result.kind === 'user') {
+      // 运行中提交防丢（P1-8）：agent 侧 busy 会丢弃 submit，乐观插入只会显示一条永远
+      // 得不到回应的消息——用户输入静默丢失。改为显式拒绝：插一条 notice 块提示，
+      // return 不清空输入框（保留用户文本，当前任务结束后可直接重发）。空闲路径保持现状。
+      if (isRunningState(chat.status)) {
+        dispatch({ type: 'notice', text: '运行中，请稍候——本条未发送，当前任务结束后再试' })
+        return
+      }
       dispatch({ type: 'local_user', text: result.text })
       inputHistoryRef.current.push(result.text)
       historyCursorRef.current = -1
@@ -252,6 +265,11 @@ export function App({ port }: { port: UiPort }) {
         '/mcp 管理 MCP       /quit 退出',
         '/help 本帮助',
       ] })
+    } else if (result.kind === 'unknown') {
+      // 未知命令（P2-29）：显式提示而非静默吞掉——/etc/hosts 这类以斜杠开头的提问
+      // 会被 parseCommand 判为 unknown，用户须知道消息没有发出去、为何没发出去。
+      dispatch({ type: 'notice', text: `未知命令 ${result.cmd}——/help 查看全部命令` })
+      return // 保留输入（不清空、不发送）——用户可改写后重发
     } else {
       // /clear 和 /quit 需确认弹层（不可逆操作）。
       if (result.msg.type === 'clear_history') {
@@ -315,18 +333,25 @@ export function App({ port }: { port: UiPort }) {
     ? (configSnapshot.defaultProvider ? `${configSnapshot.defaultProvider}/${configSnapshot.defaultModel ?? '?'}` : '未配置 provider（请先 /config）')
     : '加载配置中…'
 
-  // Static items：品牌头 + 已完成的块（toolActive 时最后一块未完成，留在动态区）。
+  // Static items：品牌头 + 已固化的块。冻结判据按块状态（P1-9）：
+  // 找到第一个 toolStatus==='running' 的块——它及其后插入的块（运行中到达的 notice/
+  // local_user/compaction 等）都留在动态区；tool_end 按 toolId 就地更新后整体转正。
+  // 旧判据「toolActive 时最后一块未完成」假设运行中工具块必在末尾——notice 等插到它后面
+  // 时会把运行中块错误划进 Static 已打印区，而 Ink Static 只增量渲染新下标，
+  // tool_end 的就地更新将永不重绘。转正时 Static 下标单调递增（前缀不变、尾部追加），顺序不乱。
   // 品牌头延迟打印：Static 只在首现时渲染一次——启动瞬间 config/status 还没回来，
   // 先打印会永远定格在「加载配置中…」/ 短横线；等两者就绪再打印即为准确信息。
   const headerReady = configSnapshot !== null && statusBarData.cwd !== undefined
-  const stableCount = chat.toolActive && chat.blocks.length > 0 ? chat.blocks.length - 1 : chat.blocks.length
+  const runningIdx = chat.blocks.findIndex((b) => b.toolStatus === 'running')
+  const stableCount = runningIdx >= 0 ? runningIdx : chat.blocks.length
   const staticItems: StaticItem[] = [
     ...(headerReady ? [{ type: 'header' as const }] : []),
     ...chat.blocks.slice(0, stableCount).map((block) => ({ type: 'block' as const, block })),
   ]
 
-  // 动态区：未完成的 tool 块（会再更新）+ 流式 partial。
-  const activeBlocks = chat.toolActive ? chat.blocks.slice(stableCount) : []
+  // 动态区：稳定下标之后的块（running 工具块 + 其后插入的块；无 running 块时为空）。
+  // 流式 partial 单独渲染，不在此列。
+  const activeBlocks = chat.blocks.slice(stableCount)
 
   return (
     <>
@@ -350,8 +375,10 @@ export function App({ port }: { port: UiPort }) {
 
       {/* 动态区：未完成块 + 流式 partial + 输入 + overlay + 状态栏，由 Ink 重绘 */}
       <Box flexDirection="column">
-        {activeBlocks.map((b) => (
-          <MessageBlock key={b.toolId ?? 'active'} block={b} />
+        {/* 动态区可同时有多个块（running 工具块 + 其后插入的 notice 等）——
+            key 用 reducer 注入的稳定 id，防多块同列时下标/占位 key 撞车。 */}
+        {activeBlocks.map((b, i) => (
+          <MessageBlock key={b.id ?? `active-${i}`} block={b} />
         ))}
         {chat.partial ? (
           <StreamingBlock

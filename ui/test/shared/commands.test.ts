@@ -82,8 +82,8 @@ describe('parseCommand', () => {
     expect(parseCommand('/help')).toEqual({ kind: 'help' })
   })
 
-  it('未知命令 → help', () => {
-    expect(parseCommand('/xyz')).toEqual({ kind: 'help' })
+  it('未知命令 → unknown（UI 显式提示并保留输入，不吞成帮助页）', () => {
+    expect(parseCommand('/xyz')).toEqual({ kind: 'unknown', cmd: '/xyz' })
   })
 })
 

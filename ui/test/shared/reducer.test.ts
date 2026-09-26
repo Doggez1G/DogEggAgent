@@ -459,3 +459,210 @@ describe('reducer — 不产生 block 的消息类型', () => {
     })
   }
 })
+
+describe('reducer — 块 id（单调递增，全分支赋值）', () => {
+  // 立法：所有新建块（local_user/flush/tool_start/孤儿 tool_end/error/notice/compaction/
+  // session_ready 重建/history_cleared 替换）统一经 allocId/appendBlock 分配 id，
+  // WebUI 用 b.id 作 React key——整体替换 blocks 时下标 key 会错位复用组件实例。
+  it('local_user → tool_start → notice 各块 id 严格递增', () => {
+    let s = reducer(initial, { type: 'local_user', text: '问' })
+    s = reducer(s, { type: 'tool_start', id: 'tc1', name: 'shell', input: { command: 'ls' } })
+    s = reducer(s, { type: 'notice', text: '运行中提示' })
+    expect(s.blocks.map((b) => b.id)).toEqual([0, 1, 2])
+  })
+
+  it('error 一轮双块（flush 的 assistant + error 块）共用同一条序号线，不重号', () => {
+    const s = reducer(withPartial('assistant', '半句'), { type: 'error', error: { message: '出错了' } })
+    expect(s.blocks.map((b) => b.id)).toEqual([0, 1])
+    expect(s.blocks[0]).toMatchObject({ kind: 'assistant' })
+    expect(s.blocks[1]).toMatchObject({ kind: 'error' })
+  })
+
+  it('tool_end 就地更新不改变块 id（tool_start 与 tool_end 是同一块）', () => {
+    let s = reducer(initial, { type: 'tool_start', id: 'tc1', name: 'shell', input: { command: 'ls' } })
+    const startId = s.blocks.find((b) => b.toolId === 'tc1')?.id
+    expect(startId).toBeDefined()
+    s = reducer(s, { type: 'tool_end', id: 'tc1', name: 'shell', output: 'ok' })
+    expect(s.blocks.find((b) => b.toolId === 'tc1')?.id).toBe(startId)
+  })
+
+  it('孤儿 tool_end 的兜底块、compaction 提示块都拿 id', () => {
+    const orphan = reducer(initial, { type: 'tool_end', id: 'tc9', name: 'shell', output: '', error: 'denied' })
+    expect(orphan.blocks[0]?.id).toBe(0)
+    const compact = reducer(initial, { type: 'compaction', before_tokens: 10, after_tokens: 5, source: 'auto' })
+    expect(compact.blocks[0]?.id).toBe(0)
+  })
+
+  it('session_ready 重建块接续 state.nextId（跨会话单调），重建后追加不重号', () => {
+    let s = reducer(initial, { type: 'local_user', text: '旧会话的块' }) // id 0，nextId → 1
+    s = reducer(s, {
+      type: 'session_ready', id: 's1', busy: false,
+      messages: [{ role: 'user', content: '你好' }, { role: 'assistant', content: '你好！' }],
+    })
+    expect(s.blocks.map((b) => b.id)).toEqual([1, 2])
+    s = reducer(s, { type: 'notice', text: '重建后追加' })
+    expect(s.blocks[2]?.id).toBe(3)
+  })
+
+  it('history_cleared 的替换块也拿 id（接续 flush 推进后的序号）', () => {
+    // withPartial 无 nextId：flush 先落盘 assistant（id 0），替换的 notice 块拿 id 1。
+    let s = reducer(withPartial('assistant', '残留'), { type: 'history_cleared' })
+    expect(s.blocks).toHaveLength(1)
+    expect(s.blocks[0]?.id).toBe(1)
+    s = reducer(s, { type: 'notice', text: '后续' })
+    expect(s.blocks[1]?.id).toBe(2)
+  })
+})
+
+describe('reducer — 终态防御复位 toolActive（P2-38）', () => {
+  // 立法：R3+try/catch 下 tool_end 总会发出（匹配分支会清 toolActive），三个终止分支补复位
+  // 是零成本兜底——防 emit 链路抛错等极端路径把 running 态残留到下一轮。
+  const runningSetup = (): ChatState => {
+    const s = reducer(initial, { type: 'tool_start', id: 'tc1', name: 'shell', input: { command: 'ls' } })
+    expect(s.toolActive).toBe(true)
+    return s
+  }
+
+  it('state → cancelled 复位', () => {
+    const s = reducer(runningSetup(), { type: 'state', from: 'executing', to: 'cancelled' })
+    expect(s.toolActive).toBe(false)
+    expect(s.status).toBe('cancelled')
+  })
+
+  it('state → idle 复位', () => {
+    const s = reducer(runningSetup(), { type: 'state', from: 'executing', to: 'idle' })
+    expect(s.toolActive).toBe(false)
+    expect(s.status).toBe('idle')
+  })
+
+  it('finished 复位', () => {
+    const s = reducer(runningSetup(), { type: 'finished' })
+    expect(s.toolActive).toBe(false)
+    expect(s.status).toBe('finished')
+  })
+
+  it('error 复位（且不影响 error 块的追加）', () => {
+    const s = reducer(runningSetup(), { type: 'error', error: { message: '流中断' } })
+    expect(s.toolActive).toBe(false)
+    expect(s.blocks.some((b) => b.kind === 'error')).toBe(true)
+  })
+})
+
+describe('reducer — session_ready live 恢复（P2-23）', () => {
+  // 立法：live 是「运行中保真」的下半场——快照携带的现场让新接入端无缝接住正在进行的流。
+  it('busy + live.partial：恢复为流式中的 assistant partial，后续 text_delta 续拼', () => {
+    let s = reducer(initial, {
+      type: 'session_ready', id: 's1', busy: true,
+      messages: [{ role: 'user', content: '运行中的提问' }],
+      live: { partial: '正在生成的回答' },
+    })
+    expect(s.partial).toEqual({ kind: 'assistant', text: '正在生成的回答' })
+    s = reducer(s, { type: 'text_delta', delta: '……续' })
+    expect(s.partial).toEqual({ kind: 'assistant', text: '正在生成的回答……续' })
+  })
+
+  it('live.runningTool：追加 running 工具块（formatToolTitle 摘要 + input 透传）并置 toolActive', () => {
+    const s = reducer(initial, {
+      type: 'session_ready', id: 's1', busy: true,
+      messages: [{ role: 'user', content: '读文件' }],
+      live: { runningTool: { id: 'tc-live', name: 'read_file', input: { path: 'a.txt' } } },
+    })
+    expect(s.toolActive).toBe(true)
+    const tool = s.blocks.find((b) => b.kind === 'tool')
+    expect(tool).toMatchObject({
+      id: expect.any(Number),
+      toolId: 'tc-live',
+      toolName: 'read_file',
+      toolInput: { path: 'a.txt' },
+      toolStatus: 'running',
+    })
+    expect(tool?.text).toContain('read_file')
+    expect(tool?.text).toContain('a.txt')
+  })
+
+  it('runningTool 恢复后 tool_end 按 toolId 精确配对、就地转正（不产生孤儿块）', () => {
+    let s = reducer(initial, {
+      type: 'session_ready', id: 's1', busy: true, messages: [],
+      live: { runningTool: { id: 'tc-live', name: 'shell', input: { command: 'ls' } } },
+    })
+    s = reducer(s, { type: 'tool_end', id: 'tc-live', name: 'shell', output: 'x' })
+    expect(s.blocks).toHaveLength(1)
+    expect(s.blocks[0]).toMatchObject({ toolStatus: 'done', toolOutput: 'x' })
+    expect(s.toolActive).toBe(false)
+  })
+
+  it('partial 与 runningTool 并存：都恢复（partial + running 块同框）', () => {
+    const s = reducer(initial, {
+      type: 'session_ready', id: 's1', busy: true, messages: [],
+      live: {
+        partial: '半句话',
+        runningTool: { id: 'tc-live', name: 'shell', input: { command: 'ls' } },
+      },
+    })
+    expect(s.partial).toEqual({ kind: 'assistant', text: '半句话' })
+    expect(s.toolActive).toBe(true)
+    expect(s.blocks.find((b) => b.kind === 'tool')?.toolStatus).toBe('running')
+  })
+
+  it('busy 但无 live：partial 保持空、不追加工具块（旧快照行为不变）', () => {
+    const s = reducer(initial, {
+      type: 'session_ready', id: 's1', busy: true,
+      messages: [{ role: 'user', content: '运行中的提问' }],
+    })
+    expect(s.partial).toBeNull()
+    expect(s.toolActive).toBe(false)
+    expect(s.blocks).toHaveLength(1)
+  })
+
+  it('空闲快照（busy=false 无 live）：行为完全不变', () => {
+    const s = reducer(initial, {
+      type: 'session_ready', id: 's1', busy: false,
+      messages: [{ role: 'user', content: '你好' }],
+    })
+    expect(s.status).toBe('idle')
+    expect(s.partial).toBeNull()
+    expect(s.blocks).toHaveLength(1)
+  })
+})
+
+describe('reducer — P1-9 冻结判据协同（notice 插在运行中工具块之后）', () => {
+  // TUI Static 冻结按 toolStatus==='running' 找第一个运行块（app.tsx）——notice/local_user/
+  // compaction 插到运行块后面时判据必须仍能定位；旧「toolActive 时最后一块未完成」判据
+  // 会把运行块错误固化进 Static（Ink Static 只增量渲染新下标，tool_end 就地更新永不重绘）。
+  it('工具运行中插入 notice：running 块可被 findIndex 定位且在 notice 之前', () => {
+    let s = reducer(initial, { type: 'local_user', text: '问' })
+    s = reducer(s, { type: 'tool_start', id: 'tc1', name: 'shell', input: { command: 'ls' } })
+    s = reducer(s, { type: 'notice', text: '运行中，请稍候——本条未发送' })
+    const runningIdx = s.blocks.findIndex((b) => b.toolStatus === 'running')
+    expect(runningIdx).toBe(1)
+    expect(s.blocks[runningIdx]).toMatchObject({ toolId: 'tc1', toolName: 'shell' })
+    expect(s.blocks[runningIdx + 1]).toMatchObject({ kind: 'notice', text: '运行中，请稍候——本条未发送' })
+    // tool_end 按 toolId 精确配对、就地转正后，判据失配（全部块可固化进 Static）。
+    s = reducer(s, { type: 'tool_end', id: 'tc1', name: 'shell', output: '' })
+    expect(s.blocks.findIndex((b) => b.toolStatus === 'running')).toBe(-1)
+    expect(s.blocks.find((b) => b.toolId === 'tc1')).toMatchObject({ toolStatus: 'done' })
+  })
+})
+
+describe('reducer — 思考摘要文案（与 message-block 头行对齐）', () => {
+  // 文案立法：实际操作是浏览模式（Ctrl+↑/↓）后 Enter 展开——省略行提示须与
+  // message-block 头行「浏览模式 Enter 展开」一致，不误导为「回车展开」。
+  it('flush 的思考摘要省略行使用「浏览模式 Enter 展开」', () => {
+    const s = reducer(withPartial('thinking', '一\n二\n三\n四'), { type: 'message', role: 'assistant', id: 'm1' })
+    const t = s.blocks.find((b) => b.kind === 'thinking')
+    expect(t?.text).toContain('浏览模式 Enter 展开')
+    expect(t?.text).not.toContain('回车展开')
+    expect(t?.full).toBe('一\n二\n三\n四')
+  })
+
+  it('session_ready 重建的思考摘要同样使用对齐文案', () => {
+    const s = reducer(initial, {
+      type: 'session_ready', id: 's1', busy: false,
+      messages: [{ role: 'user', content: '问' }, { role: 'assistant', content: '答' }],
+      thinking: [{ text: '一\n二\n三\n四' }],
+    })
+    const t = s.blocks.find((b) => b.kind === 'thinking')
+    expect(t?.text).toContain('浏览模式 Enter 展开')
+    expect(t?.text).not.toContain('展开查看')
+  })
+})

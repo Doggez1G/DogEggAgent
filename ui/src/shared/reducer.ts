@@ -7,15 +7,35 @@ export interface ChatState {
   blocks: Block[]
   status: State
   partial: { kind: 'assistant' | 'thinking'; text: string } | null
-  // 最后一个 tool 块是否尚未收到 tool_end——未完成的块内容还会变，
-  // TUI（Static 输出模式）不能把它固化打印，需留在动态区渲染。
+  // 最后一个 tool 块是否尚未收到 tool_end——未完成的块内容还会变。
+  // TUI（Static 输出模式）的冻结判据现按块状态（toolStatus==='running'）逐块判定（app.tsx），
+  // 本标志保留为「是否有工具在跑」的整体语义，并作为终止分支（cancelled/idle/finished/error）
+  // 的防御复位对象——防 emit 链路抛错等极端路径残留 running 态。
   toolActive: boolean
   // 模型正在生成工具调用参数（tool_pending → tool_start 之间）——两端 UI 显示准备中提示。
   pendingTool?: string | null
+  // 块 id 分配器（单调递增）：每个新建块取 nextId 作 id，并把 nextId+1 存回状态。
+  // reducer 必须保持纯函数——序号存于状态内、从状态推导，不依赖外部计数器；
+  // 缺省视为 0（旧构造点 / 测试夹具无需迁移）。
+  nextId?: number
 }
 
 // reducer 的输入：后端消息 + UI 本地动作（local_user 本地即时显示）。
 export type Action = AgentToUiMessage | { type: 'local_user'; text: string }
+
+// 取下一个块 id：返回 [id, 已推进 nextId 的状态副本]。所有新建块统一经此分配，
+// 保证 id 在一个状态线内严格单调递增（WebUI 用 b.id 作 React key，防整体替换时下标错位复用）。
+function allocId(state: ChatState): [number, ChatState] {
+  const id = state.nextId ?? 0
+  return [id, { ...state, nextId: id + 1 }]
+}
+
+// 追加一个新块：分配 id 后入列——local_user / flush / error / notice / compaction /
+// 运行中工具块等所有产生块的动作统一出口，杜绝漏赋 id。
+function appendBlock(state: ChatState, block: Omit<Block, 'id'>): ChatState {
+  const [id, base] = allocId(state)
+  return { ...base, blocks: [...base.blocks, { ...block, id }] }
+}
 
 // 把进行中的 partial 块落盘成一个完整块（思考或助手），清空 partial。
 // 思考块的 text 存完整推理；折叠时显示摘要（前几行），full 存全文供展开。
@@ -24,22 +44,20 @@ function flush(state: ChatState): ChatState {
   const isThinking = state.partial.kind === 'thinking'
   const fullText = state.partial.text
   // 折叠摘要：思考取前 3 行 + …；助手不需要折叠（无 full）。
+  // 省略号提示与 message-block 头行文案对齐——实际操作是浏览模式（Ctrl+↑/↓）后 Enter 展开。
   const summary = isThinking
-    ? fullText.split('\n').slice(0, 3).join('\n') + (fullText.split('\n').length > 3 ? '\n…（回车展开完整思考）' : '')
+    ? fullText.split('\n').slice(0, 3).join('\n') + (fullText.split('\n').length > 3 ? '\n…（浏览模式 Enter 展开）' : '')
     : fullText
   const kind: BlockKind = isThinking ? 'thinking' : 'assistant'
   const color: ColorToken = isThinking ? 'yellow' : 'text'
-  return {
-    ...state,
-    partial: null,
-    blocks: [...state.blocks, {
-      kind,
-      color,
-      text: isThinking ? summary : fullText,
-      // 思考块设 full 供展开；助手块不需要 full（不可折叠）。
-      ...(isThinking ? { full: fullText } : {}),
-    }],
-  }
+  // 落盘块统一走 appendBlock 分配 id；partial 清空与块追加一次完成。
+  return appendBlock({ ...state, partial: null }, {
+    kind,
+    color,
+    text: isThinking ? summary : fullText,
+    // 思考块设 full 供展开；助手块不需要 full（不可折叠）。
+    ...(isThinking ? { full: fullText } : {}),
+  })
 }
 
 // 从持久化的 history 消息重建 UI 块——与实时 tool_start+tool_end 逻辑对齐。
@@ -49,13 +67,19 @@ function flush(state: ChatState): ChatState {
 // thinking 数组按轮次一一对应——每轮 LLM 调用产生一个 thinking 条目（有内容或空字符串）。
 // 每条 assistant 消息消费一个 thinking 条目（含 content=null 的 tool_calls 消息），保证对齐。
 // 空字符串条目跳过（不显示思考块）——这轮没开思考或模型没返回 reasoning。
-function rebuildBlocksFromHistory(messages: Message[], thinking: { text: string }[] = []): Block[] {
+// startId：重建块的 id 起点（接续调用方的 nextId，保持跨会话单调）；返回重建块与推进后的序号。
+function rebuildBlocksFromHistory(
+  messages: Message[],
+  thinking: { text: string }[] = [],
+  startId = 0,
+): { blocks: Block[]; nextId: number } {
   const pendingCalls = new Map<string, ToolCall>()
   const blocks: Block[] = []
+  let nextId = startId
   let thinkingIdx = 0
   for (const m of messages) {
     if (m.role === 'user') {
-      blocks.push({ kind: 'user', color: 'accent', text: m.content })
+      blocks.push({ id: nextId++, kind: 'user', color: 'accent', text: m.content })
     } else if (m.role === 'assistant') {
       // 暂存 tool_calls 供后续 tool 消息配对。
       if (m.tool_calls) for (const tc of m.tool_calls) pendingCalls.set(tc.id, tc)
@@ -64,13 +88,14 @@ function rebuildBlocksFromHistory(messages: Message[], thinking: { text: string 
         const t = thinking[thinkingIdx]!
         // 空字符串 = 这轮没开思考或没产生 reasoning，跳过不显示。
         if (t.text) {
-          const summary = t.text.split('\n').slice(0, 3).join('\n') + (t.text.split('\n').length > 3 ? '\n…（展开查看完整思考）' : '')
-          blocks.push({ kind: 'thinking', color: 'yellow', text: summary, full: t.text })
+          // 省略号提示与 message-block 头行文案对齐（实际操作是浏览模式 Ctrl+↑/↓ 后 Enter）。
+          const summary = t.text.split('\n').slice(0, 3).join('\n') + (t.text.split('\n').length > 3 ? '\n…（浏览模式 Enter 展开）' : '')
+          blocks.push({ id: nextId++, kind: 'thinking', color: 'yellow', text: summary, full: t.text })
         }
       }
       thinkingIdx++
       if (m.content) {
-        blocks.push({ kind: 'assistant', color: 'text', text: m.content })
+        blocks.push({ id: nextId++, kind: 'assistant', color: 'text', text: m.content })
       }
     } else if (m.role === 'tool') {
       // 用 tool_call_id 找到对应的 tool_call——结构化重建，与实时 tool_start/tool_end 同构。
@@ -84,6 +109,7 @@ function rebuildBlocksFromHistory(messages: Message[], thinking: { text: string 
         toolInput = call?.function.arguments ?? ''
       }
       blocks.push({
+        id: nextId++,
         kind: 'tool',
         color: 'cyan',
         text: formatToolTitle(toolName, toolInput, m.content),
@@ -97,7 +123,7 @@ function rebuildBlocksFromHistory(messages: Message[], thinking: { text: string 
       pendingCalls.delete(m.tool_call_id)
     }
   }
-  return blocks
+  return { blocks, nextId }
 }
 
 // reducer：AgentToUiMessage → ChatState 的纯函数。★ 可单测。
@@ -105,7 +131,7 @@ function rebuildBlocksFromHistory(messages: Message[], thinking: { text: string 
 export function reducer(state: ChatState, msg: Action): ChatState {
   switch (msg.type) {
     case 'local_user':
-      return { ...state, blocks: [...state.blocks, { kind: 'user', color: 'accent', text: msg.text }] }
+      return appendBlock(state, { kind: 'user', color: 'accent', text: msg.text })
     case 'text_delta': {
       // 推理模型的思考与回答是两种块：轮到 text_delta 时，若有未落盘的思考块，先 flush 再开新回答块。
       const base = state.partial?.kind === 'thinking' ? flush(state) : state
@@ -133,7 +159,7 @@ export function reducer(state: ChatState, msg: Action): ChatState {
         if (msg.text === undefined) return state
         const last = state.blocks[state.blocks.length - 1]
         if (last?.kind === 'user' && last.text === msg.text) return state
-        return { ...state, blocks: [...state.blocks, { kind: 'user', color: 'accent', text: msg.text }] }
+        return appendBlock(state, { kind: 'user', color: 'accent', text: msg.text })
       }
       return msg.role === 'assistant' ? flush(state) : state
     case 'tool_pending':
@@ -142,7 +168,8 @@ export function reducer(state: ChatState, msg: Action): ChatState {
     case 'tool_start': {
       const flushed = flush(state)
       // 工具块不预拼展示文本——结构化事实 + tool-display 格式化产物，渲染层零解析。
-      const block: Block = {
+      // 运行中工具块经 appendBlock 分配 id；status/toolActive/pendingTool 的状态迁移与块入列一次完成。
+      const block: Omit<Block, 'id'> = {
         kind: 'tool',
         color: 'cyan',
         text: formatToolTitle(msg.name, msg.input),
@@ -151,7 +178,7 @@ export function reducer(state: ChatState, msg: Action): ChatState {
         toolInput: msg.input,
         toolStatus: 'running',
       }
-      return { ...flushed, status: 'executing', toolActive: true, pendingTool: null, blocks: [...flushed.blocks, block] }
+      return { ...appendBlock(flushed, block), status: 'executing', toolActive: true, pendingTool: null }
     }
     case 'tool_end': {
       // 拒绝/失败工具也有 tool_end（error 标记）——status 结构化区分，渲染层据此选图标。
@@ -165,7 +192,7 @@ export function reducer(state: ChatState, msg: Action): ChatState {
         const name = msg.name || state.pendingTool || '工具'
         const status: ToolStatus = msg.error === 'denied' ? 'rejected' : msg.error ? 'error' : 'done'
         const flushed = flush(state)
-        const orphan: Block = {
+        const orphan: Omit<Block, 'id'> = {
           kind: 'tool',
           color: 'cyan',
           text: formatToolTitle(name, undefined, msg.output, msg.error),
@@ -176,7 +203,7 @@ export function reducer(state: ChatState, msg: Action): ChatState {
           toolError: msg.error,
           toolBody: formatToolBody(name, undefined, msg.output, msg.error),
         }
-        return { ...flushed, blocks: [...flushed.blocks, orphan], toolActive: false, pendingTool: null }
+        return { ...appendBlock(flushed, orphan), toolActive: false, pendingTool: null }
       }
       const blocks = [...state.blocks]
       const target = blocks[idx]!
@@ -195,20 +222,25 @@ export function reducer(state: ChatState, msg: Action): ChatState {
     case 'state':
       // 转换到 cancelled/idle 时 flush partial——避免取消后残留的流式文本被
       // 下一轮 text_delta 拼接（导致"先回答上一个问题"的 bug）。
+      // toolActive 防御复位（P2-38）：R3+try/catch 下 tool_end 总会发出，匹配分支会清 toolActive；
+      // 这里补复位是零成本兜底——防 emit 链路抛错等极端路径把 running 态残留到下一轮
+      //（残留会让 TUI 把已固化块留动态区、状态栏误显执行中）。
       if (msg.to === 'cancelled' || msg.to === 'idle') {
-        return { ...flush(state), status: msg.to, pendingTool: null }
+        return { ...flush(state), status: msg.to, toolActive: false, pendingTool: null }
       }
       return { ...state, status: msg.to }
     case 'finished':
-      return { ...flush(state), status: 'finished', pendingTool: null }
+      // 同上：终态防御复位 toolActive（正常路径 tool_end 已清，此处兜底极端路径）。
+      return { ...flush(state), status: 'finished', toolActive: false, pendingTool: null }
     case 'error': {
       // flush partial——错误时把流式中的 partial 落盘，避免永久显示"流式"幽灵块 + 丢失部分文本。
+      // 终态防御复位 toolActive（同 finished 分支的兜底立法）。
       const f = flush(state)
-      return { ...f, status: 'error', pendingTool: null, blocks: [...f.blocks, { kind: 'error', color: 'red', text: msg.error.message }] }
+      return { ...appendBlock(f, { kind: 'error', color: 'red', text: msg.error.message }), status: 'error', toolActive: false, pendingTool: null }
     }
     case 'notice':
-      return { ...state, blocks: [...state.blocks, { kind: 'notice', color: 'subtext', text: msg.text }] }
-    case 'session_ready':
+      return appendBlock(state, { kind: 'notice', color: 'subtext', text: msg.text })
+    case 'session_ready': {
       // session_ready 带的是 history（完整原文）+ thinking（每轮的推理内容，空字符串表示该轮无思考）。
       // rebuildBlocksFromHistory 按序一一对应 assistant 消息和 thinking 条目。
       // 空字符串的 thinking 条目被跳过——不显示思考气泡。
@@ -216,17 +248,42 @@ export function reducer(state: ChatState, msg: Action): ChatState {
       // 运行中保真立法：busy=true（快照重发时 agent 在跑）不得把 UI 打回 idle——否则运行中
       // 刷新页面/新标签接入会误启用输入框、显示与后端真实状态分叉。busy 只决定「不错误地显示
       // idle」：先落到 thinking 形态，随后的 status_state 推送会校正为真实 machine state。
-      return {
+      // 重建块 id 从 state.nextId 续起——跨会话保持单调（id 作 React key 需要在一次
+      // session_ready → 后续追加的序列里不与既有 id 冲突）。
+      const rebuilt = rebuildBlocksFromHistory(msg.messages, msg.thinking, state.nextId ?? 0)
+      let next: ChatState = {
         ...state,
         status: msg.busy ? 'thinking' : 'idle',
         partial: null,
         toolActive: false,
         pendingTool: null,
-        blocks: rebuildBlocksFromHistory(msg.messages, msg.thinking),
+        blocks: rebuilt.blocks,
+        nextId: rebuilt.nextId,
       }
+      // live 恢复（P2-23，运行中保真的下半场）：快照携带的 live 现场让新接入端
+      // 无缝接住正在进行的流——partial 恢复为流式中的助手消息（后续 text_delta 续拼），
+      // runningTool 恢复为 running 工具块（后续 tool_end 按 toolId 精确配对、就地更新转正）。
+      // 空闲快照（无 live）行为不变。
+      if (msg.busy && msg.live?.partial) {
+        next = { ...next, partial: { kind: 'assistant', text: msg.live.partial } }
+      }
+      if (msg.live?.runningTool) {
+        const rt = msg.live.runningTool
+        next = appendBlock({ ...next, toolActive: true }, {
+          kind: 'tool',
+          color: 'cyan',
+          text: formatToolTitle(rt.name, rt.input),
+          toolId: rt.id,
+          toolName: rt.name,
+          toolInput: rt.input,
+          toolStatus: 'running',
+        })
+      }
+      return next
+    }
     case 'compaction':
       // 压缩（手动或自动）都在对话面板插入一条提示块，统一显示为「压缩」。
-      return { ...state, blocks: [...state.blocks, { kind: 'auto_compact', color: 'subtext', text: `Context compacted: ${msg.before_tokens} → ${msg.after_tokens} tokens` }] }
+      return appendBlock(state, { kind: 'auto_compact', color: 'subtext', text: `Context compacted: ${msg.before_tokens} → ${msg.after_tokens} tokens` })
     case 'tools_list':
     case 'status_state':
     case 'context_state':
@@ -234,9 +291,19 @@ export function reducer(state: ChatState, msg: Action): ChatState {
     case 'log_state':
       // 这些命令响应改为 info overlay/面板呈现（App 的 onMessage 拦截切换），reducer 不再产生消息块。
       return state
-    case 'history_cleared':
-      // 清空历史——先 flush partial，然后在对话面板插入一条提示，再清空。
-      return { ...flush(state), blocks: [{ kind: 'notice', color: 'subtext', text: 'History cleared' }], partial: null, toolActive: false, pendingTool: null }
+    case 'history_cleared': {
+      // 清空历史——先 flush partial（其中的半成品按序落盘拿 id），再整体替换为一条提示块。
+      // 提示块是「替换」而非「追加」，手动分配 id（经 allocId 接续 flush 推进后的序号）。
+      const f = flush(state)
+      const [id, base] = allocId(f)
+      return {
+        ...base,
+        blocks: [{ id, kind: 'notice', color: 'subtext', text: 'History cleared' }],
+        partial: null,
+        toolActive: false,
+        pendingTool: null,
+      }
+    }
     default:
       return state
   }
