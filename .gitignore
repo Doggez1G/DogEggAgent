@@ -1,5 +1,25 @@
 node_modules/
 dist/
 *.log
+*.tmp
 .dogegg/
 .idea/
+
+# AI 工具的本地目录：.claude 此前仅靠全局 excludes 兜底，换环境即漏；
+# .zcode 是会话目录（正式计划在 docs/plans/，会话草稿不入库）。
+.claude/
+.zcode/
+
+# 浏览器测试工具产物：此前仅 *.log 生效，page-*.yml / page-*.png 全部漏网回流。
+.playwright-mcp/
+
+# 开发过程截图（无文档引用；历史 d9b2c11 已做过同向移出决策）。
+screenshots/
+
+# 文档视觉验收过程图（archify 工作流留痕：png 截图 + html 报告 + json 状态，
+# 共 36 个，正文只引用同目录主交互 HTML，不引用任何 visual-check 产物）。
+docs/**/assets/*.visual-check.*
+
+# 系统垃圾文件（Windows / macOS）。
+Thumbs.db
+.DS_Store
