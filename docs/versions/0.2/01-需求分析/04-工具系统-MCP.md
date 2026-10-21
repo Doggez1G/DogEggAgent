@@ -21,7 +21,7 @@
 
 **期望状态 vs 运行状态（diff 重建）。** McpManager 内部维护一张 `服务名 → 运行时（配置 + scope + 状态 + SDK client + 工具清单）` 的 Map。`rebuild(desired)` 是唯一的状态迁移入口：传入「当前应有的 server 列表」（全局 config.mcpServers ⊕ 项目 .dogegg/.mcp.json 合并而成，同名项目覆盖全局，scope 随条目下发），对比运行状态做增删启停——停止侧先停（被移除/停用/transport 配置变化的），启动侧后起（启用中但尚未运行/传输变化的：connect → listTools → running）。多次调用幂等收敛到 desired；无变化时空转不广播。
 
-**重建的串行化。** 触发源很多（agent 启动、config_updated、set_cwd、面板 CRUD），agent 门面把 rebuild 串成 Promise 链（`mcpRebuildChain`）防止交错重入——交错会让同一 server 被起两个进程、旧 client 变孤儿泄漏。merge 在执行时刻取值，总是最新配置。
+**重建的串行化。** 触发源很多（agent 启动、config_updated、set_cwd、面板 CRUD），agent 门面把 rebuild 串成 Promise 链（`mcpRebuildChain`）防止交错重入——交错会让同一 server 被起两个进程、旧 client 变孤儿泄漏。merge 在执行时刻取值，总是最新配置。**rebuild 与轮次互斥**：submit/invoke_skill 开轮前先等在飞的重建收敛（`awaitMcpRebuildSettled`——busy 门只挡「新触发」的重建、不挡「已在飞」的；链尾引用变化则继续等，直到「我们等的仍是尾」）——重建进行中提交会让轮中途工具清单漂移、重建中停掉的 server 其在飞 MCP 工具被断连；重建链自身不 await gate，无死锁面，时长上限由启动超时兜底。
 
 **工具挂载与身份。** 每个运行中 server 的工具以 `mcp__<server>__<tool>` 为 LLM 可见标签独立注册进 ToolRegistry，注册必带身份 `{ kind: 'mcp', server, name }`（server=配置服务名，name=服务侧声明的内部工具名）。身份是权限服务键匹配与 UI 分组的唯一事实源——从不解析 LLM 可见名（哈希标签不可读也无妨）。server 的工具清单变化时「先摘后挂」：先按身份摘除该服务全部旧工具，再注册新清单。参数不本地强校验：zod 仅做「对象」级宽松校验，服务声明的原生 JSON Schema 原样透传给模型——参数校验权在服务。
 
@@ -43,9 +43,10 @@
   - 输出与用户可见表现：
     6. 合并结果即 /mcp 面板与 mcp_list 快照的条目全集，每条可见 scope 标注。
   - 配置与命令入口：
-    7. 写入项目文件自动 `mkdir -p .dogegg`；CRUD 经 TUI /mcp 或 WebUI 设置区走 `mcp_manage` 消息落对应层（见 R-MCP-08）。
+    7. 写入项目文件自动 `mkdir -p .dogegg`，落盘走原子写（tmp + rename，见 shared/atomic.ts——.mcp.json 半写损坏不可自愈，读取侧容错只是兜底）；CRUD 经 TUI /mcp 或 WebUI 设置区走 `mcp_manage` 消息落对应层（见 R-MCP-08）。
 - **边界与失败模式**：
   - 项目文件读取容错——文件缺失 / JSON 损坏 / 条目校验失败 → 一律视为空数组（项目配置错误不拖垮全局）。
+  - 全局 config 的 mcpServers 数组内 name 重复 → 加载期拒绝（「MCP server 名重复：X」）——同一数组内的重复名没有覆盖语义（实际是「后者覆盖前者」的静默丢弃，且首个同名条目的 MCP 子进程会遗留为孤儿进程）；项目级覆盖全局是既定合并语义，不在此列。
   - `.gitignore` 现状若忽略 `.dogegg/`，项目级共享需自行调整 ignore（部署侧决策）。
   - 项目同名覆盖是「整个条目」替换——全局条目的 enabled/transport 不会与项目条目做字段级融合。
 - **验收标准**：
@@ -88,16 +89,18 @@
     1. agent 启动、config_updated（含 mcpServers 编辑）、set_cwd（项目级 .mcp.json 随 cwd 变化）、面板 CRUD（mcp_manage）均触发 rebuild；启动时 fire-and-forget 拉起已配置的 server（失败在 mcp_list 里可见，不阻塞构造）。
   - 处理规则：
     2. 状态机：`starting`（startOne 立即落此态并广播，面板显示转圈）→ `running`（connect + listTools 成功，error 清空、工具清单填充）或 `error`（失败，含人话原因、工具清单清空）。
-    3. 停止侧：被移除/停用/transport 配置变化（`JSON.stringify(transport)` 对比）的先停——`stopOne` 同步落状态 + 摘工具，连接关闭后台 1s 竞速执行；被移除的顺带清出 Map（面板不再出现），仅停用/配置变化的保留壳体让 listStatus 反映最新配置（停用态为 stopped）。
-    4. 启动侧：启用中但尚未运行/传输变化的逐个启动（connect → listTools → 状态 running）。
+    3. 停止侧：被移除/停用/transport 配置变化（stableStringify 键序不敏感对比——手编配置文件键序不同不触发无谓重启，args/headers 数组顺序本身是语义）的先停——`stopOne` 同步落状态 + 摘工具，连接关闭后台 1s 竞速执行；被移除的顺带清出 Map（面板不再出现），仅停用/配置变化的保留壳体让 listStatus 反映最新配置（停用态为 stopped）。
+    4. 启动侧：启用中但尚未运行/传输变化的逐个启动（connect → listTools → 状态 running）；connect 与 listTools 两阶段各有 30s 启动超时（两阶段各自计时，缺省 `MCP_STARTUP_TIMEOUT_MS`）——command 误指 REPL、下载卡住的 server 会把 connect 挂死，而 rebuild 是串行链，一个挂死的 server 就阻塞整条链；超时按启动失败处理，状态落 error 面板可见。
     5. stopOne 状态变更同步完成（广播/面板即时可见），client.close 后台执行并与 1s 定时器竞速——stdio 子进程退出时序偶发让 close 不返回，同步 await 会卡死整个 rebuild 串行链。
     6. 多次调用幂等收敛到 desired；无变化时空转不广播；重建收尾再清一轮被移除后残留的空壳。
   - 输出与用户可见表现：
     7. 变化后自动成对广播 `mcp_list`（配置+状态+工具清单）与 `tools_list`（注册表变化）。
 - **边界与失败模式**：
-  - rebuild 链式排队（`mcpRebuildChain`）——前序失败不中断后续（catch 后链继续），状态在 mcp_list 可见。
+  - rebuild 链式排队（`mcpRebuildChain`）——前序失败不中断后续（catch 后链继续），状态在 mcp_list 可见；开轮（submit/invoke_skill）前等待在飞重建收敛，保证提交时刻工具清单静止。
   - disabled 条目跳过启动、保持 stopped。
-  - `JSON.stringify(transport)` 对比保证「同类型但参数变化」也会重启。
+  - transport 配置对比键序不敏感（stableStringify）——「同类型但参数变化」也会重启，仅键序书写不同不重启。
+  - 启动超时（connect/listTools 各 30s）按启动失败处理——MCP 子系统不因单个挂死的 server 失去自愈能力。
+  - 优雅退出（SIGINT/SIGTERM）停掉全部 server（复用 stopOne 清理路径、close 竞速单个 1s 上限、并行）——stdio 子进程不残留。
   - error 态壳体保留原因，不自动重试——修复后的重试由下一次 rebuild 承担（见 R-MCP-05）。
 - **验收标准**：
   1. 当对话运行中途发送 mcp_manage 新增 server，则对话消息循环不被阻塞，状态卡先 starting 后 running。
@@ -210,7 +213,7 @@
     5. save 按 name upsert——名称是身份，锁定不可改；delete 按 name 过滤移除；toggle 仅翻转 enabled。
     6. 消息缺参（save 无 server、delete/toggle 的 name 未命中）→ notice 提示（「缺少 server 配置」/「未找到 server：X」），不改配置。
     7. global 侧写配置经配置编辑统一入口——同样受 gate busy 阻塞与 zod 校验（与 /config 编辑双重保险）；delete 成功后除重建广播外显式补推一次 mcp_list。
-    8. project 侧直写文件后显式触发 rebuild 并补推 mcp_list（不经 config_updated 链路）。
+    8. project 侧直写文件后显式触发 rebuild 并补推 mcp_list（不经 config_updated 链路）；写入失败（磁盘只读/权限问题）发 notice「项目级 MCP 配置写入失败：…」（channel 定位到 mcp 面板）——面板状态与磁盘事实不得静默分叉。
   - 输出与用户可见表现：
     7. 保存/启停成功后 mcp_list 与 /tools 清单自动刷新（rebuild 成对广播）。
 - **边界与失败模式**：
@@ -275,6 +278,6 @@
 
 ## 边界与立法
 
-- 服务名无字符集约束是立法（`mcp:` 前缀隔离保证无歧义；schema 仅要求非空）；唯一拒绝场景：裸服务名键与 mcpServers 服务同名（加载期拒绝，见 05-权限与安全 R-PRM-03 的交叉校验）。
+- 服务名无字符集约束是立法（`mcp:` 前缀隔离保证无歧义；schema 仅要求非空）；加载期拒绝场景有二：裸服务名权限键与 mcpServers 服务同名（见 05-权限与安全 R-PRM-03 的交叉校验）、mcpServers 数组内同名条目（见 R-MCP-01 边界）。
 - 工具数量上限、服务级元工具聚合（把 N 个工具折叠成 1 个）均为**非目标**——原生 JSON Schema 透传优先。
 - 项目级 server 定义于 `.dogegg/.mcp.json`，随仓库共享（注意：.gitignore 现状忽略 `.dogegg/`，共享需自行调整 ignore，属部署侧决策）。

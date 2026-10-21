@@ -10,7 +10,7 @@ WebUI 是浏览器端 React 前端，构建产物由 `server/src/http/static-fil
 
 `ui/src/webui/app/app.tsx` 头注释立法：「本组件只做特征装配 + 布局；数据域在各 feature 的 hook 里，各自独立订阅 port」。三栏布局：Sidebar（项目树 + 会话列表 + 主题）｜TopBar + ChatView ｜ InfoPanel，底部 InputBar + PermissionBanner，模态层（settings/command-palette/confirm/help/prompt/fs-browser）+ toast。每个区域包独立 `ErrorBoundary`（`area` 属性标注崩溃区域，白屏不再整页扩散）。
 
-`safePost()`（app.tsx 第 34 行）是所有用户动作的发消息出口：`port.post` 返回 Promise 时 catch 网络错误、同步 throw 也兜住，`isUserAction` 标记的操作失败转 toast——SSE 通道的异步性（对比 TUI 的同步 InMemoryChannel）要求这层显式错误面。
+`safePost()`（app.tsx 第 50 行）是所有用户动作的发消息出口：`port.post` 返回 Promise 时 catch 网络错误、同步 throw 也兜住，`isUserAction` 标记的操作失败转 toast——SSE 通道的异步性（对比 TUI 的同步 InMemoryChannel）要求这层显式错误面。
 
 数据域 hooks（都在 `ui/src/webui/features/`）：
 
@@ -34,7 +34,7 @@ CSS 用 CSS Modules（`app.module.css` 等，`css-modules.d.ts` 声明类型）�
 - `top-bar/`：provider/model/cwd + 连接状态指示器 + Cmd+K 入口。
 - `primitives/`（button/field）与 `modal-portal/`：最底层复用件。
 - `fs-browser-modal/`：目录选择器，数据来自 `server/src/fs/browse.ts` 的 `/api/fs`。
-- `command-palette/`（Cmd+K）：聚合会话切换/skills/主题/设置入口，skills 组数据来自 `use-skills`；`confirm-modal`/`prompt-modal`/`help-modal`/`error-boundary` 各司其职。
+- `command-palette/`（Cmd+K）：聚合会话切换/skills/主题/设置入口，支持关键词过滤（label/desc 子串匹配，方向键在过滤结果上移动）；与其它模态一样经 `modal-portal/` 的 `ModalPortal` 承载（document 级 keydown 统一处理 Esc 关闭）；skills 组数据来自 `use-skills`；`confirm-modal`/`prompt-modal`/`help-modal`/`error-boundary` 各司其职。
 
 ## 调试 WebUI 的最小动线
 
@@ -52,7 +52,7 @@ CSS 用 CSS Modules（`app.module.css` 等，`css-modules.d.ts` 声明类型）�
 | 权限决议 | permission overlay（features/permission） | PermissionBanner + use-turn-tracking.resolve |
 | 视图状态 | `ui/src/tui/view-state.ts` 的 View | `ui/src/webui/view-state.ts` 的 Modal |
 | 键盘/点击 | features/*/keys.ts 纯函数 | 组件回调 + safePost |
-| 会话切换清屏 | Static 重挂载 | session_ready 清数据重播种 |
+| 会话切换清屏 | Static 重挂载 | session_ready 清数据重播种（busy 时恢复 live 运行现场） |
 | 错误恢复 | onErrorRetry 回填输入框 | retryText + consumeRetry（InputBar） |
 
 读法建议：拿同一条消息（如 `permission_request`）分别在 `use-agent-events.ts` 与 `use-turn-tracking.ts` 里追，能看到两端对同一契约的不同消费方式；共享域改动（如 reducer）会同时影响两端，`ui/test/shared/` 的测试就是两端的公共防线。若要新增一个 UI 能力，判断清单是：纯展示差异 → 各自实现；消息消费逻辑 → 想清楚放 shared 还是各自 hook；能两端共享的纯函数（格式化/判定）一律进 `ui/src/shared/` 并补 `ui/test/shared/` 用例。

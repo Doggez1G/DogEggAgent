@@ -37,7 +37,7 @@ npm run dev:web   # 前后端热更 + WebUI
 
 ### 2. 首次配置
 
-启动后输入 `/config`（TUI）或点击右上角设置（WebUI）：
+启动后输入 `/config`（TUI）或点击左侧栏底部「Settings」（WebUI）：
 
 1. **Models** → 添加 provider：填 `name`、`baseURL`（如 GLM 的 `https://open.bigmodel.cn/api/paas/v4`）、`apiKey`，并在其下添加模型（填 `name` 与 `contextWindow`）；
 2. 把 `defaultProvider` / `defaultModel` 指向刚配的项；
@@ -49,7 +49,7 @@ npm run dev:web   # 前后端热更 + WebUI
 
 - `/mcp` 管理 MCP 服务器（配好后它的工具自动进入模型可用清单）；
 - `/skills` 管理技能包（`/技能名` 即可调用）；
-- `/permissions` 查看与撤销本会话内的「始终允许」授权；
+- `/permissions` 查看与撤销本会话内的「始终允许 / 范围」授权；
 - 工具执行前的审批弹层选「始终允许」可免去同类操作反复确认（详见 02-命令参考 的权限决策）；
 - 运行中的任务随时可取消（TUI Ctrl+C / WebUI 停止按钮）；退出时自动收尾——取消运行轮、关闭 MCP 子进程、会话落盘。
 

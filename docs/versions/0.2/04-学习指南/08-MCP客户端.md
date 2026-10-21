@@ -10,7 +10,7 @@ MCP（Model Context Protocol）让 agent 挂载外部工具。`agent/src/mcp/man
 
 ## rebuild diff（幂等收敛）
 
-触发源很多：Agent 构造（`agent/src/agent.ts` 第 115 行启动即拉起）、`config_updated`（onConfigChanged）、`set_cwd`（项目配置随 cwd 变）、/mcp 面板 manage。`agent.ts` 用 **`mcpRebuildChain` 串行化**（第 203 行）：`this.mcpRebuildChain = this.mcpRebuildChain.then(() => this.mcp.rebuild(...)).catch(() => {})`——链式排队防交错重入，注释写明后果：「交错会让同一 server 被起两个进程、旧 client 变孤儿泄漏」。merge 在**执行时刻**取值（`this.mergeMcp()` 现算），所以排队期间改配置也不会用旧快照。
+触发源很多：Agent 构造（`agent/src/agent.ts` 第 131 行启动即拉起）、`config_updated`（onConfigChanged）、`set_cwd`（项目配置随 cwd 变）、/mcp 面板 manage、会话切换（跨项目 resume 后项目级 .mcp.json 随 cwd 重挂）。`agent.ts` 用 **`mcpRebuildChain` 串行化**（第 337 行）：`this.mcpRebuildChain = this.mcpRebuildChain.then(() => this.mcp.rebuild(...)).catch(() => {})`——链式排队防交错重入，注释写明后果：「交错会让同一 server 被起两个进程、旧 client 变孤儿泄漏」。merge 在**执行时刻**取值（`this.mergeMcp()` 现算），所以排队期间改配置也不会用旧快照；submit/invoke_skill 开轮前还会 `awaitMcpRebuildSettled()` 等在飞重建收敛（防轮中途工具清单漂移）。
 
 `rebuild(desired)` 三步（一次重建的状态流）：
 
@@ -29,11 +29,11 @@ desired: McpMergedEntry[]（mergeMcpServers 现算）
 
 ## startOne（SDK Client + 两种 transport）
 
-`startOne()`（manager.ts 第 80 行）：先置 `status: 'starting'` 并 `broadcast()`（UI 立即可见），然后 `new Client({ name: 'dogegg-agent', version: '0.2.0' })`，按 transport 类型选 `StdioClientTransport`（env 数组语义：undefined 继承父进程）或 `StreamableHTTPClientTransport`，`client.connect()` → `client.listTools()` → 存 `rt.tools`、`status = 'running'`。**任何失败 → `status = 'error'` + error 文案，不抛出**——失败在 /mcp 面板可见，不阻塞消息循环。
+`startOne()`（manager.ts 第 94 行）：先置 `status: 'starting'` 并 `broadcast()`（UI 立即可见），然后 `new Client({ name: 'dogegg-agent', version: '0.2.0' })`，按 transport 类型选 `StdioClientTransport`（env 数组语义：undefined 继承父进程）或 `StreamableHTTPClientTransport`，`client.connect()` 与 `client.listTools()` 两阶段各自经 `withStartupTimeout()` 竞速 `MCP_STARTUP_TIMEOUT_MS = 30_000` 的超时（防误指 REPL/卡死的 server 把串行 rebuild 链挂死；门面 `AgentOptions.mcpStartupTimeoutMs` 是测试接缝），成功后存 `rt.tools`、`status = 'running'`。**任何失败 → `status = 'error'` + error 文案 + `closeQuietly` 释放连接（防 stdio 子进程泄漏），不抛出**——失败在 /mcp 面板可见，不阻塞消息循环。
 
 ## syncRegistry：按服务隔离与身份注册
 
-`broadcast()` 内部先 `syncRegistry()` 再发 `mcp_list` + `tools_list`。`syncRegistry()`（第 126 行）：
+`broadcast()` 内部先 `syncRegistry()` 再发 `mcp_list` + `tools_list`。`syncRegistry()`（第 171 行）：
 
 - 先 `unregisterServerTools(name)` 摘掉所有运行中服务的旧工具（server 工具清单可能变化），再逐服务注册适配器：`registry.register(adapter, { kind: 'mcp', server: serverName, name: t.name })`——**注册必带身份**。
 - **单服务隔离**：某服务注册失败（如命名冲突触发注册关口的 throw，见 07-工具系统）→ 该服务落 `status: 'error'` 并 `unregisterServerTools` 清掉半挂状态，其余服务照常挂载。
@@ -44,7 +44,7 @@ desired: McpMergedEntry[]（mergeMcpServers 现算）
 `mcp__<server>__<tool>` 是 LLM 可见的命名空间标签（不合规时由注册关口哈希）。与内建工具的差异：
 
 ```ts
-// agent/src/mcp/manager.ts（适配器骨架，第 152 行起）
+// agent/src/mcp/manager.ts（适配器骨架，第 200 行起）
 {
   name: `mcp__${serverName}__${tool.name}`,
   schema: z.record(z.string(), z.unknown()),   // 只校验「是对象」
@@ -62,7 +62,7 @@ desired: McpMergedEntry[]（mergeMcpServers 现算）
 
 ## stopOne：同步状态 + 后台关连接
 
-`stopOne()`（第 107 行）**同步**完成：置 `status: 'stopped'`、清 tools、摘除工具——广播与面板即时生效；`client.close()` 放到 `Promise.race([close, setTimeout(1000)])` 后台执行。立法：stdio 子进程退出时序偶发让 close 不返回，同步 await 会卡死 rebuild 与其后的整条串行链。
+`stopOne()`（第 137 行）**同步**完成：置 `status: 'stopped'`、清 tools、摘除工具——广播与面板即时生效；`client.close()` 经 `closeQuietly()` 放到 `Promise.race([close, setTimeout(1000)])` 后台执行。立法：stdio 子进程退出时序偶发让 close 不返回，同步 await 会卡死 rebuild 与其后的整条串行链。`stopOne` 返回该竞速 Promise：rebuild 等常规调用方以 `void` 丢弃维持原语义，而 `stopAll()`（优雅退出专用，唯一调用方是 `agent.dispose()`）并行 await 全部关闭完成，保证组合根退出时 stdio 子进程不残留。
 
 ## 状态广播与权限联动
 

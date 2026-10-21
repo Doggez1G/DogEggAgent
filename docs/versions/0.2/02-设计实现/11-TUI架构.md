@@ -21,15 +21,15 @@
 
 ## 2. 核心数据结构
 
-### 2.1 View 联合类型（view-state.ts:28-38，逐字段摘录见 §3.3 D-3）
+### 2.1 View 联合类型（view-state.ts:28-42，逐字段摘录见 §3.3 D-3）
 
-十个 kind：`none`（无弹层）/ `permission`（id+tool+input+alwaysScope?+cursor）/ `menu`（title+items+cursor+returnView?）/ `sessionPicker`（sessions+cursor+query）/ `prompt`（title+value+onSubmit+returnPath?/returnCursor?/returnView?）/ `skills`（cursor+skills）/ `mcp`（cursor+servers）/ `config`（path+cursor+preview）/ `info`（title+lines+returnView?）/ `form`（title+fields+cursor+returnView+submitLabel+onSubmit）。
+十个 kind：`none`（无弹层）/ `permission`（id+tool+input+alwaysScope?+cursor+returnView?）/ `menu`（title+items+cursor+returnView?）/ `sessionPicker`（sessions+cursor+query）/ `prompt`（title+value+onSubmit+returnPath?/returnCursor?/returnView?）/ `skills`（cursor+skills）/ `mcp`（cursor+servers）/ `config`（path+cursor+preview）/ `info`（title+lines+returnView?）/ `form`（title+fields+cursor+returnView+submitLabel+onSubmit）。
 
-View 是 **UI 自己的视图态**，与后端状态机（State 十态）正交叠加（view-state.ts:4 注释）。两个立法注解直接写在类型上：`returnView`——面板内钻入的弹层 esc 回来源视图，不存在"一次 esc 丢整个面板层级"（:31, :37 注释）；`FormField`（:40-47）的 `options` 存在 = 固定选项字段（Enter 循环切换），否则文本字段（Enter 弹 prompt 编辑），`readonly` = 身份锁定行。
+View 是 **UI 自己的视图态**，与后端状态机（State 十态）正交叠加（view-state.ts:4 注释）。returnView 立法注解直接写在类型上——`permission`（:30-33：审批弹层是"插入"而非"替换"，打开前用户停在某个 overlay 上时把当前视图挂进来，决议/拒绝后原样恢复——深层游标、已填字段都在快照里）、`menu`（:35）、`info`（:41）——面板内钻入的弹层 esc 回来源视图，不存在"一次 esc 丢整个面板层级"；`FormField`（:44-51）的 `options` 存在 = 固定选项字段（Enter 循环切换），否则文本字段（Enter 弹 prompt 编辑），`readonly` = 身份锁定行。`refreshPanelsDeep`（:53-84）沿 returnView 链深更新同 kind 面板快照——skills_list/mcp_list 广播到达时，除当前视图外，挂在 returnView 链上的同 kind 面板（详情弹层/表单 esc 返回的目标）也一并刷新，否则返回后看到过期列表（:65-69 立法注释）。
 
-### 2.2 ChatState（shared/reducer.ts:7-15）
+### 2.2 ChatState（shared/reducer.ts:6-21）
 
-`blocks: Block[]`（已落盘块）+ `status: State` + `partial`（未落盘流式块）+ `toolActive`（最后 tool 块未收 tool_end——Static 模式不能固化打印）+ `pendingTool`（tool_pending → tool_start 之间的准备中提示）。reducer 的输入是 `AgentToUiMessage | { type:'local_user' }`（:13）——**后端消息与本地动作同池**。
+`blocks: Block[]`（已落盘块，块带单调递增 id）+ `status: State` + `partial`（未落盘流式块）+ `toolActive`（是否有工具在跑——TUI 的 Static 冻结判据现按块状态（toolStatus==='running'）逐块判定（app.tsx），本标志保留"是否有工具在跑"的整体语义，并作为终止分支（cancelled/idle/finished/error）的防御复位对象——防 emit 链路抛错等极端路径残留 running 态，:10-13）+ `pendingTool`（tool_pending → tool_start 之间的准备中提示）+ `nextId?`（块 id 分配器：每个新建块取 nextId 作 id、序号存于状态内——reducer 保持纯函数，不依赖外部计数器，缺省视为 0，:17-20）。reducer 的输入是 `AgentToUiMessage | { type:'local_user' }`（:24）——**后端消息与本地动作同池**。所有产生块的动作（local_user/flush/error/notice/compaction/运行中工具块）统一经 `appendBlock` 出口分配 id（allocId，:28-38），杜绝漏赋 id；tool_end 用 toolId **精确匹配** tool_start 的块——不靠数组尾部（notice/compaction 块可能插在中间，:184-186），无配对的孤儿 tool_end 也兜底生成完整 tool 块（R3 立法拒绝也发 tool_end，reducer 不静默丢弃，:187-206）。
 
 ## 3. 设计逐项详解
 
@@ -39,24 +39,31 @@ View 是 **UI 自己的视图态**，与后端状态机（State 十态）正交�
 - **方案与取舍**：不用 alt-screen（ADR-0008），采用 Claude Code 式架构——已完成的消息块经 `<Static>` 打印一次即进终端原生滚动缓冲区，永不重绘；用户用终端原生滚动查看历史；Ink 只重绘底部动态区（未完成块+流式+输入+状态栏）。输入框固定底部、overlay 在其上叠加而非整屏替换——保留对话上下文的视觉连续性。代价是"改变已打印历史"只能整体清屏重挂（`clearScreenRemount`，app.tsx:86-88：clearScreen + staticKey 自增）。
 - **代码走查**：
 
-**`ui/src/tui/app/app.tsx:318-329`**
+**`ui/src/tui/app/app.tsx:336-354`**
 
 ```ts
-  // Static items：品牌头 + 已完成的块（toolActive 时最后一块未完成，留在动态区）。
+  // Static items：品牌头 + 已固化的块。冻结判据按块状态（P1-9）：
+  // 找到第一个 toolStatus==='running' 的块——它及其后插入的块（运行中到达的 notice/
+  // local_user/compaction 等）都留在动态区；tool_end 按 toolId 就地更新后整体转正。
+  // 旧判据「toolActive 时最后一块未完成」假设运行中工具块必在末尾——notice 等插到它后面
+  // 时会把运行中块错误划进 Static 已打印区，而 Ink Static 只增量渲染新下标，
+  // tool_end 的就地更新将永不重绘。转正时 Static 下标单调递增（前缀不变、尾部追加），顺序不乱。
   // 品牌头延迟打印：Static 只在首现时渲染一次——启动瞬间 config/status 还没回来，
   // 先打印会永远定格在「加载配置中…」/ 短横线；等两者就绪再打印即为准确信息。
   const headerReady = configSnapshot !== null && statusBarData.cwd !== undefined
-  const stableCount = chat.toolActive && chat.blocks.length > 0 ? chat.blocks.length - 1 : chat.blocks.length
+  const runningIdx = chat.blocks.findIndex((b) => b.toolStatus === 'running')
+  const stableCount = runningIdx >= 0 ? runningIdx : chat.blocks.length
   const staticItems: StaticItem[] = [
     ...(headerReady ? [{ type: 'header' as const }] : []),
     ...chat.blocks.slice(0, stableCount).map((block) => ({ type: 'block' as const, block })),
   ]
 
-  // 动态区：未完成的 tool 块（会再更新）+ 流式 partial。
-  const activeBlocks = chat.toolActive ? chat.blocks.slice(stableCount) : []
+  // 动态区：稳定下标之后的块（running 工具块 + 其后插入的块；无 running 块时为空）。
+  // 流式 partial 单独渲染，不在此列。
+  const activeBlocks = chat.blocks.slice(stableCount)
 ```
 
-321 行 `headerReady` 实现品牌头**延迟打印**：Static 只在 item 首次出现时渲染一次，启动瞬间 config/status 未回就打印会永远定格在"加载配置中…"，等 `configSnapshot` 与 `statusBarData.cwd` 双双就绪才把 header 项塞进数组；322 行 `stableCount` 是稳定/活跃分界——`toolActive` 时最后一块未完成留动态区（slice 少取一个），否则全部块进 Static；329 行动态区取的正是 stableCount 之后的残留块。块渲染前完成 markdown → 带色纯文本转换（app.tsx:337-345，Static 只渲染一次无性能问题；流式 partial 走 renderMarkdown 的第二入口 :356-360）。`staticKey` 是 Static 的重挂载 key——会话切换/清空/主题切换时清屏重绘（Static 已输出内容无法就地修改）。渲染区结构（app.tsx:331-474）：Static 区（:334-349）→ 动态区 Box（:352-458：activeBlocks + StreamingBlock + PendingTool + 联想列表 + 输入框 + 全部 overlay）→ StatusBar 恒在底部（:461-471）。components/ 各组件（TopBar/MessageBlock/StatusBar/MultilineInput/PendingTool/StreamingBlock/list-picker）与 markdown/render.ts 都是为这两区服务的无状态渲染件。
+`headerReady`（:344）实现品牌头**延迟打印**：Static 只在 item 首次出现时渲染一次，启动瞬间 config/status 未回就打印会永远定格在"加载配置中…"，等 `configSnapshot` 与 `statusBarData.cwd` 双双就绪才把 header 项塞进数组；`stableCount`（:345-346）是稳定/活跃分界——**按块状态冻结（P1-9）**：`findIndex` 找第一个 toolStatus==='running' 的块，它及其后插入的块（运行中到达的 notice/local_user/compaction 等）都留动态区，tool_end 按 toolId 就地更新后整体转正——旧判据"toolActive 时最后一块未完成"假设运行中工具块必在末尾，notice 插到它后面会把运行中块错误划进 Static 已打印区（Ink Static 只增量渲染新下标，tool_end 的就地更新将永不重绘，:336-341 立法注释）。块渲染前完成 markdown → 带色纯文本转换（app.tsx:362-370，Static 只渲染一次无性能问题；流式 partial 走 renderMarkdown 的第二入口 :383-388）。`staticKey` 是 Static 的重挂载 key——会话切换/清空/主题切换时清屏重绘（Static 已输出内容无法就地修改）。动态区多块同列时 key 用 reducer 注入的稳定块 id（:378-382，防下标/占位 key 撞车）。渲染区结构（app.tsx:356-500）：Static 区（:358-374）→ 动态区 Box（:376-485：activeBlocks + StreamingBlock + PendingTool + 联想列表 + 输入框 + 全部 overlay）→ StatusBar 恒在底部（:487-498）。components/ 各组件（TopBar/MessageBlock/StatusBar/MultilineInput/PendingTool/StreamingBlock/list-picker）与 markdown/render.ts 都是为这两区服务的无状态渲染件。
 
 ### 3.2 D-2 键盘路由：全局拦截 → suppressEnter → view.kind 分派
 
@@ -79,7 +86,7 @@ export function useKeyRouting(deps: KeyRoutingDeps): { suppressEnter(): void } {
   }, [])
 ```
 
-61 行注释是此机制的立法：port 是同步通道，命令的响应可能**在同一个事件循环内**设新 view，不吞的话同一次回车按键会先提交命令、再被 useInput 在新 view 里当"确认"处理一次（误选中第一项）；63-64 行实现是 ref 置位 + `queueMicrotask` 复位——只吞紧接着的一次回车，不影响后续正常输入。所有开 overlay 的命令统一在 post 前调 suppressEnter（app.tsx:297-300）。
+61 行注释是此机制的立法：port 是同步通道，命令的响应可能**在同一个事件循环内**设新 view，不吞的话同一次回车按键会先提交命令、再被 useInput 在新 view 里当"确认"处理一次（误选中第一项）；63-64 行实现是 ref 置位 + `queueMicrotask` 复位——只吞紧接着的一次回车，不影响后续正常输入。所有开 overlay 的命令统一在 post 前调 suppressEnter（app.tsx:315-318）。
 
 - **流程图**——键盘事件路由（按键 → 全局拦截 → 按当前视图分派 features）：
 
@@ -109,12 +116,16 @@ flowchart TD
 - **方案与取舍**：单一 `View` 联合类型表达全部 overlay 的开合（stateDiagram 意义上的唯一状态源）；需要"返回"的弹层带 `returnView` 字段——esc 回来源视图而非关整个面板。表单视图（features/form/，view-state.ts:38）是钻入链的核心节点：一行一字段；Enter 编辑文本（弹 prompt，`returnView` 回表单——已填字段不丢）或循环选项；s 或保存行提交（onSubmit(values)；校验失败经 notice → info 带 returnView 回表单，use-key-routing.ts:107-113）；readonly 行锁定身份字段。skills/mcp 面板的编辑按钮构造 fields 并携带 returnView。
 - **代码走查**：
 
-**`ui/src/tui/view-state.ts:28-38`**
+**`ui/src/tui/view-state.ts:28-42`**
 
 ```ts
 export type View =
   | { kind: 'none' }
-  | { kind: 'permission'; id: string; tool: string; input: unknown; alwaysScope?: { pattern: string }; cursor: number }
+  // returnView：审批弹层插入前的来源视图（/config 树、表单、菜单等）。非 none 时收到
+  // permission_request 会把当前视图挂进来，决议/拒绝后原样恢复——审批不得顶掉用户
+  // 正在进行的操作（深层游标、已填字段都在快照里）；当前无视图（none）或已在审批弹层
+  // （链式请求）时不挂，行为与旧版一致。
+  | { kind: 'permission'; id: string; tool: string; input: unknown; alwaysScope?: { pattern: string }; cursor: number; returnView?: View }
   | { kind: 'menu'; title: string; items: { label: string; onSelect: () => void }[]; cursor: number; /** esc 返回来源视图（缺省关面板）——面板内确认菜单不再「一键退出设置」。 */ returnView?: View }
   | { kind: 'sessionPicker'; sessions: { id: string; preview: string; title?: string; updatedAt: string }[]; cursor: number; query: string }
   | { kind: 'prompt'; title: string; value: string; onSubmit: (v: string) => void; returnPath?: ConfigPath; returnCursor?: number; returnView?: View }
@@ -125,7 +136,7 @@ export type View =
   | { kind: 'form'; title: string; fields: FormField[]; cursor: number; returnView: View; submitLabel: string; onSubmit: (values: string[]) => void } // 多字段表单（/mcp、/skills 的新建/编辑）：一行一字段，Enter 编辑/切换
 ```
 
-第 31、37 行的行内立法注释即 returnView 语义：menu 与 info 的 returnView 是**可选**的（顶层命令开的 menu/info esc 直接关面板），而 form 的 returnView 是**必填**（:38）——表单永远是从某个面板钻入的，不存在顶层表单。`prompt` 的 returnPath/returnCursor（:33）是配置树专用：标量编辑完成后回原层原 cursor。info 是六个信息类命令（/context /tools /status /system /log /help）共用的只读壳（独立翻页状态 infoScroll，app.tsx:43），notice 提示也复用它（带 returnView 回来源面板）；sessionPicker 的 query 输入即过滤（features/sessions/filter.ts），d 键删除会话。
+permission（:30-33）、menu（:35）、info（:41）的行内立法注释即 returnView 语义：三者的 returnView 是**可选**的（顶层命令开的 menu/info esc 直接关面板），而 form 的 returnView 是**必填**（:42）——表单永远是从某个面板钻入的，不存在顶层表单。`prompt` 的 returnPath/returnCursor（:37）是配置树专用：标量编辑完成后回原层原 cursor。info 是六个信息类命令（/context /tools /status /system /log /help）共用的只读壳（独立翻页状态 infoScroll，app.tsx:50），notice 提示也复用它（带 returnView 回来源面板）；sessionPicker 的 query 输入即过滤（features/sessions/filter.ts），d 键删除会话。
 - **流程图**——视图状态与 returnView 弹层链（以 skills 面板为例，esc 永远回上一级而非退出设置）：
 
 ```mermaid
@@ -144,10 +155,10 @@ flowchart TD
 ### 3.4 D-4 双域订阅：reducer 管数据、use-agent-events 管视图效应
 
 - **设计问题**：同一条下行消息既要进聊天数据（Block 流），又要触发视图效应（开弹层/清屏/状态栏）。若一个订阅全包，数据逻辑与 UI 副作用耦合，两者都无法独立测试。约束：订阅只建立一次——重复建立会反复重发 config_request/status_request（use-agent-events.ts:46 注释立法）。
-- **方案与取舍**：`useChat`（use-chat.ts:9-16）每条消息 dispatch 进 reducer——**数据域**；`useAgentEvents` 同一 port 的第二个订阅（多订阅合法，InMemoryChannel 用 Set 存监听器）只做视图侧效应。deps 经 ref 读取（:48-49）使订阅 effect 只依赖 `deps.port`。intent 标志区分显式请求与后台播种（app.tsx:49-52）：`explicitInfoRef`（/context /status 等显式命令才开 info overlay，2s 轮询静默）、`toolsIntentRef`（/tools 独立标志——tools_list 有挂载/config_updated 的后台播种，共享标志会被误消费："编辑配置后立刻 /context，播种响应先到会抢开工具面板"，app.tsx:281-282 注释）、`configIntent`（/model vs /config 决定 config_state 打开哪个选择器）。
+- **方案与取舍**：`useChat`（use-chat.ts:9-16）每条消息 dispatch 进 reducer——**数据域**；`useAgentEvents` 同一 port 的第二个订阅（多订阅合法，InMemoryChannel 用 Set 存监听器）只做视图侧效应。deps 经 ref 读取（:69-70）使订阅 effect 只依赖 `deps.port`。intent 标志区分显式请求与后台播种（app.tsx:56-59）：`explicitInfoRef`（/context /status 等显式命令才开 info overlay，2s 轮询静默）、`toolsIntentRef`（/tools 独立标志——tools_list 有挂载/config_updated 的后台播种，共享标志会被误消费："编辑配置后立刻 /context，播种响应先到会抢开工具面板"，app.tsx:298-300 注释）、`configIntent`（/model vs /config 决定 config_state 打开哪个选择器）。
 - **代码走查**：
 
-**`ui/src/tui/app/use-agent-events.ts:53-68`**
+**`ui/src/tui/app/use-agent-events.ts:74-89`**
 
 ```ts
   useEffect(() => {
@@ -168,15 +179,15 @@ flowchart TD
       if (msg.type === 'error') d.onErrorRetry()
 ```
 
-57-60 行是 INV-1 的视图侧实现：session_ready/history_cleared → 清屏重挂 + 复位散落 UI 态（onSessionCleared 统一复位联想光标/浏览焦点/展开集合，app.tsx:104-109——散落各处的复位点收敛为一个回调，防漏）；61-66 行 session_ready 顺带重拉会话列表，resume 恢复的标题经 session_list 响应回填状态栏。其余分支：permission_request 开权限弹层（:69-70）；state 离开 waiting_permission 时若 permission overlay 还开着则关（:71-73，权限请求中取消的收敛）；session_list 只刷新"已打开的"选择器并按 cwd 归一化过滤（:80-86，路径统一小写+正斜杠兼容 Windows——"每次改名都蹦出列表"的回归被注释立法拦住）；config_updated 更新镜像后重播种 tools_request（:94-97）；tools_list 一律更新镜像但仅显式 /tools 打开面板（:98-109）；permissions_list 渲染可撤销的提升菜单（:168-188，内层菜单 esc 回顶层——returnView 链的运行时构造）。
+77-81 行是 INV-1 的视图侧实现：session_ready/history_cleared → 清屏重挂 + 复位散落 UI 态（onSessionCleared 统一复位联想光标/浏览焦点/展开集合，app.tsx:110-116——散落各处的复位点收敛为一个回调，防漏）；82-87 行 session_ready 顺带重拉会话列表，resume 恢复的标题经 session_list 响应回填状态栏。其余分支：permission_request 开权限弹层——**"插入"而非"替换"**（:90-96，当前已停在某个 overlay 上时把它作为 returnView 快照挂进审批视图，决议/拒绝后恢复原视图；无视图时不挂、已在审批弹层时不嵌套挂载）；state 离开 waiting_permission 时若 permission overlay 还开着则恢复 returnView 或关闭（:97-100，权限请求中取消的收敛）；session_list 同步当前会话名进状态栏（:102-104）且只刷新"已打开的"选择器并按 cwd 过滤（:105-112，filterSessionsByCwd 兼容旧存档——"每次改名都蹦出列表"的回归被注释立法拦住）；config_updated 更新镜像后重播种 tools_request（:120-123）；tools_list 一律更新镜像但仅显式 /tools 打开面板（:124-135）；permissions_list 渲染可撤销的提升菜单（:214-234，内层菜单 esc 回顶层——returnView 链的运行时构造）。
 
 ### 3.5 D-5 命令提交流程：联想拦截 → parseCommand → intent → 面板壳
 
 - **设计问题**：提交路径要同时处理普通文本、斜杠命令、skill 调用、联想补全四类输入，且命令的响应（config_state/session_list/skills_list）到达时要打开正确的视图——但"响应到达时该开什么"只有提交时刻知道。
-- **方案与取舍**：handleSubmit（app.tsx:217-304）四步：① @path 联想拦截（末尾有 @token 且选中候选 → 回车替换为补全路径而非提交，Esc 关闭后不拦截，:219-225）；② 斜杠联想拦截（:227-231）；③ `parseCommand(raw, skillsList 名单)`（:233，shared 层解析：user 文本 → dispatch local_user + port.submit；help → info overlay；clear/quit → 确认菜单（不可逆操作，:256-274）；skill 命令与内置命令同池——用户无需记忆"哪个命令是哪来的"）；④ 统一 suppressEnter（:300）后 post 消息。intent 标志在提交时刻置位、响应时刻消费并清零——"提交时的意图"以一次性标志传递而非全局模式。
+- **方案与取舍**：handleSubmit（app.tsx:223-322）四步：① @path 联想拦截（末尾有 @token 且选中候选 → 回车替换为补全路径而非提交，Esc 关闭后不拦截，:224-231）；② 斜杠联想拦截（:232-238）；③ `parseCommand(raw, skillsList 名单)`（:239，shared 层解析：user 文本 → dispatch local_user + port.submit；help → info overlay；**unknown → 显式 notice 提示且保留输入**（:268-272——"/etc/hosts 这类以斜杠开头的提问"会被判 unknown，用户须知道消息没有发出去、为何没发出去）；clear/quit → 确认菜单（不可逆操作，:274-292）；**运行中提交防丢（P1-8）**：user 文本在 isRunningState 时显式拒绝——插 notice 块提示且不清空输入框（:241-248，agent 侧 busy 会丢弃 submit，乐观插入只会显示一条永远得不到回应的消息）；skill 命令与内置命令同池——用户无需记忆"哪个命令是哪来的"）；④ 统一 suppressEnter（:318）后 post 消息。intent 标志在提交时刻置位、响应时刻消费并清零——"提交时的意图"以一次性标志传递而非全局模式。
 - **代码走查**：
 
-**`ui/src/tui/app/app.tsx:275-296`**
+**`ui/src/tui/app/app.tsx:293-314`**
 
 ```ts
       // 命令消息：/model /config 需要 intent 标记（后端回 config_state 时据此打开对应 overlay）。
@@ -203,7 +214,7 @@ flowchart TD
       if (result.msg.type === 'mcp_request') setView({ kind: 'mcp', cursor: 0, servers: mcpList })
 ```
 
-276-279 行 /model 与 /config 发同一条 config_request，靠 `configIntent` 区分落点（响应侧 use-agent-events.ts:90-93 消费后清零）；280-288 行两类信息 intent 独立置位（tools 单列的原因写在注释里）；289-296 行"先开空壳、响应填充"模式——响应只刷新已打开的面板（use-agent-events 的 sessionPicker/skills/mcp 分支都有 `kind !==` 守卫），后端主动推送不再承担弹层职责。运行中每 2s 轮询 context_request（app.tsx:209-214，idle/finished/cancelled/error 态自动停止）驱动 StatusBar 的 tokens/windowTokens。
+294-297 行 /model 与 /config 发同一条 config_request，靠 `configIntent` 区分落点（响应侧 use-agent-events.ts:118-119 消费后清零）；298-306 行两类信息 intent 独立置位（tools 单列的原因写在注释里）；307-314 行"先开空壳、响应填充"模式——响应只刷新已打开的面板（use-agent-events 的 sessionPicker/skills/mcp 分支都有 `kind !==` 守卫），后端主动推送不再承担弹层职责。运行中每 2s 轮询 context_request（app.tsx:215-220，isRunningState 判据与提交防丢共用——idle/finished/cancelled/error 态自动停止）驱动 StatusBar 的 tokens/windowTokens。
 - **流程图**——一次用户提交到渲染的全链路（同步通道）：
 
 ```mermaid
@@ -237,7 +248,7 @@ sequenceDiagram
 ### 3.6 D-6 配置树：entries 同源、按键层零业务判断
 
 - **设计问题**：配置树十余层钻取（ConfigPath 14 种 kind，navigation.ts:2-16；`parentPath` :19-32 返回父层，esc 沿链逐级回退），若渲染层与按键层各自计算"这一层有什么条目"，两份清单必然漂移。
-- **方案与取舍**：`Entry` 联合类型（entries.ts:4-17）描述每层条目的交互形态——`scalar`（回车 → 输入带当前值，可带 del）/ `prompt`（新增输入）/ `bool`（←→ 切换）/ `goto`（回车钻入子路径）/ `action`（执行回调，可带 `afterRunPath` 执行后直接钻入——"选择即钻入"免去 esc 退回再钻入的往返，:15-16 注释）。`buildEntries(config, path, treeCtx, tools)`（build.ts:11）是纯函数；渲染层（ConfigOverlay）与按键层共用同一份 entries——app.tsx:308-309 算一次存进 `configEntriesRef`，按键层经 `deps.configEntries()` 复用（use-key-routing.ts:29-30："杜绝两处 buildEntries 漂移"）。`TreeCtx`（entries.ts:20-27）把变更翻译成 config_set/add/remove 消息（app.tsx:122-128）+ openSkills/openMcp 面板入口——配置树对 skills/MCP 管理是跳转而非重复实现。权限桶编辑（build.ts 的 permissionBucket/permissionTool 分支）直接消费 v3 结构化形态：整键开关行（whole 显式字段，"空选可表达——开关恒可用、状态恒与引擎一致"）、MCP 服务键用运行时工具清单（tools 参数，身份过滤）做勾选式细化。**双端关系的事实边界**：buildEntries 是 TUI 专属；与 WebUI settings/permissions 共享的是 v3 整桶替换消息原语与 shared/ 层（KNOWN_TOOLS、describeBucketTool）——WebUI 是同构实现而非调用同一函数。
+- **方案与取舍**：`Entry` 联合类型（entries.ts:4-17）描述每层条目的交互形态——`scalar`（回车 → 输入带当前值，可带 del）/ `prompt`（新增输入）/ `bool`（←→ 切换）/ `goto`（回车钻入子路径）/ `action`（执行回调，可带 `afterRunPath` 执行后直接钻入——"选择即钻入"免去 esc 退回再钻入的往返，:15-16 注释）。`buildEntries(config, path, treeCtx, tools)`（build.ts:11）是纯函数；渲染层（ConfigOverlay）与按键层共用同一份 entries——app.tsx:326-327 算一次存进 `configEntriesRef`，按键层经 `deps.configEntries()` 复用（use-key-routing.ts:29-30："杜绝两处 buildEntries 漂移"）。`TreeCtx`（entries.ts:20-27）把变更翻译成 config_set/add/remove 消息（app.tsx:128-135）+ openSkills/openMcp 面板入口——配置树对 skills/MCP 管理是跳转而非重复实现。权限桶编辑（build.ts 的 permissionBucket/permissionTool 分支）直接消费 v3 结构化形态：整键开关行（whole 显式字段，"空选可表达——开关恒可用、状态恒与引擎一致"）、MCP 服务键用运行时工具清单（tools 参数，身份过滤）做勾选式细化。**双端关系的事实边界**：buildEntries 是 TUI 专属；与 WebUI settings/permissions 共享的是 v3 整桶替换消息原语与 shared/ 层（KNOWN_TOOLS、describeBucketTool）——WebUI 是同构实现而非调用同一函数。
 - **代码走查**：
 
 **`ui/src/tui/features/config/keys.ts:44-55`**
@@ -257,15 +268,15 @@ sequenceDiagram
   }
 ```
 
-45-47 行 esc 的两级语义全由 `parentPath` 决定——根层返回 null 则关编辑器（`kind: 'none'`），其余沿链回退；50-54 行 d 键删除后 clamp cursor（`Math.min(v.cursor, entries.length - 2)`）防越界。按键层的一切行为都来自 entry 自身字段（run/del/afterRunPath/subPath/save）——"这一层有什么、行为是什么"全在 buildEntries 的纯函数世界里（回车分派见 keys.ts:27-43：goto 钻入 / scalar/prompt 开 prompt 弹层 / bool 用 preview / action 按 afterRunPath→del→原地三档导航）。
+45-47 行 esc 的两级语义全由 `parentPath` 决定——根层返回 null 则关编辑器（`kind: 'none'`），其余沿链回退；49-54 行 d 键删除后 clamp cursor（`Math.min(v.cursor, entries.length - 2)`）防越界。按键层的一切行为都来自 entry 自身字段（run/del/afterRunPath/subPath/save）——"这一层有什么、行为是什么"全在 buildEntries 的纯函数世界里（回车分派见 keys.ts:27-43：goto 钻入 / scalar/prompt 开 prompt 弹层 / bool 用 preview / action 按 afterRunPath→del→原地三档导航）。
 
 ### 3.7 D-7 审批四档：安全链路的最后一跳
 
 - **设计问题**：权限弹层是 agent 执行工具前的最后人工关口。约束：档位集合必须与 agent 下发的 `alwaysScope` 精确联动（推导不出范围模式时不能显示第四档）；esc 必须有安全侧语义（拒绝而非放行）；决议消息的形状要被回归测试锁定。
-- **方案与取舍**：决策项由 `decisionItems(alwaysScopePattern?)` 纯函数组装（decisions.ts:4-5 注释："点它即接受该模式为会话内范围规则；缺失时维持三档（fail-safe）。措辞在本文件组装，契约只携带模式数据"）；↑↓ 移动 cursor（四档 = allow_once / allow_always / allow_always_scoped（仅 alwaysScope 存在时渲染）/ reject），回车把 `permission_decision{id, decision}` 经注入的 `post` api 发出并 setView 回 none（keys.ts:13-19），esc 视为 reject。api 注入模式让该处理器可注入 spy 后单测（决议消息的形状回归被锁定）。
+- **方案与取舍**：决策项由 `decisionItems(alwaysScopePattern?)` 纯函数组装（decisions.ts:3-5 注释："点它即接受该模式为会话内范围规则；缺失时维持三档（fail-safe）。措辞在本文件组装，契约只携带模式数据"）；↑↓ 移动 cursor（四档 = allow_once / allow_always / allow_always_scoped（仅 alwaysScope 存在时渲染，且带 desc 副行言明 shell 范围覆盖面）/ reject），回车把 `permission_decision{id, decision}` 经注入的 `post` api 发出并关闭弹层（keys.ts:23——挂了 returnView 时恢复来源视图，"插入而非替换"立法的决议出口；未挂时回 none），esc 视为 reject 并同样恢复来源视图（keys.ts:24）。api 注入模式让该处理器可注入 spy 后单测（决议消息的形状回归被锁定）。
 - **代码走查**：
 
-**`ui/src/tui/features/permission/decisions.ts:11-21`**
+**`ui/src/tui/features/permission/decisions.ts:14-28`**
 
 ```ts
 export function decisionItems(alwaysScopePattern?: string): DecisionItem[] {
@@ -274,14 +285,18 @@ export function decisionItems(alwaysScopePattern?: string): DecisionItem[] {
     { decision: 'allow_always', label: '始终允许（本次会话）' },
   ]
   if (alwaysScopePattern) {
-    items.push({ decision: 'allow_always_scoped', label: `对此范围不再询问（${alwaysScopePattern}）` })
+    items.push({
+      decision: 'allow_always_scoped',
+      label: `对此范围不再询问（${alwaysScopePattern}）`,
+      desc: 'shell 类范围含该前缀的一切命令（含 && 命令链）',
+    })
   }
   items.push({ decision: 'reject', label: '拒绝' })
   return items
 }
 ```
 
-12-15 行先构造恒有的两档；16-18 行条件插入 scoped 档——模式字符串由 agent 的 `deriveAlwaysScope` 推导并随 permission_request 下发（agent.ts:298-306），UI 不自行推导（契约只携带数据）；19 行 reject 恒在末位。cursor 对 items 取模（keys.ts:15-16），因此档位数变化不影响导航逻辑。
+15-18 行先构造恒有的两档；19-25 行条件插入 scoped 档——模式字符串由 agent 的 `deriveAlwaysScope` 推导并随 permission_request 下发（agent.ts:463-481），UI 不自行推导（契约只携带数据），**desc 副行言明覆盖面**（:9-11 注释——shell 类范围规则按命令前缀匹配，含该前缀的一切命令（含 && 命令链）都会被放行，知情同意落在弹层）；26 行 reject 恒在末位。cursor 对 items 取模（keys.ts:21-22），因此档位数变化不影响导航逻辑。
 - **流程图**——审批档位决议：
 
 ```mermaid
@@ -314,7 +329,7 @@ export const palette: Palette = new Proxy({} as Palette, {
 })
 ```
 
-42 行 Proxy 的 get 每次都透传到 `themeRegistry.palette`——不存在缓存的旧调色板，主题切换后下一帧取到的就是新色；正因读取是动态的，切换才必须配合 clearScreenRemount（Static 区已打印的色码无法回收）。entry.tsx（app/entry.tsx:25-47）的 renderTui 是 Ink render 入口（bin/dogegg.ts:67 调用）：启动清屏、`exitOnCtrlC: false`（Ctrl+C 流到 useInput 由 App 处理）、SIGINT 兜底（1.5 秒内两次 Ctrl+C 强制退出，resetSigintTimer 由键盘路由调用清除兜底窗口）、exit 时恢复 raw mode。
+42 行 Proxy 的 get 每次都透传到 `themeRegistry.palette`——不存在缓存的旧调色板，主题切换后下一帧取到的就是新色；正因读取是动态的，切换才必须配合 clearScreenRemount（Static 区已打印的色码无法回收）。entry.tsx（app/entry.tsx:25-47）的 renderTui 是 Ink render 入口（bin/dogegg.ts:109 调用）：启动清屏、`exitOnCtrlC: false`（Ctrl+C 流到 useInput 由 App 处理）、SIGINT 兜底（1.5 秒内两次 Ctrl+C 强制退出，resetSigintTimer 由键盘路由调用清除兜底窗口）、exit 时恢复 raw mode。
 
 ## 4. 关键立法与不变量
 
@@ -324,25 +339,28 @@ export const palette: Palette = new Proxy({} as Palette, {
 - **INV-4 按键逻辑纯函数化**：features/*/keys 不持有状态、不直接订阅；api 注入。
 - **INV-5 双域正交**：reducer 管数据、use-agent-events 管视图效应，两个订阅互不越界。
 - **INV-6 intent 标志隔离**：显式请求与后台播种的响应互不误消费。
-- **INV-7 use-agent-events 订阅单次建立**：deps 经 ref 读取（use-agent-events.ts:46-49）——重复建立订阅会反复重发 config_request/status_request，这是 hook 依赖数组立法的由来。
-- **INV-8 配置树视图/按键同源**：entries 由渲染层 buildEntries 计算一次、经 configEntriesRef 供按键层复用（app.tsx:308-309）——任何层级行为改动只改 build.ts 一处。
-- **INV-9 退出必须确认**：/quit 与空闲 Ctrl+C 都弹确认菜单（app.tsx:266-274、use-key-routing.ts:75-82）——不可逆操作零直达。
+- **INV-7 use-agent-events 订阅单次建立**：deps 经 ref 读取（use-agent-events.ts:66-70）——重复建立订阅会反复重发 config_request/status_request，这是 hook 依赖数组立法的由来。
+- **INV-8 配置树视图/按键同源**：entries 由渲染层 buildEntries 计算一次、经 configEntriesRef 供按键层复用（app.tsx:326-327）——任何层级行为改动只改 build.ts 一处。
+- **INV-9 退出必须确认**：/quit 与空闲 Ctrl+C 都弹确认菜单（app.tsx:284-292、use-key-routing.ts:75-82）——不可逆操作零直达。
 
 ## 5. 失败模式与恢复
 
 - **闭包过期读到旧 state**：ref 镜像立法（§3.2）系统性消除；新增按键层状态必须成对建 ref。
-- **同步通道回车误击**：suppressEnter 机制（§3.2）；漏标 suppressEnter 的 overlay 打开路径会产生"回车误选第一项"——所有开 overlay 的命令统一吞回车（app.tsx:297-300）。
-- **Static 内容定格错误**：品牌头延迟到数据就绪才打印（app.tsx:320-321）；主题切换走 clearScreenRemount 重绘。
-- **权限请求中取消**：use-agent-events 监听 state 迁移——离开 waiting_permission 时 permission overlay 自动关闭（use-agent-events.ts:71-73）。
+- **同步通道回车误击**：suppressEnter 机制（§3.2）；漏标 suppressEnter 的 overlay 打开路径会产生"回车误选第一项"——所有开 overlay 的命令统一吞回车（app.tsx:315-318）。
+- **运行中提交静默丢失**：isRunningState 判据下显式拒绝——插 notice 块、不清空输入框（app.tsx:241-248，P1-8）。
+- **Static 内容定格错误**：品牌头延迟到数据就绪才打印（app.tsx:342-343）；主题切换走 clearScreenRemount 重绘。
+- **运行中块被误划进 Static**：冻结判据按块状态 findIndex running（app.tsx:345-346，P1-9）——notice 插到运行中工具块后面也不会把已打印区污染。
+- **权限请求中取消**：use-agent-events 监听 state 迁移——离开 waiting_permission 时 permission overlay 恢复 returnView 或关闭（use-agent-events.ts:97-100）。
 - **后台播种误开面板**：intent 标志（§3.4）；选择器未开时 session_list 推送被忽略（"每次改名都蹦出列表"的回归被注释立法拦住）。
-- **联想光标残留**：输入变化即复位 suggestCursor（app.tsx:79-81）——残留选中会让下次回车误补全而非提交。
-- **编辑器交互破坏 raw mode**：openInEditor 暂停 raw mode → spawnSync 阻塞 → finally 恢复 + 清屏重挂 + 重拉清单（app.tsx:90-102）。
-- **流式输出期间状态栏 token 过期**：运行中每 2s 轮询 context_request（app.tsx:209-214，idle/finished/cancelled/error 态自动停止）——StatusBar 的 tokens/windowTokens 实时跟随。
-- **会话切换后的残留 UI 态**：onSessionCleared 统一复位（联想光标/浏览焦点/展开集合，app.tsx:104-109）——散落各处的复位点收敛为一个回调，防漏。
+- **联想光标残留**：输入变化即复位 suggestCursor（app.tsx:85-88）——残留选中会让下次回车误补全而非提交。
+- **编辑器交互破坏 raw mode**：openInEditor 暂停 raw mode → spawnSync 阻塞 → finally 恢复 + 清屏重挂 + 重拉清单（app.tsx:96-109）。
+- **流式输出期间状态栏 token 过期**：运行中每 2s 轮询 context_request（app.tsx:215-220，isRunningState 判据自动停止）——StatusBar 的 tokens/windowTokens 实时跟随。
+- **会话切换后的残留 UI 态**：onSessionCleared 统一复位（联想光标/浏览焦点/展开集合，app.tsx:110-116）——散落各处的复位点收敛为一个回调，防漏。
+- **多块同列 key 撞车**：动态区 key 用 reducer 注入的稳定块 id（app.tsx:378-382，ChatState.nextId/allocId）——下标 key 在多块同列时会错位复用。
 
 ## 6. 与其它子系统的接缝
 
-- **→ 01 契约/通道**：消费 `channel.uiPort`（bin/dogegg.ts:67 传入）；同步投递语义被 suppressEnter 与 intent 机制依赖。
+- **→ 01 契约/通道**：消费 `channel.uiPort`（bin/dogegg.ts:109 传入）；同步投递语义被 suppressEnter 与 intent 机制依赖。
 - **→ 12 WebUI**：shared/ 层（reducer/commands/permission/tool-display）双端共用；权限树的 v3 语义与整桶替换原语双端一致（buildEntries 为 TUI 专属，WebUI settings/permissions 为同构实现）；管理操作发同一套消息。
 - **→ 10 配置**：config_set/add/remove + config_state/config_updated 全链路；buildEntries 的权限树直接镜像 v3 形态。
 - **→ 06 权限**：permission overlay 渲染四档决议（含 alwaysScope 第四档）；decisions.ts 翻译按键 → permission_decision 消息。

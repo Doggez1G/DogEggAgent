@@ -1,23 +1,24 @@
 # 04-WebUI使用
 
-浏览器界面（`dogegg -web` 启动，默认 http://localhost:3000，可用 `PORT` 环境变量覆盖）。布局：左侧会话侧栏、中间聊天区、右侧信息面板、顶部工具条（设置齿轮、Cmd+K）。
+浏览器界面（`dogegg -web` 启动，默认 http://localhost:3000，可用 `PORT` 环境变量覆盖）。布局：左侧会话侧栏、中间聊天区、右侧信息面板、顶部工具条（状态/模型/工作目录 + Cmd+K）；设置入口在**左侧栏底部**的「Settings」。
 
 ## 聊天区
 
 - 底部输入框提交消息；回复流式渲染（思考内容折叠）。
-- 工具调用块：状态图标 + 权限徽章（ALLOW/ASK/ALWAYS/REJECTED）；点击展开看输出/diff（edit_file 带真实行号）。
-- ask 工具弹出**审批横幅**（聊天区内）：四档决策——本次允许 / 始终允许 / 对此范围不再询问 / 拒绝。
+- 工具调用块：状态图标 + 工具名/参数 + 结果标签；点击展开看输出/diff（edit_file 带真实行号，可一键复制）。
+- ask 工具弹出**审批横幅**（聊天区内）：Allow Once / Always Allow: <范围> / Always Allow (tool) / Reject——scoped 按钮仅在推导出范围时出现，长范围省略号显示、悬停看全（shell 范围含该前缀的一切命令，含命令链）。横幅挂起即自动聚焦首按钮；**Esc = 拒绝**（设置等弹窗打开时 Esc 只关弹窗，不会误拒）。
+- 运行中输入框禁用，发送按钮变为停止按钮（可取消本轮）。
 - 出错自动回填输入重试。
 
-## 设置弹框（右上角齿轮或 /config）
+## 设置弹框（左侧栏底部 Settings 或 /config）
 
-顶部侧栏切换五区：
+顶部侧栏切换五区（General / Models / Permissions / Skills / MCP Servers）：
 
 - **General**：systemPrompt、maxIterations（-1 无限）、maxRetries、shellProgram（下拉带本机扫描）。
 - **Models**：provider 列表 → 展开编辑（name/protocol/baseURL/apiKey）+ models 子列表（name/contextWindow/maxOutput/reasoning）；添加后把 default 指向它。
 - **Permissions**：三桶折叠卡片。每条规则：整选开关 chip（✓ Whole tool / · 按模式）、模式 chips（点击改名/×删除）、添加输入框。MCP 服务键规则展开为**勾选 chips**（该服务运行时工具清单）+ 通配 chips。添加下拉分两组：MCP 服务（整组生效）+ 内建工具。
-- **MCP Servers**：全局/项目两组状态卡片（状态点 + 名称 + 传输/状态徽章 + 工具数）；启停/编辑（表单）/删除（确认）；「+ 新建 MCP server」表单（类型/名称/command/args/env 或 url/headers）。
 - **Skills**：两组列表（/名 + 描述 + 启停按钮 + 编辑/删除）；缺失条目灰显带「清理」；「+ 新建 skill」表单。
+- **MCP Servers**：全局/项目两组状态卡片（状态点 + 名称 + 传输/状态徽章 + 工具数）；启停/编辑（表单）/删除（确认）；「+ 新建 MCP server」表单（类型/名称/command/args/env 或 url/headers）。
 
 所有编辑即时生效（配置写盘 + 广播刷新）；校验失败红色提示且不落盘。
 
@@ -35,8 +36,8 @@
 
 ## 会话侧栏（左侧）
 
-- 按项目分组会话树：标题（铅笔重命名）、更新时间、预览。
-- 顶部新建会话；条目悬停删除（当前会话删除后自动开新会话接管）。
+- 按项目分组会话树：标题/预览、更新时间。
+- 项目头部「+」新建会话；条目悬停删除（当前会话删除后自动开新会话接管）；重命名在右侧 Status & Model 卡（铅笔）或 /rename。
 - 项目头部可「遗忘」（删除该项目下全部会话）。
 
 ## 其它

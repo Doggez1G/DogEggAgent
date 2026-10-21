@@ -38,7 +38,7 @@
 2. 工具调用块三要素：状态图标（执行中旋转/完成 ✓/失败 ✕/拒绝 ⊘，来自 toolStatus done/error/rejected/running）、折叠头（工具名 + 参数摘要 + 结果摘要——如「$ pnpm test · 32 行输出」）、折叠/展开。
 3. 展开正文按工具精修（shared/tool-display 同源）：命令与输出分层（cmd 弱化、diff 行绿/红）、edit_file diff 带真实行号（解析回执「已替换 1 处（原第 N 行起）」锚点，无锚点不编造坐标）、超大输出 200 行封顶；正文栏带行数提示与**一键复制**（复制 = 正文 text 原样拼接——shell 是去 exit 行的纯输出、read/write 是不带行号的纯内容、edit 是自描述 diff）。
 4. 模型生成工具参数期间（tool_pending → tool_start）显示「正在调用 X…」占位；压缩中显示「Compacting context...」；其余运行态显示「DogEgg is thinking...」三点动画；新块到达自动滚动到底部。
-5. ask 调用弹出**审批横幅**（PermissionBanner，输入区上方常驻）：工具名 + 文件名/参数预览（edit_file 显示 -/+ diff、write_file 显示写入内容、shell 显示命令，各截 150 字符）+ 四按钮：Allow Once / Always Allow: <模式>（仅 alwaysScope 推导出时出现，模式原文可见）/ Always Allow (tool) / Reject。
+5. ask 调用弹出**审批横幅**（PermissionBanner，输入区上方常驻）：工具名 + 文件名/参数预览（edit_file 显示 -/+ diff、write_file 显示写入内容、shell 显示命令，各截 150 字符）+ 四按钮：Allow Once / Always Allow: <模式>（仅 alwaysScope 推导出时出现，模式原文可见）/ Always Allow (tool) / Reject。横幅可及性：`role="alert"` + `aria-live="assertive"`——请求到达时读屏立即播报横幅内容；**Esc = 拒绝**（与 TUI 的 esc=reject 语义对齐；有 modal 打开时 Escape 优先归 modal 关闭链路，不据此拒绝）。
 6. 错误与恢复语义（shared reducer 同源）：error 消息把流式 partial flush 落盘并追加红色错误块 + 回填重试文本（retryText → 输入框）；会话切换（session_ready）按 history + thinking 重建全部块、清空旧会话的流式残留。
 
 **边界与失败模式**：
@@ -68,12 +68,13 @@
 4. **Permissions**：三桶卡片——添加下拉（MCP 服务整组 + 内建工具，排除已有、候选来自运行时 tools_list）；每条规则组含整选开关（whole 显式字段，与 TUI 同构）、模式 chips 就地改名（点击变输入框）/删除、MCP 服务键**勾选 chips**（该服务运行时工具清单勾选 = 增删内部工具名）+ 通配/遗留条目手动 chips + 添加输入框（非空 + 去重，非法置红）。
 5. **MCP Servers**：全局/项目分组状态卡片（状态点颜色 + 名称 + 传输/状态徽章 + 工具数 + 错误行），启停切换/编辑表单（类型/名称/command/args/env 或 url/headers，JSON 字面量输入）/删除确认；编辑态全字段预填、名称锁定。
 6. **Skills**：项目级/用户级两组列表，创建表单（落点/名称/描述）、启停按钮、**缺失态灰显与清理**、编辑（get 取全文 → textarea → update 整文件替换）、删除确认。
-7. 所有编辑走与 TUI 相同的 config_set/add/remove 与 manage 消息——校验失败由后端回滚 + error/notice 广播（编辑即报错不写坏配置）。
+7. 所有编辑走与 TUI 相同的 config_set/add/remove 与 manage 消息——校验失败由后端回滚 + notice 广播（channel 定位到对应面板 inline 可见，编辑即报错不写坏配置）。
 
 **边界与失败模式**：
 
 - Skills 区操作失败的 notice（channel='skills'）以 inline 错误条显示在设置弹框内——用户正看着设置页，聊天区不该是唯一反馈面；成功清单到达即清除。
-- skill_content 响应用请求时的条目锚点核对——防止旧响应打开错误的编辑器。
+- General/Models 区保存失败（网络/通道错误）同样 inline 可见（「保存失败：<原因>」）——此前失败只有 console.warn，用户误以为保存成功；新提交开始即清除上次失败提示。
+- MCP/Skills/MCP 表单校验失败（名称空/args 非法 JSON 等）notice 带 channel，面板 inline 展示；skill_content 响应用请求时的条目锚点核对——防止旧响应打开错误的编辑器。
 - 编辑态身份字段锁定（名称/落点）；运行中管理操作被后端阻塞并 notice。
 - 主题不在设置弹框内——侧栏主题切换器与命令面板承载（见 R-WEB-09）。
 
@@ -83,6 +84,7 @@
 2. 当在 Permissions 区给 MCP 服务键勾选某工具，则规则以内部工具名写入 allow 桶（与 TUI 勾选同构）。
 3. 当 MCP 表单 args 填非法 JSON，则提交被拒（「args 不是合法 JSON 数组」）且不落盘。
 4. 当技能名称非法创建，则 Skills 区出现 inline 错误且清单不变。
+5. 当 General/Models 区的保存请求失败（网络/通道错误），则本区出现 inline「保存失败：…」错误条（不再只有 console.warn）。
 
 **场景走查**：用户 /skills 命令 → 设置弹框直达 Skills 区 → 填落点/名称/描述创建 → 启停按钮停用 → 清单灰显标记。
 
@@ -154,11 +156,11 @@
 
 1. Cmd+K（macOS）/Ctrl+K（Windows/Linux）全局快捷键开关面板（window keydown 捕获，preventDefault 防浏览器冲突）；面板开着再按是关闭（toggle 而非叠加）。
 2. 面板聚合五组条目，按查询过滤、↑↓ 选择、回车执行：
-   - **Commands**：全部 18 个内建命令——/clear 路由确认弹层、/config /model 打开设置、/cd /rename /skills /mcp 路由到专用弹框（不先关面板——新弹框会替换面板，先关会把刚开的弹框抹掉）、其余 parseCommand 直发；
+   - **Commands**：内建命令（**不含 /quit 与 /clear**——危险命令立法：面板的直发链路无确认环节，/quit 会杀掉整个后端服务进程、/clear 不可逆清空历史；二者的安全路径只有输入框，那里挂了确认弹窗）——/config /model 打开设置、/cd /rename /skills /mcp 路由到专用弹框（不先关面板——新弹框会替换面板，先关会把刚开的弹框抹掉）、其余 parseCommand 直发；
    - **Skills**：可用技能（invoke_skill，args 空）；
    - **Sessions**：最近 10 个会话（选中即 resume）；
    - **Themes**：三主题即时切换；
-   - **Actions**：新会话/清空历史等常用操作。
+   - **Actions**：新会话/清空历史等常用操作（Clear History 经确认弹层）。
 3. 执行后关闭面板并路由到对应动作（多数走 COMMAND_TO_MODAL 的 modal 映射）。
 
 **边界与失败模式**：
@@ -209,14 +211,15 @@
 
 **功能规格**：
 
-1. 下行 `GET /api/events`：SSE 响应头（text/event-stream + no-cache + keep-alive），连接注册进活跃集合，agent 的每条出站消息 JSON 序列化为 `data: <json>\n\n` 广播给**所有**连接——多标签页天然共享同一事件流（观察者模式），任一标签的会话操作对所有标签可见；连接断开从集合移除。
+1. 下行 `GET /api/events`：SSE 响应头（text/event-stream + no-cache + keep-alive），连接注册进活跃集合，agent 的每条出站消息 JSON 序列化为 `data: <json>\n\n` 广播给**所有**连接——多标签页天然共享同一事件流（观察者模式），任一标签的会话操作对所有标签可见；连接断开从集合移除。唯【恢复链】例外：新 SSE 连接建立时 server 经 `onConnect` 回调调 `agent.resendSessionState(send)`，会话快照走该连接的**定向单播**（不走广播——广播会把所有在看的客户端运行中界面整体重置，运行中的流式内容只存在于循环局部）。
 2. 上行 `POST /api/message`：body 累积上限 1MB（超出 413「Request body too large」+ 销毁请求停止读取）；JSON 解析失败 400；zod 校验（uiToAgentMessageSchema）失败 400 附 issues 明细——非法消息在进入 agent 前被拒；合法消息触发 agent 回调，200 ok。
 3. server 默认绑定 127.0.0.1（HOST 环境变量可覆盖），CORS 仅放行 localhost 来源（防其它网站跨站 POST 驱动 shell 执行）。
 4. 前端封装（createSseUiPort）：EventSource 收到 data → JSON.parse → agentToUiMessageSchema 校验 → 分发；onerror 按 readyState 区分 reconnecting（浏览器自动重连中）/disconnected（已关闭）。
+5. **恢复链（重连/刷新/新标签接入）**：新连接单播收到 `session_ready { id, messages, busy, live? }`（+ thinking）——按 history + thinking 重建全部块；busy=true 不被打回 idle（运行中保真）；live 携带运行现场——`live.partial` 恢复为流式中的助手消息（后续 text_delta 续拼）、`live.runningTool` 恢复为 running 工具块（后续 tool_end 按 toolId 精确配对转正）；随后重放近期 notice（环形缓冲 20 条——启动期告警发出时连接集为空，WebUI 用户借此可见，如权限键失配告警）与重发挂起中的 permission_request（同 id 幂等，恢复后可照常决议）。
 
 **边界与失败模式**：
 
-- 后端无会话级重放——重连后聊天状态留在浏览器内存，面板数据靠挂载/展开时的播种请求与后续广播恢复（session_ready 只在 new/resume 会话时由 agent 发出，不在重连路径上）。
+- 恢复链是唯一快照重放：重连/刷新/新标签接入经新连接的单播 session_ready 恢复（含 busy 与 live 运行现场、notice 重放、挂起审批重发，见规格 5）——多标签广播不承载恢复（广播会整体重置其它在看的运行中界面）。
 - write 失败（连接已断）静默，清理在 close 事件。
 - 静态资源请求走 StaticFiles（生产模式 dist 目录），API 未命中且无静态目录（开发模式 VITE_DEV=1）返回 404（前端由 Vite dev server 代理）。
 
@@ -227,6 +230,7 @@
 3. 当 POST 一个非法形状的消息，则 400 且 agent 未收到（issues 明细返回）。
 4. 当 body 超 1MB，则 413 且连接读取终止。
 5. 当网络闪断后恢复，则顶栏指示器经 Reconnecting → Connected 变化并伴随 toast。
+6. 当轮次运行中刷新页面或断线重连，则运行现场恢复——partial 续拼、进行中工具块恢复 running 态、输入不误启用（busy 保真）、挂起审批重现可决议。
 
 **场景走查**：用户开两个标签页 → 标签 A 提交消息 → 两个标签的聊天区同步出现流式回复（同一 SSE 流广播）→ 标签 B 重命名会话 → 标签 A 的侧栏标题同步更新。
 

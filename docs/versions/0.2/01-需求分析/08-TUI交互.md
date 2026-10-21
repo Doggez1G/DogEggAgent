@@ -26,7 +26,7 @@
 
 **键盘路由：全局拦截 → 按 view.kind 分派。** useKeyRouting 装配层先处理全局键（Ctrl+C 最高优先级：运行中发 cancel，空闲且不在菜单时弹退出确认菜单）；随后按 view.kind 分派到 features/*/keys.ts 的纯逻辑处理器（可单测——测试注入 spy api）。还有一层 suppressEnter 微任务吞键：port 是同步通道，打开弹层的命令发出后响应可能立即切换 view，同一个回车会被 useInput 在新 view 里再处理一次（误选中第一项）——所有会开弹层的命令统一吞掉提交回车。另有 SIGINT 兜底：Ink 未捕获到 Ctrl+C（卡死在 Ink 之外）时，1.5s 内两次 SIGINT 强制退出。
 
-**命令与联想共用一套解析。** parseCommand 是纯函数：斜杠命令 → UiToAgentMessage；skill 动态命令（首词命中 skill 名）→ invoke_skill；其余 → 普通消息。联想 matchCommands 做前缀匹配（内置命令 + skill 动态命令同池），已完整匹配时不再联想。错误自动回填（onErrorRetry）从输入历史栈取末条填回输入框。
+**命令与联想共用一套解析。** parseCommand 是纯函数：斜杠命令 → UiToAgentMessage；skill 动态命令（首词命中 skill 名）→ invoke_skill；未知斜杠命令 → unknown（UI 显式提示「未知命令 X」并保留输入，不吞成帮助页）；其余 → 普通消息。联想 matchCommands 做前缀匹配（内置命令 + skill 动态命令同池），已完整匹配时不再联想。错误自动回填（onErrorRetry）从输入历史栈取末条填回输入框。
 
 ## 需求点
 
@@ -42,10 +42,12 @@
 4. 输入历史：↑↓ 召回历史提交（应用生命周期内跨会话保留），↓ 到底清空输入框退出浏览。
 5. 多行输入：Enter 发送；Ctrl+J / Alt+Enter 换行（Windows 终端不报告 Shift 修饰符，Shift+Enter 不可检测）；多行粘贴经 bracketed paste 整段插入不误提交；多行文本内 ↑↓ 移动光标行，单行时让位给历史召回。
 6. 停用/缺失的 skill 不出现（可用条目 enabled && !missing 过滤）。
+7. 运行中提交防丢：运行态提交普通消息不发后端——插一条 notice 块「运行中，请稍候——本条未发送，当前任务结束后再试」并**保留输入框文本**（agent 侧 busy 会丢弃 submit，乐观插入只会产生一条永远得不到回应的消息），任务结束后可直接重发；空闲路径行为不变。
+8. 输入编辑防护：Ctrl 组合键（除 Ctrl+C 放行全局处理器、Ctrl+J 换行经 enter 分支）一律吞掉——Ink 把 Ctrl+A/U/W 等解析成普通字母 + ctrl 标志，落到字符插入会污染输入文本；Backspace 回删与 Delete 前向删除语义拆分（删光标处字符，光标未在末尾时生效）。
 
 **边界与失败模式**：
 
-- 未知命令也显示帮助（default 分支）；/cd /rename 缺参数回帮助。
+- 未知命令显式提示并保留输入（notice「未知命令 X——/help 查看全部命令」，不清空不发送）——不吞成帮助页（/etc/hosts 这类以斜杠开头的正常提问不得无反馈丢弃）；/cd /rename 缺参数回帮助。
 - /clear /quit 必经确认菜单（不可逆）。
 - /model 与 /config 共用 config_request，App 按 intent 标记决定打开哪个 overlay。
 - /tools 有独立 intent——后台播种（挂载/config_updated）不弹工具面板，只有显式 /tools 才弹（共享标志会误消费）。
@@ -56,8 +58,10 @@
 1. 当输入 `/se`，则联想仅列出 /session（前缀匹配）。
 2. 当联想候选已完整匹配输入（如打满 `/clear`），则不再弹联想。
 3. 当联想有选中项时按回车，则输入框被补全为候选命令而非提交。
-4. 当输入 `/unknown`，则打开帮助 info 面板。
+4. 当输入 `/unknown`，则弹 notice「未知命令 /unknown——/help 查看全部命令」且输入保留（可改写后重发，不打开帮助页）。
 5. 当多行粘贴含换行的文本，则整段进入输入框且不触发提交。
+6. 当轮次运行中提交消息，则弹 notice「运行中，请稍候——本条未发送…」且输入框文本保留，任务结束后可直接重发。
+7. 当按下 Ctrl+B 等控制组合键，则输入文本不被污染（组合键被吞掉，Ctrl+C/Ctrl+J 除外）。
 
 **场景走查**：用户输入 `/se` → 联想列出 /session → Tab 补全 → 回车打开会话选择器（空壳先开，session_list 响应到达后填充）。
 
@@ -177,7 +181,7 @@
 **功能规格**：
 
 1. permission_request 到达 → view 切到 permission → 弹层显示工具名 + 参数预览 + 决策项列表；参数预览按工具精修：edit_file 显示 old→new diff（红/绿）、write_file 显示写入内容、shell 显示命令（均截断 200 字符）。
-2. 决策项由 `decisionItems(alwaysScope)` 组装：恒有「允许一次」「始终允许（本次会话）」；agent 推导出范围模式时插入「对此范围不再询问（<模式>）」（模式原文可见——用户点之前就知道授权范围）；恒有「拒绝」；推导不出时维持三档（fail-safe）。
+2. 决策项由 `decisionItems(alwaysScope)` 组装：恒有「允许一次」「始终允许（本次会话）」；agent 推导出范围模式时插入「对此范围不再询问（<模式>）」（模式原文可见——用户点之前就知道授权范围），该档附弱化色次行说明「shell 类范围含该前缀的一切命令（含 && 命令链）」——shell 范围规则的覆盖面在决策前明示；恒有「拒绝」；推导不出时维持三档（fail-safe）。
 3. ↑↓ 循环选择、回车提交 `permission_decision { id, decision }`；esc 视为拒绝。
 4. 决策期间对话暂停（状态机 waiting_permission），决策后继续。
 5. 弹层在输入框下方展开，视觉上与输入框一体。

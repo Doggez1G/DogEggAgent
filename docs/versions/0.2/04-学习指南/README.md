@@ -31,7 +31,7 @@ npm install          # npm workspaces，四包一次装齐
 npm run build        # esbuild 打包 dist/dogegg.js（bin/dogegg.ts 为入口）
 npm run dev          # 构建 + TUI 启动（读 .dogegg.json 或 ~/.dogegg/config.json）
 npm run dev:web      # WebUI 开发模式：tsx main-web.ts 起 server(3001) + vite 前端热更
-npm test             # vitest watch；npm run test:run 单次全量（48 个测试文件）
+npm test             # vitest watch；npm run test:run 单次全量（76 个测试文件）
 npm run typecheck    # 四包 tsconfig 各自 noEmit 检查
 ```
 

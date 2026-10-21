@@ -11,12 +11,12 @@
 | # | 文档 | 一句话 | 源码根 | 交互图 |
 |---|---|---|---|---|
 | 01 | [四包架构与消息契约](./01-四包架构与消息契约.md) | 四包解耦立法、上行/下行消息全清单、双通道差异 | bridge/src、bin/dogegg.ts、main-web.ts | [架构总览](./assets/architecture-overview.html) |
-| 02 | [对话轮次引擎](./02-对话轮次引擎.md) | 状态机全转移表、AgentLoop 循环、压缩管线八步、取消双机制、自动标题 | agent/src/turn/ | [轮次状态机](./assets/turn-lifecycle.html) |
-| 03 | [LLM 接入层](./03-LLM接入层.md) | LlmStreamEvent 七事件、SSE 行驱动解析、两级超时、重试退避 | agent/src/llm/ | — |
+| 02 | [对话轮次引擎](./02-对话轮次引擎.md) | 状态机全转移表、AgentLoop 循环、压缩管线与轮中检查点、取消双机制、自动标题 | agent/src/turn/ | [轮次状态机](./assets/turn-lifecycle.html) |
+| 03 | [LLM 接入层](./03-LLM接入层.md) | LlmStreamEvent 八事件、SSE 行驱动解析、三级超时、重试退避 | agent/src/llm/ | — |
 | 04 | [工具注册表与合规关口](./04-工具注册表与合规关口.md) | register 三动作（合规哈希/冲突抛错/身份记录）、labelsWhere 摘除 | agent/src/tools/registry.ts | — |
 | 05 | [内建工具集](./05-内建工具集.md) | 7 工具逐个：参数 schema、唯一命中算法、超时树杀、探索三件套、输出治理四层 | agent/src/tools/ | — |
 | 06 | [权限引擎](./06-权限引擎.md) | classifyPermission 逐桶求值、双分支匹配、会话提升生命周期、加载期两条校验 | bridge/contract/permission.ts、agent/src/permission/ | [权限判定](./assets/permission-decision.html) |
-| 07 | [MCP 客户端](./07-MCP客户端.md) | rebuild diff 算法、两种 transport、1s 竞速关连接、身份注册与按服务隔离 | agent/src/mcp/ | [MCP 生命周期](./assets/mcp-lifecycle.html) |
+| 07 | [MCP 客户端](./07-MCP客户端.md) | rebuild diff 算法、两种 transport、30s 启动超时、1s 竞速关连接、身份注册与按服务隔离 | agent/src/mcp/ | [MCP 生命周期](./assets/mcp-lifecycle.html) |
 | 08 | [技能系统](./08-技能系统.md) | 三态合成（扫描∪名单孤儿）、旁挂名单容错、渐进披露、$ARGUMENTS 渲染 | agent/src/skills/ | [三态合成与启停](./assets/skills-synthesis.html) |
 | 09 | [会话与持久化](./09-会话与持久化.md) | 存档 JSON 逐字段、resume 恢复链、删除当前会话接管、用量双口径 | agent/src/session/ | — |
 | 10 | [配置体系与编辑器](./10-配置体系与编辑器.md) | schema 全字段、loadConfigOrExit 失败路径、强类型操作解析、zod 校验回滚 | bridge/contract/config.ts、agent/src/config/ | [加载校验与热更新](./assets/config-pipeline.html) |

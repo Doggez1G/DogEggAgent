@@ -4,7 +4,7 @@ TUI 是渲染到终端的 React 应用（Ink 7），入口 `ui/src/tui/app/entry
 
 ## 组件一览（ui/src/tui/components/）
 
-`components/index.tsx` 统一出口：`TopBar`（品牌头：provider/model + cwd + 会话 id）、`MessageBlock`（已完成块：按 `block.kind` 折叠/展开渲染，思考块黄色摘要）、`MultilineInput`（Enter 发送 / Ctrl+J 或 Alt+Enter 换行，`multiline-input/view.tsx` 是 Ink useInput 的受控封装）、`StreamingBlock`（动态区的流式 partial：正文走 `renderMarkdown`）、`PendingTool`（`tool_pending` → `tool_start` 空窗期的「正在生成工具调用…」提示）、`StatusBar`（底部常驻：状态/provider/model/tokens/usage/cwd）。`components/list-picker/` 是通用列表选择器（menu 的底层）。
+`components/index.tsx` 统一出口：`TopBar`（品牌头：provider/model + cwd + 会话 id）、`MessageBlock`（已完成块：按 `block.kind` 折叠/展开渲染，思考块黄色摘要）、`MultilineInput`（Enter 发送 / Ctrl+J 或 Alt+Enter 换行，`multiline-input/view.tsx` 是 Ink useInput 的受控封装；Ctrl 组合键一律吞掉——Ink 会把 Ctrl+A/U/W 等解析成普通字母误插入文本，Delete 键独立为前向删除、与 Backspace 回删语义拆分）、`StreamingBlock`（动态区的流式 partial：正文走 `renderMarkdown`）、`PendingTool`（`tool_pending` → `tool_start` 空窗期的「正在生成工具调用…」提示）、`StatusBar`（底部常驻：状态/provider/model/tokens/usage/cwd）。`components/list-picker/` 是通用列表选择器（menu 的底层）。
 
 ## 浏览模式（Ctrl+Up/Down）
 
@@ -12,9 +12,9 @@ TUI 是渲染到终端的 React 应用（Ink 7），入口 `ui/src/tui/app/entry
 
 ## App 装配与 Static/动态分层
 
-`ui/src/tui/app/app.tsx` 头注释立法：**已完成的消息块经 `<Static>` 打印进终端滚动缓冲区**（永不重绘，用户用终端原生滚动看历史）；Ink 只重绘底部动态区（未完成块 + 流式 partial + 输入框 + overlay + 状态栏）。分界线是 `stableCount`：`chat.toolActive` 时最后一块未完成（还没收到 tool_end），留在动态区。`staticKey` 控制重挂载——会话切换/清空/折叠展开/主题切换时 `clearScreenRemount()`（清屏 + key 自增）。品牌头延迟打印（`headerReady`）：Static 只渲染一次，启动瞬间 config/status 未回，先打印会定格在「加载配置中…」。
+`ui/src/tui/app/app.tsx` 头注释立法：**已完成的消息块经 `<Static>` 打印进终端滚动缓冲区**（永不重绘，用户用终端原生滚动看历史）；Ink 只重绘底部动态区（未完成块 + 流式 partial + 输入框 + overlay + 状态栏）。分界线是 `stableCount`：按**块状态**冻结——找到第一个 `toolStatus === 'running'` 的工具块，它及其后到达的块（运行中插入的 notice 等）留在动态区，之前的全部打印（`chat.toolActive` 仍保留为「是否有工具在跑」的整体语义与终止分支的防御复位对象）。`staticKey` 控制重挂载——会话切换/清空/折叠展开/主题切换时 `clearScreenRemount()`（清屏 + key 自增）。品牌头延迟打印（`headerReady`）：Static 只渲染一次，启动瞬间 config/status 未回，先打印会定格在「加载配置中…」。
 
-`ui/src/shared/reducer.ts` 是两端共用的聊天状态机：`ChatState { blocks, status, partial, toolActive, pendingTool }`；`text_delta` 累积进 partial，`message` 事件 flush 落块；思考块折叠存摘要、全文进 `full` 供展开。
+`ui/src/shared/reducer.ts` 是两端共用的聊天状态机：`ChatState { blocks, status, partial, toolActive, pendingTool, nextId? }`——`nextId` 是块 id 分配器（所有新建块统一经 `allocId`/`appendBlock` 取单调递增 id，WebUI 拿它作 React key）；`text_delta` 累积进 partial，`message` 事件 flush 落块；思考块折叠存摘要（超 3 行追加「…（浏览模式 Enter 展开）」）、全文进 `full` 供展开；`session_ready` 重建块从 `state.nextId` 续起，busy 时携带的 `live` 现场恢复流式 partial 与进行中工具块（运行中重连不被打回 idle）。
 
 ## view-state 联合类型与 use-key-routing 分派
 
@@ -32,11 +32,12 @@ TUI 是渲染到终端的 React 应用（Ink 7），入口 `ui/src/tui/app/entry
 
 订阅本身只建立一次（`const ref = useRef(deps)` + effect 同步，头注释警告「重复建立会反复重发 config_request/status_request」）。`session_list` 的消费规则也在此：选择器已开才刷新（保留搜索词与光标）；重命名/自动标题等后端主动推送不带弹层语义——「响应只刷新已开面板」。
 
-## 提交流程的三层拦截（app.tsx 的 handleSubmit）
+## 提交流程的拦截层（app.tsx 的 handleSubmit）
 
 1. **@path 联想拦截**：输入末尾有 @token 且选中候选时，回车 = 补全路径而非提交（Esc 关闭后不拦截，`pathDismissed`）；
 2. **斜杠联想拦截**：`matchCommands` 有匹配且选中项时，回车 = 补全命令；
-3. **命令确认**：/clear 与 /quit 先弹确认 menu（不可逆操作）；/model /config 置 `configIntent`；/session /skills /mcp 先开空壳面板等响应填充。所有会开 overlay 的命令统一 `suppressEnter()` 吞掉提交回车——port 是同步通道，agent 回响应可能立即设新 view，不吞的话同一个回车会在新 view 里被再处理一次（误选中第一项）。
+3. **命令确认与分支**：`parseCommand` 返回 `unknown`（斜杠开头但非内置也非 skill 命令，如 `/etc/hosts` 这类提问）时显式插 notice「未知命令」并**保留输入**——不静默吞掉；/clear 与 /quit 先弹确认 menu（不可逆操作）；/model /config 置 `configIntent`；/session /skills /mcp 先开空壳面板等响应填充。所有会开 overlay 的命令统一 `suppressEnter()` 吞掉提交回车——port 是同步通道，agent 回响应可能立即设新 view，不吞的话同一个回车会在新 view 里被再处理一次（误选中第一项）。
+4. **运行中提交禁止**：普通文本在 `isRunningState(chat.status)` 时拒绝发送——插一条 notice 块提示并保留输入框原文（agent 侧 busy 会丢弃 submit，乐观插入只会变成一条永远得不到回应的消息）。
 
 ## config 树 buildEntries
 
@@ -44,7 +45,7 @@ TUI 是渲染到终端的 React 应用（Ink 7），入口 `ui/src/tui/app/entry
 
 ## 覆盖面板与 features 目录
 
-`features/` 下每个文件夹一个面板/能力，普遍是 `view.tsx`（渲染）+ `keys.ts`（纯逻辑）+ `index.ts`（出口）三件：`permission/`（四档决议 overlay，含 `decisions.ts`）、`sessions/`（会话选择器，`filter.ts` 做查询过滤）、`menu/`（通用菜单）、`prompt/`（单行输入）、`info/`（/help /context 等只读面板）、`skills/` 与 `mcp/`（管理面板）、`input/`（联想与历史）、`browse/`、`form/`、`config/`。`markdown/render.ts` 用 highlight.js 做代码高亮转换（ADR-0009 决定不用 chalk 覆盖高亮级别）。
+`features/` 下每个文件夹一个面板/能力，普遍是 `view.tsx`（渲染）+ `keys.ts`（纯逻辑）+ `index.ts`（出口）三件：`permission/`（四档决议 overlay，`decisions.ts` 统一组装决策项与文案——scoped 档带 desc 说明「shell 类范围含该前缀的一切命令（含 && 命令链）」）、`sessions/`（会话选择器，`filter.ts` 做查询过滤，退格键兼容 Ink 7 的 `key.backspace`）、`menu/`（通用菜单）、`prompt/`（标量输入弹层——复用组件层的 `MultilineInput` 而非 ink-text-input，两端按键语义一致）、`info/`（/help /context 等只读面板）、`skills/` 与 `mcp/`（管理面板）、`input/`（联想与历史）、`browse/`、`form/`、`config/`。`markdown/render.ts` 用 highlight.js 做代码高亮转换（ADR-0009 决定不用 chalk 覆盖高亮级别）。
 
 ## 主题
 
