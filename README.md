@@ -1,83 +1,109 @@
 # DogEggAgent
 
-一个面向学习的代码编辑 Agent：后端（agent 核心）与前端（TUI / WebUI）完全解耦，通过 bridge 契约 + Port 通道互通。
+[![npm version](https://img.shields.io/npm/v/dogegg-agent.svg)](https://www.npmjs.com/package/dogegg-agent)
+[![node](https://img.shields.io/node/v/dogegg-agent.svg)](https://www.npmjs.com/package/dogegg-agent)
+[![CI](https://github.com/Doggez1G/DogEggAgent/actions/workflows/ci.yml/badge.svg)](https://github.com/Doggez1G/DogEggAgent/actions/workflows/ci.yml)
+[![license](https://img.shields.io/npm/l/dogegg-agent.svg)](./LICENSE)
 
-## 项目特点
+一个面向学习的代码编辑 Agent：后端（agent 核心）与前端（TUI / WebUI）完全解耦，通过 bridge 契约 + Port 通道互通。给它一个终端和一份 API 配置，它就能读懂你的项目、改代码、跑命令——每一步都向你请求授权。
 
-- **四包解耦架构**：`agent` / `ui` / `bridge` / `server`，通过 bridge 消息契约 + Port 通道关联，互不 import
-- **双前端**：TUI（Ink v7 + React）+ WebUI（React DOM + Vite），共享 `ui/src/shared/` 平台无关逻辑
-- **SSE + POST 传输**：WebUI 通过 HTTP SSE 下行 + POST 上行与 Agent 通信，静态文件由 server serve
-- **10 态状态机**：纯函数迁移，VALID_FROM 守卫，非法状态组合是 no-op
-- **History / Context 双持久化**：History 是完整原文（永不压缩），Context 是发给模型的消息（会压缩）
-- **7 个内置工具**：读类（read_file / ls / glob / grep，探索免审批）+ 写类（write_file / edit_file / shell）；grep 四层输出治理保证回执上界
-- **参数化权限模型（v3 结构化）**：allow / reject / ask 三桶，规则 = `{ whole, patterns }`（整选或按主参数模式限定，如 shell `"git *"`、文件类 `"./docs/**"`）；MCP 服务键 `mcp:<服务名>` 整组/勾选，按注册期身份匹配；匹配引擎在 bridge 三端共用；会话提升支持范围模式；出厂默认读类放行、未列出固定询问；配置格式演进不兼容（ADR-0013）
-- **MCP 接入**：stdio / Streamable HTTP 双传输，工具独立注册（命名空间标签 + 合规哈希关口），单服务隔离，配置放全局或项目级（.dogegg/.mcp.json）
-- **Skills 技能包**：SKILL.md 主流格式（两级目录、渐进披露、/命令调用、$ARGUMENTS），启停状态旁挂名单（.skills.json），三态管理（启用/停用/缺失）
-- **三主题设计系统**：Midnight（暗 Zinc+Indigo）/ Forest（暗 Slate+Green）/ Dawn（亮），CSS 变量 + CSS Modules
-- **Cmd+K 命令面板** + **8 section 信息面板** + **IDE 风格设置** + **react-markdown 语法高亮**
+## 功能
+
+- **七个内置工具**：读类 `read_file` / `ls` / `glob` / `grep`（探索免审批）+ 写类 `write_file` / `edit_file` / `shell`；grep 四层输出治理保证回执上界；文件写入原子化（tmp + rename，中断不损坏原文件）
+- **参数化权限审批（v3）**：allow / reject / ask 三桶，规则 = `{ whole, patterns }`——shell 按 `"git *"` 命令前缀、文件类按 `"./docs/**"` 目录范围限定；MCP 服务键 `mcp:<服务名>` 整组/勾选，按注册期身份匹配；审批四档决策（本次 / 始终 / 对此范围 / 拒绝），`/permissions` 随时查看与撤销；路径按真实位置（realpath）判定，防符号链接逃逸
+- **MCP 接入**：stdio / Streamable HTTP 双传输，工具独立注册（命名空间标签 + 合规哈希关口），单服务隔离、启动超时、配置变化 diff 重建；配置放全局或项目级（`.mcp.json`）
+- **Skills 技能包**：SKILL.md 主流格式（两级目录、渐进披露、`/技能名` 调用、`$ARGUMENTS`），启停状态旁挂名单（`.skills.json`），三态管理（启用/停用/缺失）
+- **会话持久化与崩溃恢复**：多会话管理、断线 resume、推理模型思考持久化、工作目录随会话记忆；轮中检查点（长任务中途崩溃最多丢 15s 进度）+ 配对修补保证恢复后立即可用；会话与配置文件原子写
+- **上下文自动压缩**：窗口占用达 80% 自动把旧上下文交给模型总结（保留最近对话），手动 `/compact` 随时可用，`/context` 查看占用明细
+- **双前端**：终端 TUI（Ink，原生滚动 + markdown 渲染 + 工具块 diff 展示）与浏览器 WebUI（React + Vite，Cmd+K 命令面板 + 8 section 信息面板 + 三主题设计系统），同一后端同一套能力
+- **面向学习的架构**：四包解耦（agent / ui / bridge / server），架构测试守门；680+ 测试、CI 门禁、版本化文档 + 13 个 ADR
 
 ## 快速开始
 
 ### 环境要求
 
-- Node.js >= 20
-- npm（随 Node 安装）
+- Node.js ≥ 20.11
+- 一个 OpenAI 兼容的 LLM API（baseURL + apiKey + model）
 
-### 安装
+### 安装与启动
 
 ```bash
-git clone <repo-url>
+npm install -g dogegg-agent
+cd 你的项目目录
+dogegg          # 终端 TUI
+# 或
+dogegg -web     # 浏览器 WebUI（http://localhost:3000，可用 PORT 环境变量覆盖）
+# 或免安装直接运行
+npx dogegg-agent
+```
+
+首次使用输入 `/config` 打开配置，添加 provider（name / baseURL / apiKey / model）并保存——之后直接对话即可。
+
+### 从源码开发
+
+```bash
+git clone https://github.com/Doggez1G/DogEggAgent.git
 cd DogEggAgent
 npm install
-```
 
-### WebUI 开发模式
-
-```bash
-npm run dev:web
-```
-
-启动 Vite dev server（HMR）+ tsx 跑后端 server。浏览器打开 `http://localhost:5173`。
-
-首次使用需要配置 LLM provider：输入 `/config` 打开设置，添加 provider（name / baseURL / apiKey / model）。
-
-### TUI 模式
-
-```bash
-npm run dev
+npm run dev       # 构建 + 启动 TUI
+npm run dev:web   # Vite dev server + 后端（http://localhost:5173）
 ```
 
 ### 生产构建
 
 ```bash
-# 统一 CLI 入口（dogegg 命令）
-npm run build          # esbuild -> dist/dogegg.js (含 TUI + WebUI server)
-npm run build:web      # Vite build -> dist/web/ (WebUI 静态前端)
-npm run start          # dogegg -> TUI
-npm run start:web      # dogegg -web -> WebUI
-
-# 全局安装
-npm link               # 注册 dogegg 命令
-dogegg                 # 任意目录启动 TUI
-dogegg -web            # 任意目录启动 WebUI
+npm run build          # esbuild → dist/dogegg.js（含 TUI + WebUI server）
+npm run build:web      # Vite → dist/web/（WebUI 静态前端）
+npm run start          # 本地产物：TUI
+npm run start:web      # 本地产物：WebUI
 ```
+
+## 使用
+
+### 斜杠命令
+
+| 命令 | 说明 | 命令 | 说明 |
+|---|---|---|---|
+| `/config` | 编辑配置 | `/new` | 新建会话 |
+| `/session` | 切换会话 | `/model` | 快速切换模型 |
+| `/permissions` | 查看/撤销会话授权 | `/compact` | 手动压缩上下文 |
+| `/context` | 查看上下文占用 | `/clear` | 清空历史 |
+| `/tools` | 列出工具 | `/system` | 查看 system prompt |
+| `/status` | 状态一览 | `/log` | 调试日志 |
+| `/cd` | 切换工作目录 | `/rename` | 重命名当前会话 |
+| `/skills` | 管理 skills | `/mcp` | 管理 MCP servers |
+| `/quit` | 退出 | `/help` | 显示帮助 |
+
+### 权限模型
+
+工具调用按三桶分类：`allow` 自动放行、`reject` 直接拒绝、其余默认 `ask` 弹层审批——审批时可预览将要执行的内容（edit_file / write_file 显示 diff，shell 显示命令），并支持第四档「对此范围不再询问」（如 `./docs/**` 目录或 `git *` 命令前缀）。优先级：reject > 会话提升 > ask > allow > 默认询问。授权随会话持久化，`/permissions` 随时查看与撤销；新建会话授权清空，切换会话保留。
+
+### MCP 与 Skills
+
+- `/mcp`：添加 / 启停 / 删除 MCP server（stdio 或 Streamable HTTP），配好后它的工具自动进入模型可用清单，按 `mcp:<服务名>` 维度授权；
+- `/skills`：管理 `~/.dogegg/skills`（用户级）与项目级技能包，`/技能名` 直接调用，启停即时生效（系统提示词与上下文占用同步刷新）。
+
+### 上下文压缩
+
+对话过长时（窗口占用达 80%）自动触发压缩：旧上下文交给模型总结成摘要，保留最近几条原文，摘要替换历史后继续对话——原文完整保留在会话文件里，`/compact` 可随时手动压缩，`/context` 查看占用与压缩情况。
 
 ## 架构概览
 
 ```
-                    +-------------+
-                    | bin/dogegg.ts |  统一 CLI 入口 (dogegg → TUI, dogegg -web → WebUI)
-                    +------+------+
+                    +--------------+
+                    | bin/dogegg.ts |  统一 CLI 入口（dogegg → TUI，dogegg -web → WebUI）
+                    +------+-------+
                  装配 |  | 装配
               +--------+  +--------+
               | agent  | <消息> |  ui   |
               +---+----+      +---+----+
                   +------+--------+
               +----------+----------+
-              |      bridge         |  契约 + Port 通道
+              |      bridge         |  消息契约 + Port 通道
               +----------+----------+
                     +-----+------+
-                    |   server   |  HTTP + SSE + REST (WebUI)
+                    |   server   |  HTTP + SSE + REST（WebUI 传输层）
                     +------------+
 ```
 
@@ -85,10 +111,10 @@ dogegg -web            # 任意目录启动 WebUI
 
 | 包 | 说明 |
 |---|---|
-| `@dogegg/bridge` | 消息契约（AgentToUiMessage / UiToAgentMessage）+ Config zod schema + 消息 zod 校验 schema + Port 接口 |
-| `@dogegg/agent` | 后端域：agent.ts/ctx.ts 门面 + turn / context / llm / tools / session / permission / skills / mcp / config / shared |
-| `@dogegg/ui` | 前端域：tui（Ink）/ webui（React DOM + Vite）/ shared（reducer/block/commands/status/permission/tool-display/command-feedback） |
-| `@dogegg/server` | HTTP server + SSE channel + REST 端点（fs/shells）+ 静态文件服务 |
+| `@dogegg/bridge` | 消息契约（AgentToUiMessage / UiToAgentMessage）+ Config zod schema + 消息 zod 校验 schema + 契约级纯函数（权限判定 / glob / 消息配对修补）+ Port 接口 |
+| `@dogegg/agent` | 后端域：agent.ts / ctx.ts 门面 + turn / context / llm / tools / session / permission / skills / mcp / config / shared |
+| `@dogegg/ui` | 前端域：tui（Ink）/ webui（React DOM + Vite）/ shared（reducer / block / commands / status / permission / tool-display / command-feedback） |
+| `@dogegg/server` | HTTP server + SSE channel + REST 端点（fs / shells）+ 静态文件服务 |
 
 ### 核心设计约束
 
@@ -104,7 +130,7 @@ dogegg -web            # 任意目录启动 WebUI
 | 命令 | 说明 |
 |---|---|
 | `npm run typecheck` | 五路 tsc（root + agent + ui + bridge + server） |
-| `npm run test:run` | Vitest 跑四包测试 |
+| `npm run test:run` | Vitest 跑四包测试（CI 门禁同款，windows-latest） |
 | `npm run dev` | TUI 开发（build + start） |
 | `npm run dev:web` | WebUI 开发（Vite + tsx） |
 | `npm run build` | 统一 CLI 构建（esbuild → dist/dogegg.js，含 TUI + WebUI server） |
@@ -112,15 +138,11 @@ dogegg -web            # 任意目录启动 WebUI
 
 ### 文档
 
-- [设计文档](docs/superpowers/specs/2026-08-26-dog-egg-agent-design.md) — 需求清单、状态机、权限模型、消息契约
-- [模块化重构设计](docs/superpowers/specs/2026-08-27-modular-refactor-design.md) — 包结构、依赖图、架构测试
-- [WebUI 设计](docs/superpowers/specs/2026-08-29-webui-design.md) — 三主题、Primitives、Cmd+K、信息面板
-- [工具扩展设计](docs/superpowers/specs/2026-09-08-tooling-expansion-design.md) — ls/glob/grep 探索工具、输出治理、参数化权限引擎
-- [权限配置设计](docs/superpowers/specs/2026-09-09-permission-config-design.md) — 桶→工具→模式数组、锚点作用域、两端编辑器（书写形态已演进为 v3，见 ADR-0013）
+- [版本化文档 v0.2](docs/versions/0.2/README.md) — **需求分析（9 功能域）/ 设计实现（12 篇 + 交互图）/ 用户手册 / 学习指南（13 章）**，与 0.2 代码同步
+- [ADR 记录](docs/adr/) — 13 个架构决策记录（权限语义、压缩策略、TUI Static 架构等）
+- [学习指南（v0.1 存档）](docs/learning/) — 早期章节，部分内容已过时（以版本化文档为准）
+- [历史设计文档](docs/superpowers/specs/) — 各阶段设计 spec（部分已被 ADR 修订，见各自头部标注）
 - [架构审查报告](docs/architecture-review-2026-09-01.html) — 全量审计 ~126 模块，8 个改进候选
-- [版本化文档 v0.2](docs/versions/0.2/README.md) — **需求分析（9 功能域）/ 设计实现（12 篇 + 交互图）/ 用户手册 / 学习指南（13 章重写）**
-- [实现详解系列（旧版存档）](docs/learning/) — v0.1 时代章节，部分内容已过时（以版本化文档为准）
-- [ADR 记录](docs/adr/) — 13 个架构决策记录
 
 ## License
 
