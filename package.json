@@ -6,7 +6,11 @@
   "author": "Doggez1G <zhoulungeng@gmail.com>",
   "repository": {
     "type": "git",
-    "url": "git+https://gitcode.com/Doggez1G/DogEggAgent.git"
+    "url": "git+https://github.com/Doggez1G/DogEggAgent.git"
+  },
+  "homepage": "https://github.com/Doggez1G/DogEggAgent#readme",
+  "bugs": {
+    "url": "https://github.com/Doggez1G/DogEggAgent/issues"
   },
   "keywords": [
     "agent",
